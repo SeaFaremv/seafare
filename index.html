@@ -187,6 +187,50 @@
   .custom-select-option.selected{color:var(--amber);font-weight:600;}
   .custom-select-option:disabled{opacity:0.45;}
   .custom-select-option svg{color:var(--amber);flex-shrink:0;}
+
+  /* Themed replacement for the native OS date-picker calendar (same
+     limitation as <select> -- an OS-drawn overlay CSS can't reach), built
+     on the same frosted-glass panel as the dropdowns above. The selected
+     day gets a soft/light fill rather than a bold, saturated one. */
+  .date-picker-menu{padding:14px 16px 12px;}
+  .dp-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .dp-month{font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.04em;font-size:13.5px;color:#F4F9FF;}
+  .dp-nav-btn{background:rgba(255,255,255,0.1);border:none;color:#F4F9FF;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .dp-nav-btn:active{background:rgba(255,255,255,0.2);}
+  .dp-weekdays{display:grid;grid-template-columns:repeat(7,1fr);margin-bottom:4px;}
+  .dp-weekdays span{text-align:center;font-size:10px;color:rgba(244,249,255,0.5);text-transform:uppercase;letter-spacing:0.03em;}
+  .dp-days{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;}
+  .dp-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;background:transparent;border:none;color:#F4F9FF;font-size:13.5px;border-radius:8px;cursor:pointer;}
+  .dp-day:active{background:rgba(255,255,255,0.14);}
+  .dp-day:disabled{visibility:hidden;}
+  .dp-day.dp-today{outline:1.5px solid rgba(64,217,192,0.55);outline-offset:-1.5px;}
+  .dp-day.dp-selected{background:rgba(255,167,38,0.3);color:#FFF3E0;font-weight:700;}
+  .dp-footer{display:flex;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.12);}
+  .dp-footer button{background:none;border:none;color:var(--teal-light);font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.04em;font-size:11.5px;cursor:pointer;padding:6px 4px;}
+
+  /* Same frosted-glass wave pattern as the dropdowns/calendar, used for
+     centered modal popups (like the staff-PIN share sheet) rather than
+     anchored ones -- just a static centered panel instead of one pinned
+     under a field. */
+  .themed-modal-panel{
+    width:100%;max-width:340px;color:#F4F9FF;
+    background:rgba(11,72,124,0.88);
+    background-image:
+      radial-gradient(circle at 10% 0%, rgba(255,255,255,0.05), transparent 40%),
+      radial-gradient(circle at 90% 100%, rgba(255,255,255,0.04), transparent 40%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0,35 Q35,10 70,35 T140,35' stroke='rgba(255,255,255,0.05)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,55 Q35,30 70,55 T140,55' stroke='rgba(255,255,255,0.06)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,15 Q35,-10 70,15 T140,15' stroke='rgba(255,255,255,0.035)' stroke-width='1' fill='none'/%3E%3C/svg%3E");
+    background-repeat:no-repeat,no-repeat,repeat;
+    background-position:0 0,0 0,0 0;
+    background-size:auto,auto,140px 70px;
+    backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    border-radius:16px;
+    border:1px solid rgba(255,255,255,0.18);
+    box-shadow:0 14px 32px rgba(0,0,0,0.35);
+    padding:22px 20px;
+    animation:select-menu-in 0.15s ease;
+  }
+  .themed-modal-panel h3{color:#F4F9FF;margin:0 0 8px;}
+  .themed-modal-panel .sub{color:rgba(244,249,255,0.7);}
   .btn{
     display:inline-flex;align-items:center;justify-content:center;gap:7px;
     padding:12px 20px;border-radius:8px;border:none;cursor:pointer;
@@ -436,10 +480,17 @@
       max-width:920px;margin:0 auto;padding:0;
       overflow:hidden;
     }
-    header.app-head{flex-shrink:0;order:1;padding:14px 16px 12px;margin:0;transition:padding 0.25s ease;}
+    header.app-head{flex-shrink:0;order:1;padding:14px 16px 12px;margin:0;transition:padding 0.45s ease-in-out;}
     .mode-toggle{order:2;flex-shrink:0;margin:10px 16px 0;}
     .panel{order:2;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;margin:0 16px 16px;border-radius:12px;}
     #gate-area{order:2;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;}
+    /* #gate-area is a real flex item here (unlike on desktop, where it's
+       just a block with no defined height), so its content box has an
+       actual height percentages can resolve against -- letting .gate-wrap
+       fill and center within the true available screen space, rather
+       than a fixed 70% of the viewport that leaves it looking stuck near
+       the top with dead space below on a phone. */
+    .gate-wrap{min-height:100%;}
     nav.tabs{
       order:3;flex-shrink:0;margin:0;border-radius:0;
       background:var(--navy-deep);
@@ -465,13 +516,13 @@
     /* On the Settings screen the header never collapses on scroll (that
        list is long and staff are actively tapping things in it, so a
        shrinking header underfoot is more disruptive than helpful there). */
-    header.app-head{transition:padding 0.25s ease;}
-    header.app-head .brand-mark{transition:transform 0.25s ease;}
+    header.app-head{transition:padding 0.45s ease-in-out;}
+    header.app-head .brand-mark{transition:transform 0.45s ease-in-out;}
     header.app-head h1, header.app-head #clock, header.app-head .role-pill, header.app-head #header-settings-btn{
-      transition:opacity 0.15s ease, max-width 0.25s ease, max-height 0.25s ease;
+      transition:opacity 0.35s ease-in-out, max-width 0.45s ease-in-out, max-height 0.45s ease-in-out;
       opacity:1;max-width:400px;
     }
-    .mode-toggle{transition:max-height 0.25s ease, padding 0.25s ease, opacity 0.15s ease; overflow:hidden; max-height:100px;}
+    .mode-toggle{transition:max-height 0.45s ease-in-out, padding 0.45s ease-in-out, opacity 0.35s ease-in-out; overflow:hidden; max-height:100px;}
   }
 </style>
 </head>
@@ -3444,6 +3495,110 @@ function closeCustomSelectMenu(){
 function isEnhanceableSelect(target){
   return target && target.tagName === 'SELECT' && !target.disabled ? target : null;
 }
+function isEnhanceableDateInput(target){
+  return target && target.tagName === 'INPUT' && target.type === 'date' && !target.disabled ? target : null;
+}
+function fmtISODate(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+let _datePickerViewDate = null;
+let _datePickerResizeHandler = null;
+function openDatePicker(input){
+  closeDatePicker();
+  scrollFieldToTop(input);
+  const overlay = document.createElement('div');
+  overlay.className = 'custom-select-overlay';
+  overlay.id = 'date-picker-overlay';
+  const menu = document.createElement('div');
+  menu.className = 'custom-select-menu date-picker-menu';
+  overlay.appendChild(menu);
+  document.body.appendChild(overlay);
+  overlay.addEventListener('mousedown', (e) => {
+    if(e.target !== overlay) return;
+    e.preventDefault();
+    closeDatePicker();
+  });
+
+  const existing = input.value ? new Date(input.value + 'T00:00:00') : null;
+  _datePickerViewDate = (existing && !isNaN(existing)) ? new Date(existing.getFullYear(), existing.getMonth(), 1) : (() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); })();
+
+  // A calendar grid needs real width to be usable -- unlike the plain
+  // dropdowns, it isn't matched to the (often narrow, native-sized) date
+  // field's own width, just anchored under its left edge and clamped to
+  // fit the screen.
+  const positionCalendar = () => {
+    const r = input.getBoundingClientRect();
+    const vh = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+    const width = Math.min(320, window.innerWidth - 16);
+    let left = r.left;
+    if(left + width > window.innerWidth - 8) left = window.innerWidth - 8 - width;
+    if(left < 8) left = 8;
+    menu.style.left = left + 'px';
+    menu.style.width = width + 'px';
+    menu.style.top = (r.bottom + 6) + 'px';
+    menu.style.maxHeight = Math.max(220, vh - (r.bottom + 6) - 10) + 'px';
+  };
+
+  const redraw = () => {
+    const y = _datePickerViewDate.getFullYear(), m = _datePickerViewDate.getMonth();
+    const monthLabel = _datePickerViewDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    const firstDow = new Date(y, m, 1).getDay();
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const todayStr = fmtISODate(new Date());
+    const selectedStr = input.value || '';
+    let cells = '';
+    for(let i = 0; i < firstDow; i++) cells += `<button type="button" class="dp-day" disabled></button>`;
+    for(let d = 1; d <= daysInMonth; d++){
+      const dateStr = fmtISODate(new Date(y, m, d));
+      const isToday = dateStr === todayStr;
+      const isSelected = dateStr === selectedStr;
+      cells += `<button type="button" class="dp-day${isToday ? ' dp-today' : ''}${isSelected ? ' dp-selected' : ''}" data-date="${dateStr}">${d}</button>`;
+    }
+    menu.innerHTML = `
+      <div class="dp-header">
+        <button type="button" class="dp-nav-btn" id="dp-prev">\u2039</button>
+        <span class="dp-month">${escapeHtml(monthLabel)}</span>
+        <button type="button" class="dp-nav-btn" id="dp-next">\u203a</button>
+      </div>
+      <div class="dp-weekdays"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+      <div class="dp-days">${cells}</div>
+      <div class="dp-footer">
+        <button type="button" id="dp-clear">Clear</button>
+        <button type="button" id="dp-close">Close</button>
+      </div>
+    `;
+    menu.querySelector('#dp-prev').addEventListener('mousedown', (e) => { e.preventDefault(); _datePickerViewDate = new Date(y, m - 1, 1); redraw(); });
+    menu.querySelector('#dp-next').addEventListener('mousedown', (e) => { e.preventDefault(); _datePickerViewDate = new Date(y, m + 1, 1); redraw(); });
+    menu.querySelectorAll('[data-date]').forEach(btn => btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      input.value = btn.dataset.date;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      closeDatePicker();
+    }));
+    menu.querySelector('#dp-clear').addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      closeDatePicker();
+    });
+    menu.querySelector('#dp-close').addEventListener('mousedown', (e) => { e.preventDefault(); closeDatePicker(); });
+  };
+  redraw();
+  positionCalendar();
+  _datePickerResizeHandler = positionCalendar;
+  window.addEventListener('resize', _datePickerResizeHandler);
+  if(window.visualViewport) window.visualViewport.addEventListener('resize', _datePickerResizeHandler);
+}
+function closeDatePicker(){
+  document.getElementById('date-picker-overlay')?.remove();
+  if(_datePickerResizeHandler){
+    window.removeEventListener('resize', _datePickerResizeHandler);
+    if(window.visualViewport) window.visualViewport.removeEventListener('resize', _datePickerResizeHandler);
+    _datePickerResizeHandler = null;
+  }
+}
 // touchstart is what actually needs intercepting on iOS Safari -- calling
 // preventDefault here (before the browser has decided to focus/open the
 // native picker) is what stops that native popup from ever appearing, and
@@ -3451,18 +3606,18 @@ function isEnhanceableSelect(target){
 // follow, so this alone covers real devices.
 document.addEventListener('touchstart', (e) => {
   const sel = isEnhanceableSelect(e.target);
-  if(!sel) return;
-  e.preventDefault();
-  openCustomSelectMenu(sel);
+  if(sel){ e.preventDefault(); openCustomSelectMenu(sel); return; }
+  const dateInput = isEnhanceableDateInput(e.target);
+  if(dateInput){ e.preventDefault(); openDatePicker(dateInput); return; }
 }, { passive: false, capture: true });
 // mousedown covers non-touch input (desktop browser, trackpad, mouse) --
 // touch devices won't also fire this once touchstart above has already
 // preventDefault-ed the gesture, so the two don't double-open the menu.
 document.addEventListener('mousedown', (e) => {
   const sel = isEnhanceableSelect(e.target);
-  if(!sel) return;
-  e.preventDefault();
-  openCustomSelectMenu(sel);
+  if(sel){ e.preventDefault(); openCustomSelectMenu(sel); return; }
+  const dateInput = isEnhanceableDateInput(e.target);
+  if(dateInput){ e.preventDefault(); openDatePicker(dateInput); return; }
 }, true);
 
 // Themed popup for the two "type to search & add an island" fields (New
@@ -3513,7 +3668,7 @@ function openIslandSearchPopup(input, onPick, opts){
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transition:transform 0.15s ease;transform:rotate(${open ? '180deg' : '0deg'});"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
           ${open ? MALDIVES_ATOLLS[atoll].map(island => `
-            <button type="button" class="custom-select-option" data-pick-island="${escapeHtml(island)}" style="padding-left:40px;background:rgba(255,255,255,0.06);">
+            <button type="button" class="custom-select-option" data-pick-island="${escapeHtml(island)}" style="padding-left:40px;background:rgba(255,255,255,0.06);color:rgba(244,249,255,0.88);">
               <span>${escapeHtml(island)}</span>
             </button>
           `).join('') : ''}
@@ -3625,7 +3780,13 @@ document.addEventListener('scroll', (e) => {
   if(active && ['INPUT','TEXTAREA','SELECT'].includes(active.tagName)) return;
   const shell = document.querySelector('.shell');
   if(!shell) return;
-  if(state.tab === 'settings') return; // Settings screen: header & nav stay full-size, never collapse
+  // The header only ever collapses on the internal Home/Dashboard screen
+  // (owner/manager/staff) -- that's the one screen with a potentially
+  // long shipments list that actually benefits from the extra room.
+  // Everywhere else, including the entire customer portal (check-in,
+  // track) and every other internal tab, both the header and bottom nav
+  // stay locked in place the whole time.
+  if(!(INTERNAL_ROLES.includes(state.role) && state.tab === 'dashboard')) return;
   const scrollTop = target.scrollTop;
   const delta = scrollTop - _lastScrollTopForCollapse;
   // Once collapsed, it stays collapsed -- however far up you scroll --
@@ -3819,6 +3980,75 @@ async function cleanupCompletedShipments(){
   });
 
   // Step 3: safe to remove now -- their revenue is recorded.
+  await withFreshShipments(list => {
+    const remaining = list.filter(s => !s.foldedIntoReport);
+    list.length = 0;
+    list.push(...remaining);
+  });
+}
+
+// A shipment stops being useful to track (or worth keeping the full
+// record for) 2 days after it's delivered -- regardless of whether it's
+// been paid yet, which is a separate, faster-acting rule above (12 hours,
+// but only once BOTH delivered and paid). This one's the backstop for
+// everything else: anything still sitting around 2 days after delivery,
+// paid or not, is past the point either the customer or the boat still
+// needs to look it up.
+const DELIVERED_TRACKING_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
+function isPastTrackingWindow(s){
+  return s.status === 'delivered' && !!s.deliveredAt && (Date.now() - new Date(s.deliveredAt).getTime()) > DELIVERED_TRACKING_RETENTION_MS;
+}
+// Same three-step mark/fold/remove pattern as cleanupCompletedShipments,
+// reusing the same foldedIntoReport flag as the "safe to remove" marker
+// -- a shipment already claimed by the faster paid+delivered cleanup
+// above will never still be here 2 days later, so the two never
+// double-handle the same record. Revenue is only folded into the monthly
+// aggregate here if it was actually paid; an unpaid one just gets
+// dropped with nothing to preserve.
+async function cleanupOldDeliveredShipments(){
+  const now = Date.now();
+  const isDue = (s) => s.status === 'delivered' && !s.foldedIntoReport && s.deliveredAt && (now - new Date(s.deliveredAt).getTime()) > DELIVERED_TRACKING_RETENTION_MS;
+
+  let contributions = null;
+  await withFreshShipments(list => {
+    const due = list.filter(isDue);
+    if(due.length === 0) return;
+    contributions = {};
+    due.forEach(s => {
+      if(s.paid){
+        const key = monthKeyFor(s.loadedAt || s.createdAt);
+        if(!contributions[key]) contributions[key] = { revenue: 0, shipmentCount: 0, byIsland: {} };
+        const bucket = contributions[key];
+        bucket.revenue += (s.total || 0);
+        bucket.shipmentCount += 1;
+        bucket.byIsland[s.island] = bucket.byIsland[s.island] || { count: 0, revenue: 0 };
+        bucket.byIsland[s.island].count += 1;
+        bucket.byIsland[s.island].revenue += (s.total || 0);
+      }
+      s.foldedIntoReport = true;
+    });
+  });
+  if(!contributions) return;
+
+  if(Object.keys(contributions).length){
+    await withFreshSettings(fresh => {
+      const reports = fresh.monthlyReports || (fresh.monthlyReports = {});
+      Object.keys(contributions).forEach(key => {
+        const c = contributions[key];
+        const existing = reports[key] || { revenue: 0, shipmentCount: 0, byIsland: {} };
+        existing.revenue += c.revenue;
+        existing.shipmentCount += c.shipmentCount;
+        Object.keys(c.byIsland).forEach(isl => {
+          const e = existing.byIsland[isl] || { count: 0, revenue: 0 };
+          e.count += c.byIsland[isl].count;
+          e.revenue += c.byIsland[isl].revenue;
+          existing.byIsland[isl] = e;
+        });
+        reports[key] = existing;
+      });
+    });
+  }
+
   await withFreshShipments(list => {
     const remaining = list.filter(s => !s.foldedIntoReport);
     list.length = 0;
@@ -4040,19 +4270,30 @@ function renderTrack(){
     const q = document.getElementById('track-input').value.trim().toLowerCase();
     state.trackQuery = q;
     const results = state.shipments.filter(s =>
-      s.id.toLowerCase() === q ||
+      !isPastTrackingWindow(s) &&
+      (s.id.toLowerCase() === q ||
       (s.mobile||'').toLowerCase().includes(q) ||
-      (s.receiverMobile||'').toLowerCase().includes(q)
+      (s.receiverMobile||'').toLowerCase().includes(q))
     );
     const box = document.getElementById('track-results');
     if(!q){ box.innerHTML = ''; return; }
     if(results.length === 0){ box.innerHTML = `<div class="empty">No shipment found for "${escapeHtml(q)}".</div>`; return; }
-    box.innerHTML = results.map(renderTrackResult).join('');
-    wireShareEvents(box, results);
-    box.querySelectorAll('[data-view-items]').forEach(b => b.addEventListener('click', () => {
-      const s = results.find(x => x.id === b.dataset.viewItems);
-      if(s) openTrackItemsPopup(s);
-    }));
+    const isCustomer = !INTERNAL_ROLES.includes(state.role);
+    if(isCustomer){
+      box.innerHTML = results.map(renderTrackResult).join('');
+      wireShareEvents(box, results);
+      box.querySelectorAll('[data-view-items]').forEach(b => b.addEventListener('click', () => {
+        const s = results.find(x => x.id === b.dataset.viewItems);
+        if(s) openTrackItemsPopup(s);
+      }));
+    } else {
+      // Owner/manager/staff get a collapsed summary row instead of the
+      // full timeline+invoice inline -- tapping it opens the same detail
+      // (including the same Share as Image button the Invoices section
+      // uses) in a popup instead.
+      box.innerHTML = results.map(renderTrackResultCollapsed).join('');
+      box.querySelectorAll('[data-track-open]').forEach(b => b.addEventListener('click', () => openTrackDetailPopup(b.dataset.trackOpen)));
+    }
   };
   document.getElementById('track-btn').addEventListener('click', renderResults);
   document.getElementById('track-input').addEventListener('keydown', (e) => { if(e.key==='Enter') renderResults(); });
@@ -4068,14 +4309,16 @@ function renderTrack(){
 }
 
 
-function renderTrackResult(s){
+// Shared by the customer-facing full card below and the owner/manager/
+// staff detail popup -- pulled out so both stay in sync automatically
+// rather than maintaining two copies of the same markup.
+function trackTimelineHtml(s){
   const steps = STATUS_STEPS;
   const idx = steps.indexOf(s.status);
   const dates = { pending: s.createdAt, loaded: s.loadedAt, in_transit: s.inTransitAt, delivered: s.deliveredAt };
   const labels = { pending:'Checked In', loaded:'Loaded', in_transit:'In Transit', delivered:'Delivered' };
   const tripEnded = isTripFinished(s.tripId) && s.status !== 'delivered';
-
-  const timeline = steps.map((step,i) => {
+  return steps.map((step,i) => {
     let label = labels[step];
     let redLabel = false;
     if(tripEnded && step === s.status){ label = 'Trip Ended'; redLabel = true; }
@@ -4089,10 +4332,10 @@ function renderTrackResult(s){
     </div>
   `;
   }).join('');
-
-  const isCustomer = !INTERNAL_ROLES.includes(state.role);
-
-  const invoice = (!isCustomer && s.items && s.items.length) ? `
+}
+function trackInvoiceHtml(s){
+  if(!(s.items && s.items.length)) return '';
+  return `
     <div class="invoice">
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <div class="display" style="font-size:15px;color:var(--navy-deep);">Invoice \u2014 ${s.id}</div>
@@ -4109,7 +4352,69 @@ function renderTrackResult(s){
       </table>
       <div class="total-line"><span>Total Due</span><span class="amt">${fmtMoney(s.total)}</span></div>
     </div>
-  ` : '';
+  `;
+}
+function trackStatusPillHtml(s){
+  const labels = { pending:'Checked In', loaded:'Loaded', in_transit:'In Transit', delivered:'Delivered' };
+  const tripEnded = isTripFinished(s.tripId) && s.status !== 'delivered';
+  return tripEnded
+    ? `<span class="status-pill" style="background:var(--red);color:#fff;">Trip Ended</span>`
+    : `<span class="status-pill status-${s.status}">${labels[s.status]}</span>`;
+}
+
+// Collapsed summary row -- what owner/manager/staff see in the results
+// list instead of the full timeline+invoice inline (that's genuinely a
+// lot of content per result once several show up at once). Tapping it
+// opens the same content, including the same Share as Image button the
+// Invoices section uses, in a popup.
+function renderTrackResultCollapsed(s){
+  return `
+    <div class="tag">
+      <button type="button" data-track-open="${s.id}" style="width:100%;text-align:left;cursor:pointer;background:none;border:none;padding:0;font:inherit;color:inherit;">
+        <div class="tag-top">
+          <div class="tag-code">${s.id}</div>
+          ${trackStatusPillHtml(s)}
+        </div>
+        <div class="tag-meta">${escapeHtml(s.name)} \u2192 ${escapeHtml(s.island)} ${s.receiverName ? '(for '+escapeHtml(s.receiverName)+')' : ''}</div>
+      </button>
+    </div>
+  `;
+}
+function openTrackDetailPopup(shipmentId){
+  const s = state.shipments.find(x => x.id === shipmentId);
+  if(!s) return;
+  closeTrackDetailPopup();
+  lockBodyScroll();
+  const overlay = document.createElement('div');
+  overlay.id = 'track-detail-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2100;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="panel" id="track-detail-popup-panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:440px;margin:0;animation:invoice-pop-in 0.18s ease-out;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+        <div>
+          <h3 style="margin-bottom:2px;">${escapeHtml(s.id)}</h3>
+          <div class="tag-meta">${escapeHtml(s.name)} \u2192 ${escapeHtml(s.island)} ${s.receiverName ? '(for '+escapeHtml(s.receiverName)+')' : ''}</div>
+        </div>
+        <button type="button" class="btn btn-ghost" id="track-detail-popup-close-btn" style="padding:8px 14px;">\u2715</button>
+      </div>
+      <div style="margin-bottom:8px;">${trackStatusPillHtml(s)}</div>
+      <div class="timeline">${trackTimelineHtml(s)}</div>
+      ${trackInvoiceHtml(s)}
+    </div>
+  `;
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) closeTrackDetailPopup(); });
+  document.body.appendChild(overlay);
+  document.getElementById('track-detail-popup-close-btn').addEventListener('click', closeTrackDetailPopup);
+  overlay.querySelectorAll('[data-share-image]').forEach(b => b.addEventListener('click', () => shareInvoiceImage(s)));
+}
+function closeTrackDetailPopup(){
+  if(document.getElementById('track-detail-popup-overlay')) unlockBodyScroll();
+  document.getElementById('track-detail-popup-overlay')?.remove();
+}
+
+function renderTrackResult(s){
+  const labels = { pending:'Checked In', loaded:'Loaded', in_transit:'In Transit', delivered:'Delivered' };
+  const isCustomer = !INTERNAL_ROLES.includes(state.role);
 
   const itemsOnly = (isCustomer && s.items && s.items.length) ? `
     <button type="button" class="btn btn-ghost" data-view-items="${s.id}" style="width:100%;margin-top:10px;">View Items (${s.items.length})</button>
@@ -4122,8 +4427,8 @@ function renderTrackResult(s){
         <span class="status-pill status-${s.status}">${labels[s.status]}</span>
       </div>
       <div class="tag-meta">${escapeHtml(s.name)} \u2192 ${escapeHtml(s.island)} ${s.receiverName ? '(for '+escapeHtml(s.receiverName)+')' : ''}</div>
-      <div class="timeline">${timeline}</div>
-      ${invoice}
+      <div class="timeline">${trackTimelineHtml(s)}</div>
+      ${!isCustomer ? trackInvoiceHtml(s) : ''}
       ${itemsOnly}
     </div>
   `;
@@ -4313,7 +4618,7 @@ function renderTrips(){
     if(!existing.includes(islandName)) existing.push(islandName);
     destsField.value = existing.join('\n');
     document.getElementById('trip-dests-search').value = '';
-  }, { closeOnPick: false });
+  }, { closeOnPick: true });
 
   document.getElementById('create-trip-btn').addEventListener('click', async () => {
     const originSelect = document.getElementById('trip-origin');
@@ -5224,19 +5529,20 @@ async function openStaffSharePanel(name, pin, staffUrl, username){
   const wrap = document.createElement('div');
   wrap.style.position = 'fixed';
   wrap.style.inset = '0';
-  wrap.style.background = 'rgba(0,0,0,0.45)';
+  wrap.style.background = 'rgba(6,30,50,0.45)';
   wrap.style.display = 'flex';
   wrap.style.alignItems = 'center';
   wrap.style.justifyContent = 'center';
+  wrap.style.padding = '20px';
   wrap.style.zIndex = '9999';
   wrap.innerHTML = `
-    <div style="background:#fff;border-radius:12px;padding:18px;max-width:320px;width:90%;">
-      <h3 style="margin-bottom:8px;">Share PIN with ${escapeHtml(name)}</h3>
+    <div class="themed-modal-panel">
+      <h3>Share PIN with ${escapeHtml(name)}</h3>
       <p class="sub" style="margin-bottom:14px;">Choose how to send the sign-in PIN and staff link.</p>
       <div style="display:flex;flex-direction:column;gap:10px;">
         <button class="btn btn-primary" id="share-whatsapp-btn" style="background:#25D366;border-color:#25D366;">Share via WhatsApp</button>
         <button class="btn btn-primary" id="share-viber-btn" style="background:#7360F2;border-color:#7360F2;">Share via Viber</button>
-        <button class="btn btn-ghost" id="share-close-btn">Cancel</button>
+        <button class="btn btn-ghost" id="share-close-btn" style="border-color:rgba(255,255,255,0.4);color:#F4F9FF;">Cancel</button>
       </div>
     </div>
   `;
@@ -7195,6 +7501,13 @@ async function pollCycle(){
     // 12-hour retention window and folds/removes it if so.
     if(INTERNAL_ROLES.includes(state.role) && pollCycleCount % 20 === 13){
       cleanupCompletedShipments().catch(e => console.error('completed-shipment cleanup failed', e));
+    }
+    // Backstop cleanup for anything the 12-hour paid+delivered rule above
+    // never catches (i.e. delivered but still unpaid) -- removes it once
+    // 2 days have passed since delivery either way. Offset to yet another
+    // cycle so all three cleanups never collide on the same poll.
+    if(INTERNAL_ROLES.includes(state.role) && pollCycleCount % 20 === 8){
+      cleanupOldDeliveredShipments().catch(e => console.error('old-delivered-shipment cleanup failed', e));
     }
   } finally {
     pollInFlight = false;
