@@ -424,7 +424,6 @@
         <span class="rlabel" id="role-label"></span>
         <button id="switch-role-btn">Log out</button>
       </div>
-      <button type="button" id="lang-toggle-btn" style="background:rgba(255,255,255,0.08);border:none;color:#F4F9FF;font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:0.03em;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;">DV</button>
       <button type="button" id="header-settings-btn" style="display:none;background:rgba(255,255,255,0.08);border:none;width:38px;height:38px;border-radius:50%;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;margin-left:auto;">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#F4F9FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:brand-roll 3.5s linear infinite;">
           <circle cx="12" cy="12" r="3"/>
@@ -1113,10 +1112,12 @@ function setLang(lang){
   applyStaticTranslations();
   handleHash();
 }
+// Only exists inside Settings now (see renderSettings) -- a no-op on every
+// other screen, including pre-login, since the button isn't in the DOM there.
 function renderLangToggle(){
-  const btn = document.getElementById('lang-toggle-btn');
+  const btn = document.getElementById('settings-lang-toggle-btn');
   if(!btn) return;
-  btn.textContent = state.lang === 'dv' ? 'EN' : 'DV';
+  btn.textContent = state.lang === 'dv' ? 'English' : 'ދިވެހި';
   btn.title = state.lang === 'dv' ? 'Switch to English' : 'Switch to Dhivehi';
 }
 
@@ -1737,25 +1738,6 @@ Viber invitation link: ${t.viberLink||''}
 Thankyou \ud83d\ude0a${boatName ? `\n~${boatName}~` : ''}`;
 }
 
-/* ---------------- App state ---------------- */
-const ROLES = {
-  owner:  { name:'Owner',      desc:'Full oversight, rates & revenue', pinField:'ownerPin', icon:'crown' },
-  manager:{ name:t('Manager'),    desc:'Runs the boat day-to-day',        pinField:null,        icon:'crown' },
-  staff:  { name:t('Boat Staff'), desc:'Log loading & unloading',         pinField:'staffPin', icon:'clipboard' },
-  sender: { name:'Sender',     desc:'Sending cargo',                   pinField:null,        icon:'box' },
-  receiver:{name:'Receiver',   desc:'Receiving cargo',                 pinField:null,        icon:'pin' },
-};
-const ROLE_TABS = {
-  owner:   [{id:'dashboard',label:t(t('Home'))},{id:'invoices',label:t(t('Invoices'))},{id:'shipments',label:t(t('Shipments'))},{id:'track',label:t('Track')},{id:'settings',label:t(t('Settings'))}],
-  manager: [{id:'dashboard',label:t(t('Home'))},{id:'invoices',label:t(t('Invoices'))},{id:'shipments',label:t(t('Shipments'))},{id:'track',label:t('Track')},{id:'settings',label:t(t('Settings'))}],
-  staff:   [{id:'dashboard',label:t('Dashboard')},{id:'track',label:t('Track')}],
-  sender:  [{id:'checkin',label:t('New Check-In')},{id:'track',label:t('Track')}],
-  receiver:[{id:'track',label:t('Track')}],
-};
-const DEFAULT_TAB = { owner:'dashboard', manager:'dashboard', staff:'dashboard', sender:'checkin', receiver:'track' };
-const INTERNAL_ROLES = ['owner','manager','staff'];
-
-
 let state = {
   lang: getLang(),
   entryMode: 'customer', // 'customer' | 'internal' | 'admin'
@@ -1818,6 +1800,26 @@ let state = {
   trackQuery: '',
   filter: 'all',
 };
+
+/* ---------------- App state ---------------- */
+const ROLES = {
+  owner:  { name:'Owner',      desc:'Full oversight, rates & revenue', pinField:'ownerPin', icon:'crown' },
+  manager:{ name:t('Manager'),    desc:'Runs the boat day-to-day',        pinField:null,        icon:'crown' },
+  staff:  { name:t('Boat Staff'), desc:'Log loading & unloading',         pinField:'staffPin', icon:'clipboard' },
+  sender: { name:'Sender',     desc:'Sending cargo',                   pinField:null,        icon:'box' },
+  receiver:{name:'Receiver',   desc:'Receiving cargo',                 pinField:null,        icon:'pin' },
+};
+const ROLE_TABS = {
+  owner:   [{id:'dashboard',label:t(t('Home'))},{id:'invoices',label:t(t('Invoices'))},{id:'shipments',label:t(t('Shipments'))},{id:'track',label:t('Track')},{id:'settings',label:t(t('Settings'))}],
+  manager: [{id:'dashboard',label:t(t('Home'))},{id:'invoices',label:t(t('Invoices'))},{id:'shipments',label:t(t('Shipments'))},{id:'track',label:t('Track')},{id:'settings',label:t(t('Settings'))}],
+  staff:   [{id:'dashboard',label:t('Dashboard')},{id:'track',label:t('Track')}],
+  sender:  [{id:'checkin',label:t('New Check-In')},{id:'track',label:t('Track')}],
+  receiver:[{id:'track',label:t('Track')}],
+};
+const DEFAULT_TAB = { owner:'dashboard', manager:'dashboard', staff:'dashboard', sender:'checkin', receiver:'track' };
+const INTERNAL_ROLES = ['owner','manager','staff'];
+
+
 
 async function refreshData(){
   // These four used to run one after another -- on a slow connection that's
@@ -5332,11 +5334,20 @@ function renderSettings(){
     `<button class="${t.id===state.settingsTab?'active':''}" data-subtab="${t.id}">${t.label}</button>`
   ).join('');
   panel.innerHTML = `
-    <h2>${t("Settings")}</h2>
-    <p class="sub">${isManager ? 'Manager access. Staff and trip settings for this boat.' : 'Owner-only. Manage staff access, item prices, and app links.'}</p>
-    <div class="sub-tabs">${subtabs}</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+      <div>
+        <h2 style="margin-bottom:4px;">${t("Settings")}</h2>
+        <p class="sub" style="margin-bottom:0;">${isManager ? 'Manager access. Staff and trip settings for this boat.' : 'Owner-only. Manage staff access, item prices, and app links.'}</p>
+      </div>
+      <button type="button" id="settings-lang-toggle-btn" class="btn btn-ghost" style="flex-shrink:0;"></button>
+    </div>
+    <div class="sub-tabs" style="margin-top:18px;">${subtabs}</div>
     <div id="settings-body"></div>
   `;
+  renderLangToggle();
+  document.getElementById('settings-lang-toggle-btn').addEventListener('click', () => {
+    setLang(state.lang === 'dv' ? 'en' : 'dv');
+  });
   panel.querySelectorAll('[data-subtab]').forEach(b => b.addEventListener('click', () => {
     state.settingsTab = b.dataset.subtab;
     renderSettings();
@@ -7555,12 +7566,8 @@ document.getElementById('brand-logo-btn')?.addEventListener('click', () => {
   window.location.reload();
 });
 
-// Language toggle -- flips the whole app between English and Dhivehi,
-// including RTL layout direction, and persists the choice locally so it
-// survives a reload.
-document.getElementById('lang-toggle-btn')?.addEventListener('click', () => {
-  setLang(state.lang === 'dv' ? 'en' : 'dv');
-});
+// Language toggle now lives inside Settings only (see renderSettings) --
+// not shown pre-login or on the home/dashboard header.
 applyLangDirection();
 applyStaticTranslations();
 
