@@ -422,6 +422,13 @@
   }
   html[lang="dv"] *{
     font-family:'MV Faseyha Au','Inter',sans-serif !important;
+    /* Only the Regular weight is embedded above -- without this, browsers
+       "faux-bold" any text styled with font-weight:600/700 (headings,
+       buttons, tag codes, etc.) by drawing each glyph's outline twice at
+       a slight offset, which is what shows up as doubled/ghosted strokes
+       on Thaana letters like ސ and ނ. Disabling synthesis makes those
+       elements render at the font's one real weight instead. */
+    font-synthesis:none;
   }
   html[lang="dv"] .mono,
   html[lang="dv"] .brand span,
@@ -1680,7 +1687,7 @@ function renderInvoicePopupContent(s){
         </div>
       </div>
     ` : (state.role === 'owner' ? `
-      <button class="btn btn-ghost" id="invoice-popup-mark-undelivered-btn" style="width:100%;margin-bottom:14px;font-size:12px;">${t("Wrong tap? Mark as Undelivered")}</button>
+      <button class="btn btn-ghost" id="invoice-popup-mark-undelivered-btn" style="width:100%;margin-bottom:14px;font-size:12px;">Wrong tap? Mark as Undelivered</button>
     ` : '')}
     ${(s.items||[]).length ? `
       <div style="border-top:1.5px dashed var(--line);padding-top:10px;">
@@ -1702,11 +1709,11 @@ function renderInvoicePopupContent(s){
     ` : ''}
     ${(!s.paid && s.invoiceId && !s.voided) ? `
       <div class="tag-actions" style="margin-top:16px;">
-        <button class="btn btn-primary" id="invoice-popup-cash-btn">${t("Collect — Cash")}</button>
-        <button class="btn btn-primary" id="invoice-popup-transfer-btn">${t("Collect \u2014 Transfer")}</button>
+        <button class="btn btn-primary" id="invoice-popup-cash-btn">Collect — Cash</button>
+        <button class="btn btn-primary" id="invoice-popup-transfer-btn">Collect \u2014 Transfer</button>
       </div>
     ` : ''}
-    <button class="btn btn-primary" id="invoice-popup-share-btn" style="width:100%;margin-top:16px;">${t("Share Invoice")}</button>
+    <button class="btn btn-primary" id="invoice-popup-share-btn" style="width:100%;margin-top:16px;">Share Invoice</button>
   `;
 }
 
