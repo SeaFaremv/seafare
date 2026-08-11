@@ -1874,20 +1874,32 @@ let state = {
 };
 
 /* ---------------- App state ---------------- */
-const ROLES = {
-  owner:  { name:'Owner',      desc:'Full oversight, rates & revenue', pinField:'ownerPin', icon:'crown' },
-  manager:{ name:t('Manager'),    desc:'Runs the boat day-to-day',        pinField:null,        icon:'crown' },
-  staff:  { name:t('Boat Staff'), desc:'Log loading & unloading',         pinField:'staffPin', icon:'clipboard' },
-  sender: { name:'Sender',     desc:'Sending cargo',                   pinField:null,        icon:'box' },
-  receiver:{name:'Receiver',   desc:'Receiving cargo',                 pinField:null,        icon:'pin' },
-};
-const ROLE_TABS = {
-  owner:   [{id:'dashboard',label:t(t('Home'))},{id:'invoices',label:t(t('Invoices'))},{id:'shipments',label:t(t('Shipments'))},{id:'track',label:t('Track')},{id:'settings',label:t(t('Settings'))}],
-  manager: [{id:'dashboard',label:t(t('Home'))},{id:'invoices',label:t(t('Invoices'))},{id:'shipments',label:t(t('Shipments'))},{id:'track',label:t('Track')},{id:'settings',label:t(t('Settings'))}],
-  staff:   [{id:'dashboard',label:t('Dashboard')},{id:'track',label:t('Track')}],
-  sender:  [{id:'checkin',label:t('New Check-In')},{id:'track',label:t('Track')}],
-  receiver:[{id:'track',label:t('Track')}],
-};
+// Same staleness fix as getRoleTabs()/getSettingsSubtabs() -- rebuilt
+// fresh wherever it's used instead of frozen at script-load language.
+function getRoles(){
+  return {
+    owner:  { name:'Owner',      desc:'Full oversight, rates & revenue', pinField:'ownerPin', icon:'crown' },
+    manager:{ name:t('Manager'),    desc:'Runs the boat day-to-day',        pinField:null,        icon:'crown' },
+    staff:  { name:t('Boat Staff'), desc:'Log loading & unloading',         pinField:'staffPin', icon:'clipboard' },
+    sender: { name:'Sender',     desc:'Sending cargo',                   pinField:null,        icon:'box' },
+    receiver:{name:'Receiver',   desc:'Receiving cargo',                 pinField:null,        icon:'pin' },
+  };
+}
+// Rebuilt fresh on every renderTabs() call rather than computed once at
+// script load -- same staleness bug as SETTINGS_SUBTABS had: a static
+// object here would freeze the main nav bar's labels at whatever
+// state.lang was when the script first ran, so switching languages
+// later (via Settings) would leave Home/Invoices/Shipments/Track/Settings
+// stuck in the old language while everything else on the page updates.
+function getRoleTabs(){
+  return {
+    owner:   [{id:'dashboard',label:t(t('Home'))},{id:'invoices',label:t(t('Invoices'))},{id:'shipments',label:t(t('Shipments'))},{id:'track',label:t('Track')},{id:'settings',label:t(t('Settings'))}],
+    manager: [{id:'dashboard',label:t(t('Home'))},{id:'invoices',label:t(t('Invoices'))},{id:'shipments',label:t(t('Shipments'))},{id:'track',label:t('Track')},{id:'settings',label:t(t('Settings'))}],
+    staff:   [{id:'dashboard',label:t('Dashboard')},{id:'track',label:t('Track')}],
+    sender:  [{id:'checkin',label:t('New Check-In')},{id:'track',label:t('Track')}],
+    receiver:[{id:'track',label:t('Track')}],
+  };
+}
 const DEFAULT_TAB = { owner:'dashboard', manager:'dashboard', staff:'dashboard', sender:'checkin', receiver:'track' };
 const INTERNAL_ROLES = ['owner','manager','staff'];
 
@@ -1925,7 +1937,7 @@ function renderGate(){
   const area = document.getElementById('gate-area');
 
   if(state.gateStage === 'pin' && state.pinTargetRole){
-    const r = ROLES[state.pinTargetRole];
+    const r = getRoles()[state.pinTargetRole];
     area.innerHTML = `
       <div class="gate-wrap">
         <div class="pin-box">
@@ -2118,7 +2130,7 @@ function renderGate(){
         </div>
         <div class="role-grid">
           ${INTERNAL_ROLES.map(key => {
-            const r = ROLES[key];
+            const r = getRoles()[key];
             return `
               <div class="role-card" data-role="${key}">
                 <div class="ricon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[r.icon]}</svg></div>
@@ -2318,7 +2330,7 @@ function renderTabs(){
   const unpaidCount = state.shipments.filter(s => s.invoiceId && !s.voided && !s.paid).length;
   const el = document.getElementById('tabs');
   el.style.display = 'flex';
-  const tabs = (ROLE_TABS[state.role] || []).filter(tb => tb.id !== 'settings');
+  const tabs = (getRoleTabs()[state.role] || []).filter(tb => tb.id !== 'settings');
   el.innerHTML = tabs.map(tb => {
     const active = tb.id === state.tab ? 'active' : '';
     let badge = '';
@@ -2330,7 +2342,7 @@ function renderTabs(){
   el.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { location.hash = b.dataset.tab; }));
 
   const settingsBtn = document.getElementById('header-settings-btn');
-  const hasSettingsTab = (ROLE_TABS[state.role] || []).some(tb => tb.id === 'settings');
+  const hasSettingsTab = (getRoleTabs()[state.role] || []).some(tb => tb.id === 'settings');
   if(hasSettingsTab){
     settingsBtn.style.display = 'flex';
     settingsBtn.style.background = state.tab === 'settings' ? 'var(--amber)' : 'rgba(255,255,255,0.08)';
@@ -2351,7 +2363,7 @@ function renderTabs(){
   if(state.entryMode === 'internal'){
     pill.style.display = 'flex';
     const roleLabelEl = document.getElementById('role-label');
-    const roleText = ROLES[state.role].name + (state.staffName ? ' \u00b7 ' + state.staffName : '');
+    const roleText = getRoles()[state.role].name + (state.staffName ? ' \u00b7 ' + state.staffName : '');
     if(_boatNameCache[CURRENT_BOAT_ID]){
       roleLabelEl.textContent = `${_boatNameCache[CURRENT_BOAT_ID]} ${roleText}`;
     } else {
@@ -5219,14 +5231,21 @@ function downloadTripManifest(trip, shipments){
 }
 
 /* ---------------- Settings (owner only) ---------------- */
-const SETTINGS_SUBTABS = [
-  {id:'owner', label:'Owner Settings'},
-  {id:'staff', label:t('Staff Management')},
-  {id:'trip', label:'Trip Settings'},
-  {id:'rates', label:'Rates & Setup'},
-  {id:'customers', label:t('Customers')},
-  {id:'reports', label:'Reports'},
-];
+// Rebuilt fresh on every renderSettings() call (see below) rather than
+// computed once here -- a static array would freeze each label's
+// translation at whatever state.lang was the moment this script first
+// ran, so switching languages later would never update these particular
+// tab labels even though everything else on the page updates immediately.
+function getSettingsSubtabs(){
+  return [
+    {id:'owner', label:t('Owner Settings')},
+    {id:'staff', label:t('Staff Management')},
+    {id:'trip', label:t('Trip Settings')},
+    {id:'rates', label:t('Rates & Setup')},
+    {id:'customers', label:t('Customers')},
+    {id:'reports', label:t('Reports')},
+  ];
+}
 // Managers get full run of the boat except account details (Owner Settings
 // -- payment info, links), the item list (Rates & Setup), and the customer
 // directory, which stays owner-only.
@@ -5401,6 +5420,7 @@ function closeGeneratedReportPopup(){
 function renderSettings(){
   const panel = document.getElementById('panel');
   const isManager = state.role === 'manager';
+  const SETTINGS_SUBTABS = getSettingsSubtabs();
   const visibleSubtabs = isManager ? SETTINGS_SUBTABS.filter(t => MANAGER_SETTINGS_SUBTABS.includes(t.id)) : SETTINGS_SUBTABS;
   if(!visibleSubtabs.some(t => t.id === state.settingsTab)) state.settingsTab = visibleSubtabs[0].id;
   const subtabs = visibleSubtabs.map(t =>
@@ -6100,7 +6120,7 @@ function render(){
 
   renderTabs();
 
-  const allowed = ROLE_TABS[state.role].map(t => t.id);
+  const allowed = getRoleTabs()[state.role].map(t => t.id);
   if(!allowed.includes(state.tab)) state.tab = DEFAULT_TAB[state.role];
   if(!(state.tab === 'settings' && state.settingsTab === 'reports')){ state.reportTripView = null; state.reportIslandView = null; }
 
@@ -7323,7 +7343,7 @@ function handleHash(){
   }
 
   if(state.entryMode === 'internal' && INTERNAL_ROLES.includes(state.role)){
-    if(ROLE_TABS[state.role].some(t => t.id === h)) state.tab = h;
+    if(getRoleTabs()[state.role].some(t => t.id === h)) state.tab = h;
     render();
     return;
   }
@@ -7335,7 +7355,7 @@ function handleHash(){
   // Continuing navigation within an already-active customer session (tab
   // clicks, mode toggle, etc all just set location.hash to a plain tab id).
   if(state.entryMode === 'customer' && state.role){
-    if(ROLE_TABS[state.role].some(t => t.id === h)) state.tab = h;
+    if(getRoleTabs()[state.role].some(t => t.id === h)) state.tab = h;
     render();
     return;
   }
@@ -7569,7 +7589,7 @@ async function init(){
       state.role = session.role;
       state.staffName = session.staffName;
       const h = rawHash;
-      const tabs = ROLE_TABS[state.role].map(t => t.id);
+      const tabs = getRoleTabs()[state.role].map(t => t.id);
       state.tab = tabs.includes(h) ? h : DEFAULT_TAB[state.role];
       if(('#'+state.tab) !== location.hash) history.replaceState(null,'','#'+state.tab);
       render();
