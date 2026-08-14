@@ -861,7 +861,7 @@ const DEFAULT_RATES = [
   {id:'item-bandhu-foshi', name:"Bandhu Foshi (box)", price:10},
   {id:'item-baspar-fathi', name:"Baspar Fathi (pcs)", price:10},
 ];
-const DEFAULT_SETTINGS = {qrUrl:'', ownerPin:'1234', staffPin:'0000', ownerEmail:'', ownerPhone:'', staffUsers:[], pendingStaff:[], managerUsers:[], tripDefaults:{boatContacts:'',trackingLink:'',viberLink:''}, bankAccountName:'', bankAccountNumber:'', routes:[]};
+const DEFAULT_SETTINGS = {qrUrl:'', ownerPin:'1234', staffPin:'0000', ownerEmail:'', ownerPhone:'', staffUsers:[], pendingStaff:[], managerUsers:[], tripDefaults:{boatContacts:'',trackingLink:'',viberLink:''}, bankAccountName:'', bankAccountNumber:'', routes:[], language:'en'};
 const INTERNAL_HASH = 'staff';
 const OWNER_HASH = 'owner';
 const MANAGER_HASH = 'manager';
@@ -1480,9 +1480,6 @@ const TR = {
 function t(s){
   return (state.lang === 'dv' && TR[s]) ? TR[s] : s;
 }
-function getLang(){
-  try{ return localStorage.getItem('seafare_lang') || 'en'; }catch(e){ return 'en'; }
-}
 function applyLangDirection(){
   document.documentElement.lang = state.lang === 'dv' ? 'dv' : 'en';
   document.documentElement.dir = state.lang === 'dv' ? 'rtl' : 'ltr';
@@ -1531,10 +1528,16 @@ function applyHomeScreenBranding(rawHash){
 }
 function setLang(lang){
   state.lang = lang === 'dv' ? 'dv' : 'en';
-  try{ localStorage.setItem('seafare_lang', state.lang); }catch(e){}
   applyLangDirection();
   applyStaticTranslations();
   handleHash();
+  // Persist to this boat's own settings so it's the boat/account that
+  // remembers Dhivehi, not the device -- a logout resets the display to
+  // English (see logoutInternal), and the next login re-reads this same
+  // value via refreshData().
+  if(INTERNAL_ROLES.includes(state.role)){
+    withFreshSettings(s => { s.language = state.lang; }).catch(e => console.error('Could not save language preference', e));
+  }
 }
 // Only exists inside Settings now (see renderSettings) -- a no-op on every
 // other screen, including pre-login, since the button isn't in the DOM there.
@@ -2194,7 +2197,7 @@ Thankyou \ud83d\ude0a${boatName ? `\n~${boatName}~` : ''}`;
 }
 
 let state = {
-  lang: getLang(),
+  lang: 'en',
   entryMode: 'customer', // 'customer' | 'internal' | 'admin'
   adminAuthed: false,
   adminUsername: '',
@@ -2301,6 +2304,9 @@ async function refreshData(){
   state.rates = rates;
   state.trips = trips;
   state.settings = settings;
+  state.lang = (settings.language === 'dv') ? 'dv' : 'en';
+  applyLangDirection();
+  applyStaticTranslations();
 }
 
 /* ---------------- Icons ---------------- */
@@ -2676,6 +2682,9 @@ function renderManagerGate(){
 function logoutInternal(){
   clearSession();
   state.role = null; state.gateStage='pick'; state.pinTargetRole=null; state.pinError=''; state.tab=null; state.staffName=null; state.gateMode='signin';
+  state.lang = 'en';
+  applyLangDirection();
+  applyStaticTranslations();
   if(state.gateRole === 'owner'){
     history.replaceState(null,'','#org');
     state.entryMode = 'org';
@@ -3314,10 +3323,16 @@ function renderDashboard(){
       return;
     }
     const arrived = activeTripArrivedIsland();
+    const trip = s ? (state.trips||[]).find(x => x.id === s.tripId) : null;
+    const arrivedIsPlannedStop = !!(trip && (trip.destinations||[]).includes(arrived));
     // Only auto-detect a mismatch once the boat has actually been marked
     // arrived somewhere (Trips tab) -- otherwise every delivery would
-    // trip the off-island popup before an arrival is even set.
-    if(s && arrived && s.island !== arrived){
+    // trip the off-island popup before an arrival is even set. And only
+    // treat it as a mismatch worth the extra popup if the arrived island
+    // isn't even one of this trip's planned stops -- arriving at any
+    // scheduled destination is a normal delivery, not an off-plan one,
+    // even if it's not the exact island this shipment was checked in for.
+    if(s && arrived && s.island !== arrived && !arrivedIsPlannedStop){
       openDeliverOtherPopup(id);
     } else {
       markDelivered(id);
@@ -4668,6 +4683,10 @@ const PRO_UPGRADE_ACCOUNTS = {
   bml: { tabLabel: 'BML Account', name: 'AHMED BASSAM', number: '7715526560001' },
   mib: { tabLabel: 'MIB Account', name: 'AHMED BASSAM', number: '90101100821351000' }
 };
+// Display-only -- must match SWIPE_PRO_AMOUNT on the server (defaults to
+// 500 there too if unset). Only affects the wording shown before the link
+// is created; the actual amount charged always comes from the server.
+const SWIPE_PRO_DISPLAY_AMOUNT = 500;
 
 // Records that this boat has paid and is waiting on Super Admin to flip
 // it to Pro -- the actual "notify the admin" step, since there's no push
@@ -4743,6 +4762,7 @@ function openUpgradeToProPopup(){
       <div class="sub-tabs" id="upgrade-pro-account-tabs">
         <button class="active" data-pro-account-tab="bml">${t('BML Account')}</button>
         <button data-pro-account-tab="mib">${t('MIB Account')}</button>
+        <button data-pro-account-tab="swipe">${t('Payment Link')}</button>
       </div>
       <div id="upgrade-pro-account-body"></div>
       <div id="upgrade-pro-request-area" style="margin-top:14px;"></div>
@@ -4771,6 +4791,7 @@ function wireUpgradeToProAccountTabs(){
 }
 
 function renderUpgradeToProAccountBody(which){
+  if(which === 'swipe'){ renderUpgradeToProSwipeBody(); return; }
   const a = PRO_UPGRADE_ACCOUNTS[which] || PRO_UPGRADE_ACCOUNTS.bml;
   const body = document.getElementById('upgrade-pro-account-body');
   if(!body) return;
@@ -4794,6 +4815,67 @@ function renderUpgradeToProAccountBody(which){
     }
     setTimeout(() => { el.textContent = original; }, 1200);
   }));
+}
+
+// Swipe payment-link tab -- creates a real payment link via the server
+// (which talks to Swipe with a server-side API key; the browser never sees
+// it), then shows it with an Open + Copy button. Pro activates on its own
+// once Swipe's webhook confirms payment (picked up the next time this
+// boat's settings refresh, same as everywhere else in the app -- no
+// special-cased polling loop needed here), but a manual "Check Now" button
+// is included as a fallback in case the webhook is slow, not yet
+// registered in the Merchant Portal, or the person just wants to confirm
+// sooner rather than waiting for the next refresh.
+let _swipeProPaymentRef = null;
+async function renderUpgradeToProSwipeBody(){
+  const body = document.getElementById('upgrade-pro-account-body');
+  if(!body) return;
+  body.innerHTML = `<div class="note">${t('Generating a payment link\u2026')}</div>`;
+  try{
+    const res = await fetch(`${API_BASE}/api/pro/payment-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ boatId: CURRENT_BOAT_ID }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.ok || !data.paymentUrl){
+      body.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.')}</div>`;
+      return;
+    }
+    _swipeProPaymentRef = data.reference;
+    body.innerHTML = `
+      <div class="note">${t('Tap below to pay \u0783')}${SWIPE_PRO_DISPLAY_AMOUNT} ${t('via the Swipe app. Pro activates automatically once payment is confirmed \u2014 no need to notify the Super Admin for this option.')}</div>
+      <a href="${escapeHtml(data.paymentUrl)}" target="_blank" rel="noopener" class="btn btn-primary" style="width:100%;margin-top:10px;display:block;text-align:center;text-decoration:none;">${t('Open Payment Link')}</a>
+      <button type="button" class="btn btn-ghost" id="upgrade-pro-swipe-check-btn" style="width:100%;margin-top:8px;">${t('Check Now')}</button>
+      <div id="upgrade-pro-swipe-status" class="tag-meta" style="margin-top:8px;"></div>
+    `;
+    document.getElementById('upgrade-pro-swipe-check-btn').addEventListener('click', checkSwipeProPaymentStatus);
+  }catch(e){
+    console.error('renderUpgradeToProSwipeBody failed', e);
+    body.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.')}</div>`;
+  }
+}
+async function checkSwipeProPaymentStatus(){
+  if(!_swipeProPaymentRef) return;
+  const btn = document.getElementById('upgrade-pro-swipe-check-btn');
+  const statusEl = document.getElementById('upgrade-pro-swipe-status');
+  if(btn){ btn.disabled = true; btn.textContent = t('Checking\u2026'); }
+  try{
+    const res = await fetch(`${API_BASE}/api/pro/payment-link/${encodeURIComponent(_swipeProPaymentRef)}/status`);
+    const data = await res.json().catch(() => ({}));
+    if(data.ok && data.status === 'COMPLETED'){
+      state.settings = await loadSettings();
+      closeUpgradeToProPopup();
+      render();
+      return;
+    }
+    if(statusEl) statusEl.textContent = data.ok ? `${t('Status')}: ${data.status}` : t('Could not check payment status.');
+  }catch(e){
+    console.error('checkSwipeProPaymentStatus failed', e);
+    if(statusEl) statusEl.textContent = t('Could not check payment status.');
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = t('Check Now'); }
+  }
 }
 
 function renderUpgradeToProRequestArea(alreadyRequested){
@@ -5234,9 +5316,9 @@ function renderCheckin(){
   const islandField = dests.length ? `
       <label>${t("Destination island")}</label>
       <select id="f-island-select" required>
-        <option value="" disabled selected>Select destination</option>
+        <option value="" disabled selected>${t('Select destination')}</option>
         ${dests.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('')}
-        <option value="__other">Other</option>
+        <option value="__other">${t('Other')}</option>
       </select>
       <input type="text" id="f-island-other" placeholder="${t("Type destination")}" style="display:none;">
     ` : `
@@ -5247,7 +5329,7 @@ function renderCheckin(){
   panel.innerHTML = `
     <h2>${t("Cargo Check-In")}</h2>
     <p class="sub">${t("Enter your details and who's receiving the cargo. You'll get a tracking code to share.")}</p>
-    ${trip ? `<div class="note" style="margin-bottom:16px;">Next trip: <strong>${escapeHtml(trip.origin)} \u2192 ${escapeHtml(dests.join(', '))}</strong> on ${fmtDMY(trip.date)}</div>` : ''}
+    ${trip ? `<div class="note" style="margin-bottom:16px;">${t('Next trip:')} <strong>${escapeHtml(trip.origin)} \u2192 ${escapeHtml(dests.join(', '))}</strong> on ${fmtDMY(trip.date)}</div>` : ''}
 
     <form id="checkin-form">
       <label>${t("Your name (sender)")}</label>
@@ -5320,10 +5402,10 @@ function openTrackingCodePopup(code, receiverName){
   overlay.innerHTML = `
     <div class="confirm-code" style="width:100%;max-width:400px;animation:invoice-pop-in 0.18s ease-out;position:relative;">
       <button type="button" id="tracking-code-popup-close-btn" style="position:absolute;top:10px;right:10px;background:rgba(255,255,255,0.12);border:none;color:#fff;width:30px;height:30px;border-radius:50%;cursor:pointer;">\u2715</button>
-      <div>Check-in received. Save this tracking code:</div>
+      <div>${t('Check-in received. Save this tracking code:')}</div>
       <button type="button" id="tracking-code-copy-btn" class="big" style="background:none;border:none;cursor:pointer;color:inherit;font:inherit;padding:0;">${escapeHtml(code)}</button>
-      <div id="tracking-code-copy-hint" style="font-size:11px;color:#D6E8F7;margin-top:-4px;">Tap the code to copy it</div>
-      <div style="font-size:12.5px;color:#D6E8F7;">Share it with ${escapeHtml(receiverName)} so they can track it too.</div>
+      <div id="tracking-code-copy-hint" style="font-size:11px;color:#D6E8F7;margin-top:-4px;">${t('Tap the code to copy it')}</div>
+      <div style="font-size:12.5px;color:#D6E8F7;">${t('Share it with')} ${escapeHtml(receiverName)} ${t('so they can track it too.')}</div>
     </div>
   `;
   overlay.addEventListener('click', (e) => { if(e.target === overlay) closeTrackingCodePopup(); });
@@ -5333,9 +5415,9 @@ function openTrackingCodePopup(code, receiverName){
     const hint = document.getElementById('tracking-code-copy-hint');
     try{
       await navigator.clipboard.writeText(code);
-      if(hint){ hint.textContent = 'Copied!'; }
+      if(hint){ hint.textContent = t('Copied!'); }
     }catch(e){
-      if(hint){ hint.textContent = 'Could not copy \u2014 tap and hold to select instead.'; }
+      if(hint){ hint.textContent = t('Could not copy \u2014 tap and hold to select instead.'); }
     }
   });
 }
@@ -5366,7 +5448,7 @@ function renderTrack(){
     );
     const box = document.getElementById('track-results');
     if(!q){ box.innerHTML = ''; return; }
-    if(results.length === 0){ box.innerHTML = `<div class="empty">No shipment found for "${escapeHtml(q)}".</div>`; return; }
+    if(results.length === 0){ box.innerHTML = `<div class="empty">${t('No shipment found for')} "${escapeHtml(q)}".</div>`; return; }
     const isCustomer = !INTERNAL_ROLES.includes(state.role);
     if(isCustomer){
       box.innerHTML = results.map(renderTrackResult).join('');
@@ -5398,6 +5480,12 @@ function renderTrack(){
 }
 
 
+// Shared everywhere a shipment status is shown to a customer or to
+// owner/manager/staff (timeline, status pill, collapsed track rows) --
+// pulled out so all of them translate from exactly one place.
+function statusStepLabels(){
+  return { pending:t('Checked In'), loaded:t('Loaded'), in_transit:t('In Transit'), delivered:t('Delivered') };
+}
 // Shared by the customer-facing full card below and the owner/manager/
 // staff detail popup -- pulled out so both stay in sync automatically
 // rather than maintaining two copies of the same markup.
@@ -5405,13 +5493,13 @@ function trackTimelineHtml(s){
   const steps = STATUS_STEPS;
   const idx = steps.indexOf(s.status);
   const dates = { pending: s.createdAt, loaded: s.loadedAt, in_transit: s.inTransitAt, delivered: s.deliveredAt };
-  const labels = { pending:'Checked In', loaded:'Loaded', in_transit:'In Transit', delivered:'Delivered' };
+  const labels = statusStepLabels();
   const tripEnded = isTripFinished(s.tripId) && s.status !== 'delivered';
   return steps.map((step,i) => {
     let label = labels[step];
     let redLabel = false;
-    if(tripEnded && step === s.status){ label = 'Trip Ended'; redLabel = true; }
-    if(tripEnded && step === 'delivered'){ label = 'Not Delivered'; redLabel = true; }
+    if(tripEnded && step === s.status){ label = t('Trip Ended'); redLabel = true; }
+    if(tripEnded && step === 'delivered'){ label = t('Not Delivered'); redLabel = true; }
     const endedClass = (tripEnded && i <= idx) ? ' trip-ended' : '';
     return `
     <div class="tl-step ${i<=idx?'done':''}${endedClass}">
@@ -5427,27 +5515,27 @@ function trackInvoiceHtml(s){
   return `
     <div class="invoice">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div class="display" style="font-size:15px;color:var(--navy-deep);">Invoice \u2014 ${s.id}</div>
+        <div class="display" style="font-size:15px;color:var(--navy-deep);">${t('Invoice')} \u2014 ${s.id}</div>
         <button class="btn btn-ghost" data-share-image="${s.id}" style="padding:6px 12px;font-size:11px;">${t("Share as Image")}</button>
       </div>
-      <div class="tag-meta" style="margin-top:6px;">Sender: ${escapeHtml(s.name)} \u00b7 ${telLink(s.mobile)} \u2192 ${escapeHtml(s.island)}</div>
-      ${s.receiverName ? `<div class="tag-meta">Receiver: ${escapeHtml(s.receiverName)} \u00b7 ${telLink(s.receiverMobile)}</div>` : ''}
-      ${s.invoiceId ? `<div class="tag-meta">Invoice ${s.invoiceId} \u00b7 <strong style="color:${s.paid?'#22A366':'#E5473B'}">${s.paid?'Paid':'Unpaid'}</strong></div>` : ''}
+      <div class="tag-meta" style="margin-top:6px;">${t('Sender:')} ${escapeHtml(s.name)} \u00b7 ${telLink(s.mobile)} \u2192 ${escapeHtml(s.island)}</div>
+      ${s.receiverName ? `<div class="tag-meta">${t('Receiver:')} ${escapeHtml(s.receiverName)} \u00b7 ${telLink(s.receiverMobile)}</div>` : ''}
+      ${s.invoiceId ? `<div class="tag-meta">${t('Invoice')} ${s.invoiceId} \u00b7 <strong style="color:${s.paid?'#22A366':'#E5473B'}">${s.paid?t('Paid'):t('Unpaid')}</strong></div>` : ''}
       <table>
-        <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">${t("Rate")}</th><th class="num">Amount</th></tr></thead>
+        <thead><tr><th>${t('Item')}</th><th class="num">Qty</th><th class="num">${t("Rate")}</th><th class="num">${t('Amount')}</th></tr></thead>
         <tbody>
           ${s.items.map(i => `<tr><td>${escapeHtml(i.name)}</td><td class="num">${i.qty}</td><td class="num">${fmtMoney(i.price)}</td><td class="num">${fmtMoney(i.qty*i.price)}</td></tr>`).join('')}
         </tbody>
       </table>
-      <div class="total-line"><span>Total Due</span><span class="amt">${fmtMoney(s.total)}</span></div>
+      <div class="total-line"><span>${t('Total Due')}</span><span class="amt">${fmtMoney(s.total)}</span></div>
     </div>
   `;
 }
 function trackStatusPillHtml(s){
-  const labels = { pending:'Checked In', loaded:'Loaded', in_transit:'In Transit', delivered:'Delivered' };
+  const labels = statusStepLabels();
   const tripEnded = isTripFinished(s.tripId) && s.status !== 'delivered';
   return tripEnded
-    ? `<span class="status-pill" style="background:var(--red);color:#fff;">Trip Ended</span>`
+    ? `<span class="status-pill" style="background:var(--red);color:#fff;">${t('Trip Ended')}</span>`
     : `<span class="status-pill status-${s.status}">${labels[s.status]}</span>`;
 }
 
@@ -5502,11 +5590,11 @@ function closeTrackDetailPopup(){
 }
 
 function renderTrackResult(s){
-  const labels = { pending:'Checked In', loaded:'Loaded', in_transit:'In Transit', delivered:'Delivered' };
+  const labels = statusStepLabels();
   const isCustomer = !INTERNAL_ROLES.includes(state.role);
 
   const itemsOnly = (isCustomer && s.items && s.items.length) ? `
-    <button type="button" class="btn btn-ghost" data-view-items="${s.id}" style="width:100%;margin-top:10px;">View Items (${s.items.length})</button>
+    <button type="button" class="btn btn-ghost" data-view-items="${s.id}" style="width:100%;margin-top:10px;">${t('View Items')} (${s.items.length})</button>
   ` : '';
 
   return `
@@ -5536,12 +5624,12 @@ function openTrackItemsPopup(s){
   overlay.innerHTML = `
     <div class="panel" style="max-height:80vh;overflow-y:auto;width:100%;max-width:400px;margin:0;animation:invoice-pop-in 0.18s ease-out;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
-        <h3 style="margin-bottom:2px;">Items \u2014 ${escapeHtml(s.id)}</h3>
+        <h3 style="margin-bottom:2px;">${t('Items')} \u2014 ${escapeHtml(s.id)}</h3>
         <button type="button" class="btn btn-ghost" id="track-items-popup-close-btn" style="padding:8px 14px;">\u2715</button>
       </div>
-      <p class="sub" style="margin-bottom:14px;">To ${escapeHtml(s.island)}${s.receiverName ? ' \u00b7 for ' + escapeHtml(s.receiverName) : ''}</p>
+      <p class="sub" style="margin-bottom:14px;">${t('To')} ${escapeHtml(s.island)}${s.receiverName ? ' \u00b7 ' + t('for') + ' ' + escapeHtml(s.receiverName) : ''}</p>
       <table>
-        <thead><tr><th>Item</th><th class="num">Qty</th></tr></thead>
+        <thead><tr><th>${t('Item')}</th><th class="num">Qty</th></tr></thead>
         <tbody>
           ${(s.items||[]).map(i => `<tr><td>${escapeHtml(i.name)}</td><td class="num">${i.qty}</td></tr>`).join('')}
         </tbody>
@@ -8287,38 +8375,38 @@ function renderSignupForm(){
         <p class="sub">${t("Every owner starts with one free boat. Fill in the basics below — everything else is optional and can be added later from Settings.")}</p>
 
         <label>${t("Boat name (this is also your login username) *")}</label>
-        <input type="text" id="su-boat-name" placeholder="${t("e.g. GreenLine Cargo")}">
+        <input type="text" id="su-boat-name" placeholder="${t("e.g. GreenLine Cargo")}" autocomplete="off">
         <label>${t("Owner name *")}</label>
-        <input type="text" id="su-owner-name" placeholder="e.g. Ahmed Bassam">
+        <input type="text" id="su-owner-name" placeholder="e.g. Ahmed Bassam" autocomplete="off">
         <label>${t("Boat contact number(s) *")}</label>
-        <input type="tel" id="su-contact" placeholder="${t("e.g. 7777777 / 9999999")}">
+        <input type="tel" id="su-contact" placeholder="${t("e.g. 7777777 / 9999999")}" autocomplete="off">
         <label>${t("Owner's personal mobile number *")}</label>
-        <input type="tel" id="su-mobile">
+        <input type="tel" id="su-mobile" autocomplete="off">
 
         <button type="button" class="btn btn-ghost" id="su-extras-toggle" style="width:100%;margin:6px 0 14px;">${extrasOpen ? '\u2212' : '+'} Additional Setup Information (optional \u2014 can be filled in later)</button>
 
         <div id="su-extras-fields" style="display:${extrasOpen ? 'block' : 'none'};">
           <label>${t("Gmail (optional, for future PIN reset)")}</label>
-          <input type="email" id="su-gmail">
+          <input type="email" id="su-gmail" autocomplete="off">
 
           <label style="margin-top:6px;">Bank account name (optional)</label>
-          <input type="text" id="su-bank-name">
+          <input type="text" id="su-bank-name" autocomplete="off">
           <label>${t("Bank account number (optional)")}</label>
-          <input type="text" id="su-bank-number">
+          <input type="text" id="su-bank-number" autocomplete="off">
 
           <label style="margin-top:6px;">Routes (one per line, optional)</label>
           <textarea id="su-routes" rows="2" placeholder="${t("e.g. Male' → Maalhos, Himandhoo, Feridhoo")}"></textarea>
 
           <label>${t("Tracking link (optional)")}</label>
-          <input type="text" id="su-tracking" placeholder="${t("e.g. https://m.followme.mv/public/...")}">
+          <input type="text" id="su-tracking" placeholder="${t("e.g. https://m.followme.mv/public/...")}" autocomplete="off">
           <label>${t("Viber group link (optional)")}</label>
-          <input type="text" id="su-viber" placeholder="${t("e.g. https://invite.viber.com/...")}">
+          <input type="text" id="su-viber" placeholder="${t("e.g. https://invite.viber.com/...")}" autocomplete="off">
           <label>${t("Other social media links (one per line, optional)")}</label>
           <textarea id="su-social" rows="2" placeholder="${t("e.g. https://instagram.com/yourboat")}"></textarea>
         </div>
 
         <label style="margin-top:6px;">Set your PIN *</label>
-        <input type="password" id="su-passkey" placeholder="${t("At least 6 characters")}">
+        <input type="password" id="su-passkey" placeholder="${t("At least 6 characters")}" autocomplete="new-password">
         <p class="sub" style="margin-top:-10px;">${t("You'll log in later with your boat name as your username and this PIN.")}</p>
 
         <div class="pin-error" id="su-error">${escapeHtml(state.orgError || '')}</div>
@@ -8330,7 +8418,10 @@ function renderSignupForm(){
   `;
   document.getElementById('su-extras-toggle').addEventListener('click', () => {
     state.signupExtrasOpen = !state.signupExtrasOpen;
-    renderSignupForm();
+    const fieldsDiv = document.getElementById('su-extras-fields');
+    const toggleBtn = document.getElementById('su-extras-toggle');
+    if(fieldsDiv) fieldsDiv.style.display = state.signupExtrasOpen ? 'block' : 'none';
+    if(toggleBtn) toggleBtn.textContent = `${state.signupExtrasOpen ? '\u2212' : '+'} Additional Setup Information (optional \u2014 can be filled in later)`;
   });
   wireMobileValidation('su-mobile');
   document.getElementById('su-submit-btn').addEventListener('click', submitSignup);
@@ -8673,6 +8764,9 @@ function renderOrgDashboard(){
   document.getElementById('org-logout-btn').addEventListener('click', () => {
     state.orgAuthed = false; state.orgData = null; state.orgBoats = null; state.orgPasskey = '';
     state.orgSignupTotpSecret = null; state.boatRequestOpen = false; state.orgScreen = 'login';
+    state.lang = 'en';
+    applyLangDirection();
+    applyStaticTranslations();
     renderOrgArea();
   });
   document.querySelectorAll('[data-open-dispatch]').forEach(b => b.addEventListener('click', async () => {
@@ -8779,6 +8873,11 @@ function handleHash(){
 
   if(h === 'admin' || h.startsWith('admin/')){
     state.entryMode = 'admin';
+    if(state.lang !== 'en'){
+      state.lang = 'en';
+      applyLangDirection();
+      applyStaticTranslations();
+    }
     renderAdmin();
     return;
   }
@@ -9050,6 +9149,9 @@ async function init(){
   const initialHash = rawHash;
   if(initialHash === 'admin' || initialHash.startsWith('admin/')){
     state.entryMode = 'admin';
+    state.lang = 'en';
+    applyLangDirection();
+    applyStaticTranslations();
     const adminSession = loadAdminSession();
     if(adminSession && adminSession.username && adminSession.passkey){
       state.adminAuthed = true;
