@@ -1768,25 +1768,59 @@ function startOfWeek(){ const d = new Date(); const day = d.getDay(); const diff
 function startOfToday(){ const d = new Date(); d.setHours(0,0,0,0); return d; }
 function baseUrl(){ return location.href.split('#')[0]; }
 
-// Keeps Owner/Staff signed in across a page refresh. Without this, reloading
-// while on any tab (which changes the URL hash away from #owner/#staff to
-// e.g. #dashboard) has no way to know a session was active, and falls back
-// to the public customer view. localStorage survives reloads; sessionStorage
-// would also work but wouldn't survive closing the tab, which is worse UX
-// for something like a staff member's phone left logged in.
-const SESSION_KEY = 'cfl_session_v1';
+// Keeps Owner/Staff/Manager signed in across a page refresh. Without this,
+// reloading while on any tab (which changes the URL hash away from
+// #owner/#staff/#manager to e.g. #dashboard) has no way to know a session
+// was active, and falls back to the public customer view. localStorage
+// survives reloads; sessionStorage would also work but wouldn't survive
+// closing the tab, which is worse UX for something like a staff member's
+// phone left logged in.
+//
+// Each internal role gets its own storage key -- Owner, Staff, and Manager
+// sessions never share one slot, so logging in as one role can never
+// overwrite or silently resume as another. This matters on a boat where
+// the owner sometimes uses the same device as staff: previously, opening
+// the staff link (#staff/<boatId>) while an owner session for that same
+// boat was saved would resume as Owner instead of showing the staff PIN
+// gate -- the URL you actually opened was being ignored in favor of
+// whatever role happened to be saved. Each hash now only ever checks its
+// own role's session.
+const SESSION_KEYS = { owner: 'cfl_session_owner_v1', staff: 'cfl_session_staff_v1', manager: 'cfl_session_manager_v1' };
+// Used only to disambiguate a refresh on a hash that doesn't itself name a
+// role (e.g. #dashboard, #settings) -- direct role links/hashes never
+// consult this, they always check their own role's session only.
+const LAST_ACTIVE_ROLE_KEY = 'cfl_last_active_role_v1';
 function saveSession(gateRole, role, staffName, boatId){
-  try{ localStorage.setItem(SESSION_KEY, JSON.stringify({ gateRole, role, staffName, boatId: boatId || CURRENT_BOAT_ID })); }
-  catch(e){ /* localStorage unavailable (private mode etc) -- session just won't persist */ }
-}
-function loadSession(){
+  const key = SESSION_KEYS[gateRole] || SESSION_KEYS[role];
+  if(!key) return;
   try{
-    const raw = localStorage.getItem(SESSION_KEY);
+    localStorage.setItem(key, JSON.stringify({ gateRole, role, staffName, boatId: boatId || CURRENT_BOAT_ID }));
+    localStorage.setItem(LAST_ACTIVE_ROLE_KEY, gateRole || role);
+  }catch(e){ /* localStorage unavailable (private mode etc) -- session just won't persist */ }
+}
+// forRole is required -- there is no "just give me whatever's saved"
+// lookup anymore, since that's exactly the cross-role bleed this was
+// changed to prevent. Pass the specific role the current hash implies.
+function loadSession(forRole){
+  const key = SESSION_KEYS[forRole];
+  if(!key) return null;
+  try{
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   }catch(e){ return null; }
 }
-function clearSession(){
-  try{ localStorage.removeItem(SESSION_KEY); }catch(e){}
+function loadLastActiveRole(){
+  try{ return localStorage.getItem(LAST_ACTIVE_ROLE_KEY); }catch(e){ return null; }
+}
+// With no argument, clears every internal role's session (used at logout
+// when we want a full, unambiguous sign-out) -- but callers switching
+// boats on one specific role's link (see handleHash) pass that role so
+// only that one session is invalidated, leaving any other role's saved
+// session for a different boat untouched.
+function clearSession(forRole){
+  const keys = forRole ? [SESSION_KEYS[forRole]] : Object.values(SESSION_KEYS);
+  keys.forEach(k => { if(k){ try{ localStorage.removeItem(k); }catch(e){} } });
+  try{ localStorage.removeItem(LAST_ACTIVE_ROLE_KEY); }catch(e){}
 }
 
 const ADMIN_SESSION_KEY = 'cfl_admin_session_v1';
@@ -2680,7 +2714,7 @@ function renderManagerGate(){
 }
 
 function logoutInternal(){
-  clearSession();
+  clearSession(state.gateRole);
   state.role = null; state.gateStage='pick'; state.pinTargetRole=null; state.pinError=''; state.tab=null; state.staffName=null; state.gateMode='signin';
   state.lang = 'en';
   applyLangDirection();
@@ -8922,7 +8956,7 @@ function handleHash(){
     CURRENT_BOAT_ID = boatId;
     if(switchingBoat || !(state.role === 'staff')){
       state.entryMode = 'internal'; state.gateRole = 'staff'; state.role = null; state.gateStage = 'pick'; state.gateMode = 'signin';
-      if(switchingBoat) clearSession();
+      if(switchingBoat) clearSession('staff');
     }
     if(switchingBoat){ refreshData().then(render); return; }
     render();
@@ -8938,7 +8972,7 @@ function handleHash(){
     CURRENT_BOAT_ID = boatId;
     if(switchingBoat || !(state.role === 'manager')){
       state.entryMode = 'internal'; state.gateRole = 'manager'; state.role = null; state.gateStage = 'pick';
-      if(switchingBoat) clearSession();
+      if(switchingBoat) clearSession('manager');
     }
     if(switchingBoat){ refreshData().then(render); return; }
     render();
@@ -9127,8 +9161,20 @@ async function init(){
   // height a moment after the page first paints. Both get corrected here.
   window.scrollTo(0, 0);
 
-  const session = loadSession();
+  // Which role, if any, does the current hash itself name? Direct role
+  // links only ever resume from that same role's own saved session --
+  // never another role's, even if one happens to be saved on this device.
+  // A hash that doesn't name a role at all (e.g. #dashboard/#settings,
+  // which only occur mid-session -- reaching one on a fresh load means a
+  // refresh happened while an internal tab was open) falls back to
+  // whichever role was last active, since there's nothing else to go on.
   const rawHash = (location.hash || '').replace('#','');
+  let hashRole = null;
+  if(rawHash === OWNER_HASH || rawHash.startsWith(OWNER_HASH + '/')) hashRole = 'owner';
+  else if(rawHash === INTERNAL_HASH || rawHash.startsWith(INTERNAL_HASH + '/')) hashRole = 'staff';
+  else if(rawHash === MANAGER_HASH || rawHash.startsWith(MANAGER_HASH + '/')) hashRole = 'manager';
+  const resumeRole = hashRole || loadLastActiveRole();
+  const session = resumeRole ? loadSession(resumeRole) : null;
   applyHomeScreenBranding(rawHash);
 
   // Figure out which boat's data to load BEFORE fetching anything -- from
@@ -9167,14 +9213,17 @@ async function init(){
 
   // A refresh should never log someone out. If we're about to show the
   // org login/landing screen but a valid owner session already exists for
-  // a specific boat, resume straight into that boat's app instead.
-  if((initialHash === 'org' || initialHash === '') && session && session.role === 'owner' && session.boatId){
+  // a specific boat, resume straight into that boat's app instead. Always
+  // checks the OWNER session specifically here (never staff/manager) --
+  // this is the org login screen, so only an owner session is relevant.
+  const ownerSessionForOrgResume = (initialHash === 'org' || initialHash === '') ? loadSession('owner') : null;
+  if(ownerSessionForOrgResume && ownerSessionForOrgResume.boatId){
     state.entryMode = 'internal';
     state.gateRole = 'owner';
     state.role = 'owner';
     state.staffName = null;
     state.tab = DEFAULT_TAB.owner;
-    history.replaceState(null,'','#'+OWNER_HASH+'/'+session.boatId);
+    history.replaceState(null,'','#'+OWNER_HASH+'/'+ownerSessionForOrgResume.boatId);
     render();
     tickClock();
     setInterval(tickClock, 30000);
@@ -9222,11 +9271,11 @@ async function init(){
       if(('#'+state.tab) !== location.hash) history.replaceState(null,'','#'+state.tab);
       render();
     } else {
-      clearSession();
+      clearSession(resumeRole);
       handleHash();
     }
   } else {
-    if(!sessionMatchesRequestedBoat) clearSession();
+    if(!sessionMatchesRequestedBoat) clearSession(resumeRole);
     handleHash();
   }
   window.scrollTo(0, 0);
