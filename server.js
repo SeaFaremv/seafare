@@ -43,7 +43,7 @@ app.use(compression());
 // of them across different shipments comfortably exceeds that -- once it
 // does, every save silently starts failing with a 413. 25mb gives plenty of
 // headroom for many photos in a single save.
-app.use(express.json({ limit: '25mb' }));
+app.use(express.json({ limit: '25mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
 // --- Owner PIN reset (emailed via Gmail) -----------------------------------
 // GMAIL_USER / GMAIL_APP_PASSWORD are the credentials the app itself sends
@@ -181,7 +181,222 @@ app.put('/api/data/:boatId/:key', async (req, res) => {
   }
 });
 
-// Request a reset link. Always responds the same way regardless of whether
+// --- Swipe payment integration (Pro upgrade) --------------------------------
+// Lets the Pro-upgrade popup offer a real payment link (via Swipe's Merchants
+// API) alongside the existing manual bank-transfer + screenshot flow. Swipe
+// confirms payment through a webhook, which grants/renews Pro on this boat's
+// settings automatically -- no admin approval needed for this path (the
+// manual bank-transfer path is untouched and still requires it).
+//
+// SWIPE_CLIENT_ID / SWIPE_CLIENT_SECRET: from the Swipe Merchant Portal
+// (merchant.swipe.mv) -> Settings -> API Access -> Create.
+// SWIPE_WEBHOOK_SECRET: the "Webhook HMAC Key" shown on that same page.
+// SWIPE_ENV: 'production' (default) or 'development' -- selects which of
+// Swipe's two API base URLs to use.
+// SWIPE_PRO_AMOUNT: MVR amount charged for a 30-day Pro period (defaults to
+// the same ރ500 shown in the manual bank-transfer flow).
+const SWIPE_CLIENT_ID = process.env.SWIPE_CLIENT_ID;
+const SWIPE_CLIENT_SECRET = process.env.SWIPE_CLIENT_SECRET;
+const SWIPE_WEBHOOK_SECRET = process.env.SWIPE_WEBHOOK_SECRET;
+const SWIPE_BASE_URL = process.env.SWIPE_ENV === 'development'
+  ? 'https://merchant-api.swipeapp.dev'
+  : 'https://api.swipe.mv';
+// Token endpoint is on the production host even in development per Swipe's
+// own docs example -- both environments' credentials are exchanged there.
+const SWIPE_TOKEN_URL = 'https://api.swipe.mv/oauth2/token';
+const SWIPE_PRO_AMOUNT = Number(process.env.SWIPE_PRO_AMOUNT) || 500;
+
+// Cached in memory (per server process) rather than fetched fresh on every
+// request -- client-credentials tokens are normally valid for a while, and
+// refetching one per payment link would be wasteful. Refreshed a minute
+// before actual expiry to avoid a request failing right at the boundary.
+let _swipeToken = null;
+let _swipeTokenExpiresAt = 0;
+async function getSwipeAccessToken(){
+  if(!SWIPE_CLIENT_ID || !SWIPE_CLIENT_SECRET){
+    throw new Error('Swipe is not configured (SWIPE_CLIENT_ID / SWIPE_CLIENT_SECRET missing).');
+  }
+  if(_swipeToken && Date.now() < _swipeTokenExpiresAt - 60000) return _swipeToken;
+  const res = await fetch(SWIPE_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: SWIPE_CLIENT_ID,
+      client_secret: SWIPE_CLIENT_SECRET,
+    }),
+  });
+  if(!res.ok) throw new Error(`Swipe token request failed (HTTP ${res.status})`);
+  const data = await res.json();
+  _swipeToken = data.access_token;
+  _swipeTokenExpiresAt = Date.now() + (Number(data.expires_in) || 3600) * 1000;
+  return _swipeToken;
+}
+async function swipeApiRequest(method, path, body){
+  const token = await getSwipeAccessToken();
+  const res = await fetch(`${SWIPE_BASE_URL}${path}`, {
+    method,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if(!res.ok){
+    const detail = (data && (data.detail || data.type)) || `HTTP ${res.status}`;
+    throw new Error(`Swipe API error: ${detail}`);
+  }
+  return data;
+}
+
+// Verifies a Swipe webhook per the Standard Webhooks spec: the signed
+// content is "{webhook-id}.{webhook-timestamp}.{raw body}", HMAC-SHA256'd
+// with the webhook secret (Standard Webhooks secrets are given as
+// "whsec_<base64>" -- the part after the prefix is what actually gets
+// base64-decoded into key bytes). The header can carry multiple
+// space-separated "v1,<sig>" values; matching any one of them counts as
+// verified. Also rejects anything older than 5 minutes to guard against a
+// replayed request.
+function verifySwipeWebhookSignature(headers, rawBody){
+  if(!SWIPE_WEBHOOK_SECRET) return false;
+  const id = headers['webhook-id'];
+  const timestamp = headers['webhook-timestamp'];
+  const signatureHeader = headers['webhook-signature'];
+  if(!id || !timestamp || !signatureHeader) return false;
+
+  const ageSeconds = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if(!Number.isFinite(ageSeconds) || ageSeconds > 300) return false;
+
+  const secretBytes = Buffer.from(
+    SWIPE_WEBHOOK_SECRET.startsWith('whsec_') ? SWIPE_WEBHOOK_SECRET.slice('whsec_'.length) : SWIPE_WEBHOOK_SECRET,
+    'base64'
+  );
+  const signedContent = `${id}.${timestamp}.${rawBody}`;
+  const expected = crypto.createHmac('sha256', secretBytes).update(signedContent).digest('base64');
+
+  return signatureHeader.split(' ').some(part => {
+    const sig = part.includes(',') ? part.split(',')[1] : part;
+    if(!sig) return false;
+    try{
+      return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+    }catch(e){ return false; } // length mismatch -- definitely not equal
+  });
+}
+
+// Same grant/renew math as the Super Admin's manual approval (adminApproveProForBoat
+// in index.html): extends 30 days from the boat's existing expiry if it has
+// one (so a renewal never loses days), otherwise 30 days from now.
+async function grantProToBoat(boatId){
+  const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boatId} AND key = 'settings'`;
+  const settings = rows.length ? rows[0].value : {};
+  const periodStart = settings.proExpiresAt ? new Date(settings.proExpiresAt) : new Date();
+  const periodEnd = new Date(periodStart.getTime() + 30 * 24 * 60 * 60 * 1000);
+  settings.isPro = true;
+  settings.proStartedAt = periodStart.toISOString();
+  settings.proExpiresAt = periodEnd.toISOString();
+  settings.proRequestPending = false;
+  settings.proRequestScreenshot = null;
+  await sql`
+    INSERT INTO app_data (boat_id, key, value, updated_at)
+    VALUES (${boatId}, 'settings', ${JSON.stringify(settings)}::jsonb, now())
+    ON CONFLICT (boat_id, key) DO UPDATE SET value = ${JSON.stringify(settings)}::jsonb, updated_at = now()
+  `;
+}
+
+// Creates a Swipe payment link for this boat's Pro upgrade/renewal. The
+// `reference` Swipe returns (its transaction code) is stored alongside the
+// boat ID so the webhook -- which only knows that reference, not anything
+// about SeaFare -- can find its way back to the right boat.
+app.post('/api/pro/payment-link', async (req, res) => {
+  try{
+    const { boatId } = req.body || {};
+    if(!boatId) return res.status(400).json({ ok:false, error:'boatId is required.' });
+    const boatRows = await sql`SELECT id FROM boats WHERE id = ${boatId}`;
+    if(!boatRows.length) return res.status(404).json({ ok:false, error:'Unknown boat.' });
+
+    const payment = await swipeApiRequest('POST', '/api/v1/payments', {
+      amount: SWIPE_PRO_AMOUNT,
+      currency: 'MVR',
+      type: 'LINK',
+      description: `SeaFare Pro upgrade -- boat ${boatId}`,
+    });
+
+    await sql`
+      INSERT INTO pro_payments (id, boat_id, swipe_payment_id, reference, amount, currency, status, payment_url)
+      VALUES (${'pp-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${boatId}, ${payment.id}, ${payment.reference}, ${payment.amount}, ${payment.currency}, ${payment.status}, ${payment.payment_url || null})
+    `;
+
+    res.status(201).json({ ok:true, paymentUrl: payment.payment_url, reference: payment.reference, status: payment.status });
+  }catch(e){
+    console.error('create payment link failed', e);
+    res.status(502).json({ ok:false, error: 'Could not create a Swipe payment link. Try again, or use the bank transfer option.' });
+  }
+});
+
+// Manual fallback check (used by a "Check payment status" button in the
+// popup) -- polls Swipe directly for this reference's current status,
+// rather than only ever waiting on the webhook. Grants Pro here too if it
+// turns out to already be COMPLETED and this reference hasn't been
+// processed yet, in case the webhook was missed or isn't configured yet.
+app.get('/api/pro/payment-link/:reference/status', async (req, res) => {
+  try{
+    const rows = await sql`SELECT * FROM pro_payments WHERE reference = ${req.params.reference}`;
+    if(!rows.length) return res.status(404).json({ ok:false, error:'Unknown payment reference.' });
+    const record = rows[0];
+    if(record.status === 'COMPLETED'){
+      return res.json({ ok:true, status: 'COMPLETED' });
+    }
+    const remote = await swipeApiRequest('GET', `/api/v1/payments/${record.swipe_payment_id}`);
+    if(remote.status === 'COMPLETED' && record.status !== 'COMPLETED'){
+      await grantProToBoat(record.boat_id);
+      await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE reference = ${req.params.reference}`;
+    } else if(remote.status !== record.status){
+      await sql`UPDATE pro_payments SET status = ${remote.status} WHERE reference = ${req.params.reference}`;
+    }
+    res.json({ ok:true, status: remote.status });
+  }catch(e){
+    console.error('payment status check failed', e);
+    res.status(502).json({ ok:false, error:'Could not check payment status.' });
+  }
+});
+
+// Swipe calls this whenever a transaction's status changes. Only
+// transaction.state_changed events with status COMPLETED, for a reference
+// we actually created a link for, ever grant Pro -- and only once (the
+// pro_payments.status check makes this safe against Swipe retrying/
+// redelivering the same webhook).
+app.post('/api/webhooks/swipe', async (req, res) => {
+  try{
+    const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
+    if(!verifySwipeWebhookSignature(req.headers, rawBody)){
+      return res.status(401).json({ ok:false, error:'Invalid webhook signature.' });
+    }
+    const { eventType, data } = req.body || {};
+    if(eventType !== 'transaction.state_changed' || !data){
+      return res.json({ ok:true }); // acknowledged, nothing to do
+    }
+    const reference = data.transaction_code;
+    if(!reference) return res.json({ ok:true });
+
+    const rows = await sql`SELECT * FROM pro_payments WHERE reference = ${reference}`;
+    if(!rows.length) return res.json({ ok:true }); // not one of ours (or a different payment type)
+    const record = rows[0];
+
+    if(data.status === 'COMPLETED' && record.status !== 'COMPLETED'){
+      await grantProToBoat(record.boat_id);
+      await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE reference = ${reference}`;
+    } else if(data.status !== record.status){
+      await sql`UPDATE pro_payments SET status = ${data.status} WHERE reference = ${reference}`;
+    }
+    res.json({ ok:true });
+  }catch(e){
+    console.error('swipe webhook handling failed', e);
+    res.status(500).json({ ok:false });
+  }
+});
+
+
 // the email matches, whether Gmail is configured, or whether sending
 // succeeds -- this endpoint must never reveal what the registered address
 // is or whether an account exists.
@@ -359,25 +574,149 @@ app.post('/api/reset-pin/confirm', async (req, res) => {
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
-function checkAdmin(req){
-  const u = (req.body && req.body.username) || (req.query && req.query.username) || '';
-  const p = (req.body && req.body.passkey) || (req.query && req.query.passkey) || '';
-  return !!(ADMIN_USERNAME && ADMIN_PASSWORD && u === ADMIN_USERNAME && p === ADMIN_PASSWORD);
+// Reuses the same scrypt hashing already used for owner passkeys (see
+// hashPasskey/verifyPasskey further down) -- defined early here since
+// checkAdmin needs it above their definition.
+function hashSecret(secret){
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(String(secret), salt, 64).toString('hex');
+  return `${salt}:${hash}`;
 }
-function requireAdmin(req, res, next){
-  if(!ADMIN_USERNAME || !ADMIN_PASSWORD){
-    return res.status(503).json({ ok:false, error:'Admin login is not configured yet. Set ADMIN_USERNAME and ADMIN_PASSWORD on the server.' });
-  }
-  if(!checkAdmin(req)) return res.status(401).json({ ok:false, error:'Invalid admin credentials.' });
-  next();
+function verifySecret(secret, stored){
+  if(!stored || !stored.includes(':')) return false;
+  const [salt, hash] = stored.split(':');
+  const check = crypto.scryptSync(String(secret), salt, 64).toString('hex');
+  try{ return crypto.timingSafeEqual(Buffer.from(hash,'hex'), Buffer.from(check,'hex')); }
+  catch(e){ return false; }
 }
 
-app.post('/api/admin/login', (req, res) => {
-  if(!ADMIN_USERNAME || !ADMIN_PASSWORD){
-    return res.status(503).json({ ok:false, error:'Admin login is not configured yet.' });
+async function getAdminSettingsRow(){
+  const rows = await sql`SELECT * FROM admin_settings WHERE id = 'admin'`;
+  return rows.length ? rows[0] : null;
+}
+// Ensures the single admin_settings row exists, seeded from the env vars
+// the first time anything touches it -- so a fresh install still works with
+// nothing but ADMIN_USERNAME/ADMIN_PASSWORD, but the moment the admin
+// changes anything in Settings, that row takes over as the source of truth.
+async function ensureAdminSettingsRow(){
+  const existing = await getAdminSettingsRow();
+  if(existing) return existing;
+  await sql`
+    INSERT INTO admin_settings (id, username, password_hash)
+    VALUES ('admin', ${ADMIN_USERNAME || null}, ${ADMIN_PASSWORD ? hashSecret(ADMIN_PASSWORD) : null})
+    ON CONFLICT (id) DO NOTHING
+  `;
+  return await getAdminSettingsRow();
+}
+
+async function checkAdmin(req){
+  const u = (req.body && req.body.username) || (req.query && req.query.username) || '';
+  const p = (req.body && req.body.passkey) || (req.query && req.query.passkey) || '';
+  if(!u || !p) return false;
+  const row = await getAdminSettingsRow();
+  if(row && row.username && row.password_hash){
+    return u === row.username && verifySecret(p, row.password_hash);
   }
-  if(checkAdmin(req)) res.json({ ok:true });
-  else res.status(401).json({ ok:false, error:'Incorrect username or passkey.' });
+  // No override saved yet -- fall back to the env vars.
+  return !!(ADMIN_USERNAME && ADMIN_PASSWORD && u === ADMIN_USERNAME && p === ADMIN_PASSWORD);
+}
+async function requireAdmin(req, res, next){
+  try{
+    const row = await getAdminSettingsRow();
+    const hasOverride = !!(row && row.username && row.password_hash);
+    if(!hasOverride && !(ADMIN_USERNAME && ADMIN_PASSWORD)){
+      return res.status(503).json({ ok:false, error:'Admin login is not configured yet. Set ADMIN_USERNAME and ADMIN_PASSWORD on the server.' });
+    }
+    if(!(await checkAdmin(req))) return res.status(401).json({ ok:false, error:'Invalid admin credentials.' });
+    next();
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not verify admin credentials.' });
+  }
+}
+
+app.post('/api/admin/login', async (req, res) => {
+  try{
+    const row = await getAdminSettingsRow();
+    const hasOverride = !!(row && row.username && row.password_hash);
+    if(!hasOverride && !(ADMIN_USERNAME && ADMIN_PASSWORD)){
+      return res.status(503).json({ ok:false, error:'Admin login is not configured yet.' });
+    }
+    if(await checkAdmin(req)) res.json({ ok:true });
+    else res.status(401).json({ ok:false, error:'Incorrect username or passkey.' });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Something went wrong. Try again.' });
+  }
+});
+
+// --- Super Admin Settings ---------------------------------------------------
+// Everything the Super Admin can edit about their own account/setup: login
+// credentials, the bank account shown to owners in the Pro upgrade popup,
+// and which notification types raise an alert in the admin queue.
+app.get('/api/admin/settings', requireAdmin, async (req, res) => {
+  try{
+    const row = await ensureAdminSettingsRow();
+    res.json({ ok:true, settings: {
+      username: row.username || ADMIN_USERNAME || '',
+      bankAccountName: row.bank_account_name || '',
+      bankAccountNumber: row.bank_account_number || '',
+      notifyNewSignups: row.notify_new_signups,
+      notifyBoatRequests: row.notify_boat_requests,
+      notifyNewBoats: row.notify_new_boats,
+    }});
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not load admin settings.' });
+  }
+});
+app.post('/api/admin/settings/credentials', requireAdmin, async (req, res) => {
+  try{
+    const { newUsername, newPassword } = req.body || {};
+    if(!newUsername || !String(newUsername).trim()) return res.status(400).json({ ok:false, error:'Username is required.' });
+    if(!newPassword || String(newPassword).length < 6) return res.status(400).json({ ok:false, error:'New password must be at least 6 characters.' });
+    await ensureAdminSettingsRow();
+    await sql`
+      UPDATE admin_settings SET username = ${String(newUsername).trim()}, password_hash = ${hashSecret(newPassword)}, updated_at = now()
+      WHERE id = 'admin'
+    `;
+    res.json({ ok:true });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not update credentials.' });
+  }
+});
+app.post('/api/admin/settings/bank', requireAdmin, async (req, res) => {
+  try{
+    const { bankAccountName, bankAccountNumber } = req.body || {};
+    await ensureAdminSettingsRow();
+    await sql`
+      UPDATE admin_settings SET bank_account_name = ${bankAccountName || ''}, bank_account_number = ${bankAccountNumber || ''}, updated_at = now()
+      WHERE id = 'admin'
+    `;
+    res.json({ ok:true });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not update bank details.' });
+  }
+});
+app.post('/api/admin/settings/notifications', requireAdmin, async (req, res) => {
+  try{
+    const { notifyNewSignups, notifyBoatRequests, notifyNewBoats } = req.body || {};
+    await ensureAdminSettingsRow();
+    await sql`
+      UPDATE admin_settings SET
+        notify_new_signups = ${!!notifyNewSignups},
+        notify_boat_requests = ${!!notifyBoatRequests},
+        notify_new_boats = ${!!notifyNewBoats},
+        updated_at = now()
+      WHERE id = 'admin'
+    `;
+    res.json({ ok:true });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not update notification preferences.' });
+  }
 });
 
 // List every organization (owner) with their boats attached, for the
