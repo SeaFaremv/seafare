@@ -324,12 +324,12 @@ async function grantProToOrganization(organizationId){
 async function grantProForSwipePayment(record){
   await grantProToBoat(record.boat_id);
   const orgRows = await sql`
-    SELECT o.boat_name AS org_boat_name, o.owner_name FROM boats b
+    SELECT o.id AS organization_id, o.boat_name AS org_boat_name, o.owner_name FROM boats b
     JOIN organizations o ON o.id = b.organization_id
     WHERE b.id = ${record.boat_id}
   `;
   const orgLabel = orgRows.length ? `${orgRows[0].owner_name} (${orgRows[0].org_boat_name})` : record.boat_id;
-  await notifyAdmin('pro_paid_via_swipe', `${orgLabel} paid \u0783${record.amount} via Swipe \u2014 Pro granted automatically, no approval needed.`);
+  await notifyAdmin('pro_paid_via_swipe', `${orgLabel} paid \u0783${record.amount} via Swipe \u2014 Pro granted automatically, no approval needed.`, orgRows.length ? { type:'organization', id: orgRows[0].organization_id } : undefined);
 }
 
 // Creates a Swipe payment link for this boat's Pro upgrade/renewal. The
@@ -805,7 +805,7 @@ async function cleanupExpiredSuspensions(){
 // requests, and re-signups of a previously-deleted mobile number.
 app.get('/api/admin/notifications', requireAdmin, async (req, res) => {
   try{
-    const rows = await sql`SELECT id, type, message, read, created_at FROM admin_notifications ORDER BY created_at DESC LIMIT 200`;
+    const rows = await sql`SELECT id, type, message, read, created_at, reference_type, reference_id FROM admin_notifications ORDER BY created_at DESC LIMIT 200`;
     res.json({ ok:true, notifications: rows });
   }catch(e){
     console.error(e);
@@ -1206,7 +1206,7 @@ const NOTIFY_TYPE_TO_SETTING = {
   pro_request: 'notify_pro_requests',
   pro_paid_via_swipe: 'notify_pro_payments',
 };
-async function notifyAdmin(type, message){
+async function notifyAdmin(type, message, ref){
   try{
     const settingCol = NOTIFY_TYPE_TO_SETTING[type];
     if(settingCol){
@@ -1214,8 +1214,8 @@ async function notifyAdmin(type, message){
       if(row[settingCol] === false) return; // this notification type is turned off
     }
     await sql`
-      INSERT INTO admin_notifications (id, type, message)
-      VALUES (${'note-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${type}, ${message})
+      INSERT INTO admin_notifications (id, type, message, reference_type, reference_id)
+      VALUES (${'note-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${type}, ${message}, ${(ref && ref.type) || null}, ${(ref && ref.id) || null})
     `;
   }catch(e){ console.error('notifyAdmin failed', e); return; }
   await sendAdminPush(type, message);
@@ -1264,9 +1264,9 @@ app.post('/api/signup', async (req, res) => {
     `;
 
     if(priorDeletion.length > 0){
-      await notifyAdmin('resignup_after_deletion', `${b.ownerName} (${b.mobile}) signed up again as "${b.boatName}" -- was previously deleted ("${priorDeletion[0].boat_name}", removed ${priorDeletion[0].deleted_at.toISOString().slice(0,10)}).`);
+      await notifyAdmin('resignup_after_deletion', `${b.ownerName} (${b.mobile}) signed up again as "${b.boatName}" -- was previously deleted ("${priorDeletion[0].boat_name}", removed ${priorDeletion[0].deleted_at.toISOString().slice(0,10)}).`, { type:'organization', id: orgId });
     } else {
-      await notifyAdmin('new_signup', `New signup: ${b.ownerName} created boat "${b.boatName}".`);
+      await notifyAdmin('new_signup', `New signup: ${b.ownerName} created boat "${b.boatName}".`, { type:'organization', id: orgId });
     }
 
     // Pre-fill this boat's own Payment Details and Trip Defaults contact
@@ -1401,7 +1401,7 @@ app.post('/api/boat-requests', async (req, res) => {
       // Informational only -- nothing for the admin to act on, so this
       // goes through the same notify type as any other new boat, not
       // 'pending_request' (which implies action is needed).
-      await notifyAdmin('new_boat', `${org.boat_name} (Pro) added a new boat: "${requestedBoatName}" -- granted automatically, no approval needed.`);
+      await notifyAdmin('new_boat', `${org.boat_name} (Pro) added a new boat: "${requestedBoatName}" -- granted automatically, no approval needed.`, { type:'organization', id: organizationId });
       return res.json({ ok:true, autoApproved:true, boatId });
     }
 
@@ -1410,7 +1410,7 @@ app.post('/api/boat-requests', async (req, res) => {
       INSERT INTO boat_requests (id, organization_id, requested_boat_name, payment_screenshot)
       VALUES (${id}, ${organizationId}, ${requestedBoatName}, ${paymentScreenshot || null})
     `;
-    await notifyAdmin('pending_request', `${org.boat_name} requested a new boat: "${requestedBoatName}".`);
+    await notifyAdmin('pending_request', `${org.boat_name} requested a new boat: "${requestedBoatName}".`, { type:'boat_request', id });
     res.json({ ok:true, autoApproved:false, id });
   }catch(e){
     console.error(e);
@@ -1428,12 +1428,12 @@ app.post('/api/pro-requests', async (req, res) => {
     const { boatId, boatName } = req.body || {};
     if(!boatId) return res.status(400).json({ ok:false, error:'boatId is required.' });
     const rows = await sql`
-      SELECT o.boat_name AS org_boat_name, o.owner_name FROM boats b
+      SELECT o.id AS organization_id, o.boat_name AS org_boat_name, o.owner_name FROM boats b
       JOIN organizations o ON o.id = b.organization_id
       WHERE b.id = ${boatId}
     `;
     const label = rows.length ? `${rows[0].owner_name} (${rows[0].org_boat_name})` : (boatName || boatId);
-    await notifyAdmin('pro_request', `${label} submitted a Pro upgrade payment for review.`);
+    await notifyAdmin('pro_request', `${label} submitted a Pro upgrade payment for review.`, rows.length ? { type:'organization', id: rows[0].organization_id } : undefined);
     res.json({ ok:true });
   }catch(e){
     console.error(e);
@@ -1477,7 +1477,7 @@ app.post('/api/boats/first-free', async (req, res) => {
         ON CONFLICT (boat_id, key) DO UPDATE SET value = ${JSON.stringify(initialSettings)}::jsonb, updated_at = now()
       `;
     }
-    await notifyAdmin('new_boat', `New boat created: "${boatName}".`);
+    await notifyAdmin('new_boat', `New boat created: "${boatName}".`, { type:'organization', id: organizationId });
     res.json({ ok:true, boatId });
   }catch(e){
     console.error(e);
