@@ -8843,6 +8843,14 @@ function renderOrgDashboard(){
     // (with its screenshot upload) still needs filling in below, since
     // that's the actual proof-of-payment step an admin confirms.
     if(opening){
+      // This popup can be opened here, straight from the org overview,
+      // before the owner has ever tapped into a boat's dispatch app -- so
+      // CURRENT_BOAT_ID may still be sitting at its startup placeholder
+      // value. The popup's Swipe Payment Link button needs a real boat id,
+      // so point it at this org's primary boat (falling back to whichever
+      // boat is first) before showing it.
+      const primaryBoat = boats.find(b => b.is_primary) || boats[0];
+      if(primaryBoat) CURRENT_BOAT_ID = primaryBoat.id;
       openUpgradeToProPopup();
       // If they back out of the popup (X, or tapping outside it) without
       // ever actually submitting the request below (Submit Request sets
