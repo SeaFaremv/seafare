@@ -1039,6 +1039,35 @@ app.get('/api/admin/pro-payments', requireAdmin, async (req, res) => {
 // Approve a pending boat request: creates the new boat row and marks the
 // request approved. This is the step you take after confirming the
 // transfer landed in your account.
+// Shared by the manual admin-approval path below and the automatic Pro
+// grant path in POST /api/boat-requests -- both end with an identical new
+// boat row, pre-filled the same way from the org's own info.
+async function createBoatForOrganization(organizationId, boatName){
+  const boatId = crypto.randomBytes(8).toString('hex');
+  await sql`
+    INSERT INTO boats (id, organization_id, name, is_primary, status)
+    VALUES (${boatId}, ${organizationId}, ${boatName}, false, 'active')
+  `;
+
+  // Pre-fill this new boat's Payment Details and Trip Defaults contact
+  // number from the org's own info (set at signup) -- editable separately
+  // per boat from here on.
+  const orgRows = await sql`SELECT contact_number, bank_account_name, bank_account_number FROM organizations WHERE id = ${organizationId}`;
+  const org = orgRows[0];
+  if(org && (org.bank_account_name || org.bank_account_number || org.contact_number)){
+    const initialSettings = {
+      bankAccountName: org.bank_account_name || '', bankAccountNumber: org.bank_account_number || '',
+      tripDefaults: { boatContacts: org.contact_number || '', trackingLink: '', viberLink: '' },
+    };
+    await sql`
+      INSERT INTO app_data (boat_id, key, value, updated_at)
+      VALUES (${boatId}, 'settings', ${JSON.stringify(initialSettings)}::jsonb, now())
+      ON CONFLICT (boat_id, key) DO UPDATE SET value = ${JSON.stringify(initialSettings)}::jsonb, updated_at = now()
+    `;
+  }
+  return boatId;
+}
+
 app.post('/api/admin/boat-requests/:id/approve', requireAdmin, async (req, res) => {
   try{
     const rows = await sql`SELECT * FROM boat_requests WHERE id = ${req.params.id}`;
@@ -1046,28 +1075,7 @@ app.post('/api/admin/boat-requests/:id/approve', requireAdmin, async (req, res) 
     if(!request) return res.status(404).json({ ok:false, error:'Request not found.' });
     if(request.status !== 'pending') return res.status(400).json({ ok:false, error:'This request was already reviewed.' });
 
-    const boatId = crypto.randomBytes(8).toString('hex');
-    await sql`
-      INSERT INTO boats (id, organization_id, name, is_primary, status)
-      VALUES (${boatId}, ${request.organization_id}, ${request.requested_boat_name}, false, 'active')
-    `;
-
-    // Pre-fill this new boat's Payment Details and Trip Defaults contact
-    // number from the org's own info (set at signup) -- editable separately
-    // per boat from here on.
-    const orgRows = await sql`SELECT contact_number, bank_account_name, bank_account_number FROM organizations WHERE id = ${request.organization_id}`;
-    const org = orgRows[0];
-    if(org && (org.bank_account_name || org.bank_account_number || org.contact_number)){
-      const initialSettings = {
-        bankAccountName: org.bank_account_name || '', bankAccountNumber: org.bank_account_number || '',
-        tripDefaults: { boatContacts: org.contact_number || '', trackingLink: '', viberLink: '' },
-      };
-      await sql`
-        INSERT INTO app_data (boat_id, key, value, updated_at)
-        VALUES (${boatId}, 'settings', ${JSON.stringify(initialSettings)}::jsonb, now())
-        ON CONFLICT (boat_id, key) DO UPDATE SET value = ${JSON.stringify(initialSettings)}::jsonb, updated_at = now()
-      `;
-    }
+    const boatId = await createBoatForOrganization(request.organization_id, request.requested_boat_name);
 
     // The screenshot is returned once in this response (so the admin can
     // download it), then permanently cleared from the database -- it's
@@ -1369,24 +1377,41 @@ app.post('/api/org-login', async (req, res) => {
 
 // Owner requests an additional boat. Re-verifies the org's own passkey so
 // this can't be called by anyone who merely knows the organizationId.
+//
+// Payment + admin approval is a non-Pro-only gate. A Pro org already pays
+// for its subscription, so any boat it asks for is created immediately --
+// no payment_screenshot, no boat_requests row, nothing sitting in the
+// admin's Boat Requests queue. Non-Pro orgs are unchanged: their request
+// still lands in boat_requests as 'pending' and waits on
+// /api/admin/boat-requests/:id/approve.
 app.post('/api/boat-requests', async (req, res) => {
   try{
     const { organizationId, passkey, requestedBoatName, paymentScreenshot } = req.body || {};
     if(!organizationId || !passkey || !requestedBoatName){
       return res.status(400).json({ ok:false, error:'Missing required fields.' });
     }
-    const rows = await sql`SELECT passkey_hash, boat_name FROM organizations WHERE id = ${organizationId}`;
+    const rows = await sql`SELECT passkey_hash, boat_name, is_pro FROM organizations WHERE id = ${organizationId}`;
     const org = rows[0];
     if(!org || !verifyPasskey(passkey, org.passkey_hash)){
       return res.status(401).json({ ok:false, error:'Could not verify your account.' });
     }
+
+    if(org.is_pro){
+      const boatId = await createBoatForOrganization(organizationId, requestedBoatName);
+      // Informational only -- nothing for the admin to act on, so this
+      // goes through the same notify type as any other new boat, not
+      // 'pending_request' (which implies action is needed).
+      await notifyAdmin('new_boat', `${org.boat_name} (Pro) added a new boat: "${requestedBoatName}" -- granted automatically, no approval needed.`);
+      return res.json({ ok:true, autoApproved:true, boatId });
+    }
+
     const id = crypto.randomBytes(8).toString('hex');
     await sql`
       INSERT INTO boat_requests (id, organization_id, requested_boat_name, payment_screenshot)
       VALUES (${id}, ${organizationId}, ${requestedBoatName}, ${paymentScreenshot || null})
     `;
     await notifyAdmin('pending_request', `${org.boat_name} requested a new boat: "${requestedBoatName}".`);
-    res.json({ ok:true, id });
+    res.json({ ok:true, autoApproved:false, id });
   }catch(e){
     console.error(e);
     res.status(500).json({ ok:false, error:'Could not submit your request. Try again.' });
