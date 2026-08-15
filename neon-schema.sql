@@ -182,6 +182,77 @@ CREATE INDEX IF NOT EXISTS pro_payments_reference_idx ON pro_payments (reference
 CREATE UNIQUE INDEX IF NOT EXISTS pro_payments_swipe_payment_id_idx ON pro_payments (swipe_payment_id);
 
 -- ---------------------------------------------------------------------------
+-- admin_notifications: the Super Admin's notification queue (new signups,
+-- new boats, pending boat requests, Pro requests, Swipe payments, and
+-- re-signups of a previously-deleted mobile number). reference_type /
+-- reference_id let the admin UI jump straight to the relevant record when a
+-- notification is tapped -- 'organization' + an organizations.id for
+-- account-level events, 'boat_request' + a boat_requests.id for a pending
+-- request awaiting approval. Both are nullable since older notification
+-- types (or rows written before this was added) may not have one.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS admin_notifications (
+  id              TEXT PRIMARY KEY,
+  type            TEXT NOT NULL,
+  message         TEXT NOT NULL,
+  reference_type  TEXT,
+  reference_id    TEXT,
+  read            BOOLEAN NOT NULL DEFAULT false,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS admin_notifications_created_at_idx ON admin_notifications (created_at);
+
+-- Safe to run against an existing database that already has this table from
+-- before notifications carried a reference -- adds the two columns only if
+-- they're not already there.
+ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS reference_type TEXT;
+ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS reference_id TEXT;
+
+-- ---------------------------------------------------------------------------
+-- admin_push_subscriptions: one row per browser/device the Super Admin has
+-- enabled real push notifications on (Notifications tab -> "Enable Push
+-- Notifications on This Device"). `subscription` is the full PushSubscription
+-- object the browser returns; `endpoint` (part of that object, also unique
+-- per device) is the natural key so re-enabling on the same device updates
+-- rather than duplicates.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS admin_push_subscriptions (
+  endpoint     TEXT PRIMARY KEY,
+  subscription JSONB NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
+-- deleted_accounts: a small audit trail kept after an organization or boat
+-- is deleted (by the Super Admin, or automatically after 15 days
+-- suspended) -- mobile + names + reason only, no other account data. Used
+-- at signup to flag when a mobile number that was previously removed is
+-- signing up again, so the Super Admin sees it distinctly rather than it
+-- silently blending in with ordinary new signups.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS deleted_accounts (
+  id          TEXT PRIMARY KEY,
+  mobile      TEXT NOT NULL,
+  boat_name   TEXT NOT NULL,
+  owner_name  TEXT NOT NULL,
+  reason      TEXT NOT NULL,
+  deleted_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS deleted_accounts_mobile_idx ON deleted_accounts (mobile);
+
+-- ---------------------------------------------------------------------------
+-- admin_settings notification toggles for Pro requests / Pro payments --
+-- these two columns are used by server.js (GET /api/admin/settings,
+-- POST /api/admin/settings/notifications) but were missing from the
+-- original admin_settings table above. Safe to run against an existing
+-- database; adds them only if not already there.
+-- ---------------------------------------------------------------------------
+ALTER TABLE admin_settings ADD COLUMN IF NOT EXISTS notify_pro_requests BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE admin_settings ADD COLUMN IF NOT EXISTS notify_pro_payments BOOLEAN NOT NULL DEFAULT true;
+
+-- ---------------------------------------------------------------------------
 -- That's the whole schema. No default/seed rows are inserted here (unlike
 -- the old single-tenant version) -- every organization, boat, and its
 -- initial rates/settings are created dynamically through the app's own
