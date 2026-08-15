@@ -394,7 +394,7 @@ app.get('/api/pro/payment-link/:reference/status', async (req, res) => {
     const remote = await swipeApiRequest('GET', `/api/v1/payments/${record.swipe_payment_id}`);
     if(isSwipeStatusDone(remote.status) && record.status !== 'COMPLETED'){
       await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE swipe_payment_id = ${req.params.reference}`;
-      await grantProForSwipePayment(record);
+      if(record.purpose !== 'due_clearance') await grantProForSwipePayment(record);
       return res.json({ ok:true, status: 'COMPLETED' });
     } else if(remote.status !== record.status){
       await sql`UPDATE pro_payments SET status = ${remote.status} WHERE swipe_payment_id = ${req.params.reference}`;
@@ -403,6 +403,85 @@ app.get('/api/pro/payment-link/:reference/status', async (req, res) => {
   }catch(e){
     console.error('payment status check failed', e);
     res.status(502).json({ ok:false, error:'Could not check payment status.' });
+  }
+});
+
+// --- Blocked Users: pay off an outstanding balance to unblock ---------------
+// Mirrors the Pro-upgrade Swipe flow above (same pro_payments table, same
+// token/webhook plumbing), but for clearing the due_amount on a
+// suspended organization so its numbers can be freed -- see
+// resolveDuePayment() and neon-schema.sql for the full picture. Reached
+// from the "blocked number" popup shown on a blocked signup attempt.
+app.post('/api/blocked-numbers/due-payment-link', async (req, res) => {
+  try{
+    const { organizationId } = req.body || {};
+    if(!organizationId) return res.status(400).json({ ok:false, error:'organizationId is required.' });
+    const orgRows = await sql`SELECT id, due_amount, due_currency FROM organizations WHERE id = ${organizationId}`;
+    if(!orgRows.length) return res.status(404).json({ ok:false, error:'This account no longer exists.' });
+    const amount = Number(orgRows[0].due_amount) || SWIPE_PRO_AMOUNT;
+    const currency = orgRows[0].due_currency || 'MVR';
+
+    const payment = await swipeApiRequest('POST', '/api/v1/payments', {
+      amount, currency, type: 'LINK',
+      description: `SeaFare outstanding balance -- organization ${organizationId}`,
+    });
+
+    await sql`
+      INSERT INTO pro_payments (id, boat_id, organization_id, purpose, swipe_payment_id, reference, amount, currency, status, payment_url)
+      VALUES (${'pp-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, NULL, ${organizationId}, 'due_clearance', ${payment.id}, ${payment.reference}, ${payment.amount}, ${payment.currency}, ${payment.status}, ${payment.payment_url || null})
+    `;
+
+    res.status(201).json({ ok:true, paymentUrl: payment.payment_url, swipePaymentId: payment.id, reference: payment.reference || null, status: payment.status, amount, currency });
+  }catch(e){
+    console.error('create due-payment link failed', e);
+    res.status(502).json({ ok:false, error: 'Could not create a payment link. Try again in a moment.' });
+  }
+});
+
+app.get('/api/blocked-numbers/due-payment-link/:reference/status', async (req, res) => {
+  try{
+    const rows = await sql`SELECT * FROM pro_payments WHERE swipe_payment_id = ${req.params.reference} AND purpose = 'due_clearance'`;
+    if(!rows.length) return res.status(404).json({ ok:false, error:'Unknown payment reference.' });
+    const record = rows[0];
+    if(record.status === 'COMPLETED') return res.json({ ok:true, status:'COMPLETED' });
+    const remote = await swipeApiRequest('GET', `/api/v1/payments/${record.swipe_payment_id}`);
+    if(isSwipeStatusDone(remote.status) && record.status !== 'COMPLETED'){
+      await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE swipe_payment_id = ${req.params.reference}`;
+      return res.json({ ok:true, status:'COMPLETED' });
+    } else if(remote.status !== record.status){
+      await sql`UPDATE pro_payments SET status = ${remote.status} WHERE swipe_payment_id = ${req.params.reference}`;
+    }
+    res.json({ ok:true, status: remote.status });
+  }catch(e){
+    console.error('due-payment status check failed', e);
+    res.status(502).json({ ok:false, error:'Could not check payment status.' });
+  }
+});
+
+// Called once the owner picks "continue with my previous account" or
+// "start fresh" after a due-clearance payment completes. Either way every
+// number tied to the organization is freed; 'existing' also reactivates
+// the account, 'new' removes it entirely (paid up, but not resumed) so
+// the person can sign up clean -- and, since a brand-new organization
+// always starts on the free tier by default, that fresh signup is
+// automatically not Pro.
+app.post('/api/blocked-numbers/resolve', async (req, res) => {
+  try{
+    const { reference, choice } = req.body || {};
+    if(!reference || !['existing','new'].includes(choice)){
+      return res.status(400).json({ ok:false, error:'reference and a valid choice are required.' });
+    }
+    const rows = await sql`SELECT * FROM pro_payments WHERE swipe_payment_id = ${reference} AND purpose = 'due_clearance'`;
+    if(!rows.length) return res.status(404).json({ ok:false, error:'Unknown payment reference.' });
+    const record = rows[0];
+    if(record.status !== 'COMPLETED') return res.status(400).json({ ok:false, error:'Payment has not completed yet.' });
+    if(record.resolved) return res.status(400).json({ ok:false, error:'This payment has already been used.' });
+    await resolveDuePayment(record, choice);
+    await sql`UPDATE pro_payments SET resolved = true WHERE id = ${record.id}`;
+    res.json({ ok:true, choice });
+  }catch(e){
+    console.error('resolve due payment failed', e);
+    res.status(500).json({ ok:false, error:'Could not complete this action.' });
   }
 });
 
@@ -438,7 +517,10 @@ app.post('/api/webhooks/swipe', async (req, res) => {
 
     if(isSwipeStatusDone(data.status) && record.status !== 'COMPLETED'){
       await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now(), reference = COALESCE(reference, ${txCode}) WHERE id = ${record.id}`;
-      await grantProForSwipePayment(record);
+      // due_clearance payments don't auto-grant Pro or auto-reactivate the
+      // account -- the owner still has to pick "continue" or "start
+      // fresh" via POST /api/blocked-numbers/resolve after this.
+      if(record.purpose !== 'due_clearance') await grantProForSwipePayment(record);
     } else if(data.status !== record.status){
       await sql`UPDATE pro_payments SET status = ${data.status}, reference = COALESCE(reference, ${txCode}) WHERE id = ${record.id}`;
     }
@@ -793,6 +875,8 @@ async function cleanupExpiredSuspensions(){
   const expiredOrgs = await sql`SELECT id, mobile, boat_name, owner_name FROM organizations WHERE status = 'suspended' AND suspended_at IS NOT NULL AND suspended_at < ${cutoff}`;
   for(const org of expiredOrgs){
     const boats = await sql`SELECT id FROM boats WHERE organization_id = ${org.id}`;
+    await blockOrgNumbers(org.id, 'auto_deleted_inactive_suspension');
+    for(const b of boats){ await blockBoatNumbers(b.id, org.id, 'auto_deleted_inactive_suspension'); }
     for(const b of boats){ await sql`DELETE FROM app_data WHERE boat_id = ${b.id}`; }
     await sql`
       INSERT INTO deleted_accounts (id, mobile, boat_name, owner_name, reason)
@@ -804,11 +888,12 @@ async function cleanupExpiredSuspensions(){
   // Individual boats suspended on their own (org itself still active) --
   // same 15-day rule, scoped to just that boat.
   const expiredBoats = await sql`
-    SELECT b.id, b.name AS boat_name, o.mobile, o.owner_name
+    SELECT b.id, b.name AS boat_name, b.organization_id, o.mobile, o.owner_name
     FROM boats b JOIN organizations o ON o.id = b.organization_id
     WHERE b.status = 'suspended' AND b.suspended_at IS NOT NULL AND b.suspended_at < ${cutoff} AND o.status != 'suspended'
   `;
   for(const boat of expiredBoats){
+    await blockBoatNumbers(boat.id, boat.organization_id, 'auto_deleted_inactive_suspension');
     await sql`DELETE FROM app_data WHERE boat_id = ${boat.id}`;
     await sql`
       INSERT INTO deleted_accounts (id, mobile, boat_name, owner_name, reason)
@@ -847,6 +932,16 @@ app.get('/api/admin/organizations', requireAdmin, async (req, res) => {
     await cleanupExpiredSuspensions();
     const orgs = await sql`SELECT id, boat_name, owner_name, contact_number, gmail, mobile, status, suspension_note, suspended_at, totp_secret, is_pro, pro_started_at, pro_expires_at, created_at FROM organizations ORDER BY created_at DESC`;
     const boats = await sql`SELECT id, organization_id, name, is_primary, status, suspension_note, suspended_at, created_at FROM boats ORDER BY created_at ASC`;
+    // Each boat's own contact number(s) live in its settings
+    // (tripDefaults.boatContacts), not the boats table itself -- pull
+    // those in too so the admin popup can show every boat's own contact,
+    // not just the organization's.
+    const boatSettingsRows = boats.length
+      ? await sql`SELECT boat_id, value FROM app_data WHERE key = 'settings' AND boat_id = ANY(${boats.map(b => b.id)})`
+      : [];
+    const contactsByBoatId = Object.fromEntries(
+      boatSettingsRows.map(r => [r.boat_id, (r.value && r.value.tripDefaults && r.value.tripDefaults.boatContacts) || ''])
+    );
     // Flag any org whose mobile number has a prior deletion on record, so
     // the admin can see at a glance (and open up why) even outside the
     // notification queue -- e.g. if they missed the original notification.
@@ -854,13 +949,75 @@ app.get('/api/admin/organizations', requireAdmin, async (req, res) => {
     const deletionsByMobile = Object.fromEntries(priorDeletions.map(d => [d.mobile, d]));
     const withBoats = orgs.map(o => ({
       ...o,
-      boats: boats.filter(b => b.organization_id === o.id),
+      boats: boats.filter(b => b.organization_id === o.id).map(b => ({ ...b, contact_number: contactsByBoatId[b.id] || '' })),
       priorDeletion: deletionsByMobile[o.mobile] || null,
     }));
     res.json({ ok:true, organizations: withBoats });
   }catch(e){
     console.error(e);
     res.status(500).json({ ok:false, error:'Could not load organizations.' });
+  }
+});
+
+// Super Admin's "Blocked Users" tab -- every individually-blocked number,
+// grouped by the organization's signup name (boat_name) so the admin sees
+// one entry per owner with all their numbers (and all their boats' own
+// numbers) broken out underneath. Includes lifted numbers too, so this
+// doubles as the log the Super Admin asked for -- not just an active
+// block list.
+app.get('/api/admin/blocked-numbers', requireAdmin, async (req, res) => {
+  try{
+    const rows = await sql`
+      SELECT id, mobile, organization_id, boat_id, boat_name, owner_name, source_label, reason, status, created_at, lifted_at
+      FROM blocked_numbers
+      WHERE status = 'blocked'
+      ORDER BY boat_name ASC, created_at DESC
+    `;
+    const groups = {};
+    const order = [];
+    for(const r of rows){
+      const key = `${r.boat_name}__${r.owner_name}`;
+      if(!groups[key]){
+        groups[key] = { boatName: r.boat_name, ownerName: r.owner_name, organizationId: r.organization_id || null, numbers: [] };
+        order.push(key);
+      }
+      if(!groups[key].organizationId && r.organization_id) groups[key].organizationId = r.organization_id;
+      groups[key].numbers.push(r);
+    }
+    const list = order.map(k => groups[k]);
+    for(const g of list){
+      if(g.organizationId){
+        const orgRows = await sql`SELECT status, due_amount, due_currency FROM organizations WHERE id = ${g.organizationId}`;
+        if(orgRows.length){
+          g.orgStatus = orgRows[0].status;
+          g.dueAmount = orgRows[0].due_amount;
+          g.dueCurrency = orgRows[0].due_currency;
+        } else {
+          g.orgStatus = 'deleted';
+        }
+      } else {
+        g.orgStatus = 'deleted';
+      }
+    }
+    res.json({ ok:true, groups: list });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not load blocked users.' });
+  }
+});
+
+// Manually unblock one specific number. Used for numbers permanently
+// blocked by a deletion (deleted_by_admin / auto_deleted_inactive_suspension)
+// where there's no org/boat left to unsuspend -- the Super Admin is the
+// only way those ever come off the list. Works for a 'suspended'-reason
+// row too, as a manual override without unsuspending the whole account.
+app.post('/api/admin/blocked-numbers/:id/unblock', requireAdmin, async (req, res) => {
+  try{
+    await sql`DELETE FROM blocked_numbers WHERE id = ${req.params.id}`;
+    res.json({ ok:true });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not unblock this number.' });
   }
 });
 
@@ -909,15 +1066,25 @@ app.post('/api/admin/organizations/:id/pro/revoke', requireAdmin, async (req, re
 app.post('/api/admin/organizations/:id/suspend', requireAdmin, async (req, res) => {
   try{
     const note = (req.body && req.body.note || '').trim() || null;
-    await sql`UPDATE organizations SET status = 'suspended', suspension_note = ${note}, suspended_at = now() WHERE id = ${req.params.id}`;
+    const dueAmountRaw = req.body && req.body.dueAmount;
+    const dueAmount = (dueAmountRaw !== undefined && dueAmountRaw !== null && String(dueAmountRaw).trim() !== '') ? Number(dueAmountRaw) : null;
+    await sql`UPDATE organizations SET status = 'suspended', suspension_note = ${note}, suspended_at = now(), due_amount = ${dueAmount} WHERE id = ${req.params.id}`;
     await sql`UPDATE boats SET status = 'suspended', suspension_note = ${note}, suspended_at = now() WHERE organization_id = ${req.params.id} AND status != 'suspended'`;
+    // Block every number tied to this organization AND each of its boats
+    // -- the owner's own mobile/contact number, plus each boat's own Trip
+    // Defaults contact number(s) -- so none of them can be used to sign up
+    // fresh while this account is suspended.
+    await blockOrgNumbers(req.params.id, 'suspended');
+    const boats = await sql`SELECT id FROM boats WHERE organization_id = ${req.params.id}`;
+    for(const b of boats){ await blockBoatNumbers(b.id, req.params.id, 'suspended'); }
     res.json({ ok:true });
   }catch(e){ console.error(e); res.status(500).json({ ok:false, error:'Could not suspend this organization.' }); }
 });
 app.post('/api/admin/organizations/:id/unsuspend', requireAdmin, async (req, res) => {
   try{
-    await sql`UPDATE organizations SET status = 'active', suspension_note = NULL, suspended_at = NULL WHERE id = ${req.params.id}`;
+    await sql`UPDATE organizations SET status = 'active', suspension_note = NULL, suspended_at = NULL, due_amount = NULL WHERE id = ${req.params.id}`;
     await sql`UPDATE boats SET status = 'active', suspension_note = NULL, suspended_at = NULL WHERE organization_id = ${req.params.id} AND status = 'suspended'`;
+    await liftOrgNumbers(req.params.id);
     res.json({ ok:true });
   }catch(e){ console.error(e); res.status(500).json({ ok:false, error:'Could not unsuspend this organization.' }); }
 });
@@ -931,6 +1098,11 @@ app.delete('/api/admin/organizations/:id', requireAdmin, async (req, res) => {
     const orgRows = await sql`SELECT mobile, boat_name, owner_name FROM organizations WHERE id = ${req.params.id}`;
     const org = orgRows[0];
     const boats = await sql`SELECT id FROM boats WHERE organization_id = ${req.params.id}`;
+    // Permanently block every number tied to this organization and its
+    // boats BEFORE the rows are gone (blockOrgNumbers/blockBoatNumbers
+    // need the organization/boat to still exist to read their numbers).
+    await blockOrgNumbers(req.params.id, 'deleted_by_admin');
+    for(const b of boats){ await blockBoatNumbers(b.id, req.params.id, 'deleted_by_admin'); }
     for(const b of boats){
       await sql`DELETE FROM app_data WHERE boat_id = ${b.id}`;
     }
@@ -950,13 +1122,16 @@ app.delete('/api/admin/organizations/:id', requireAdmin, async (req, res) => {
 app.post('/api/admin/boats/:id/suspend', requireAdmin, async (req, res) => {
   try{
     const note = (req.body && req.body.note || '').trim() || null;
+    const boatRows = await sql`SELECT organization_id FROM boats WHERE id = ${req.params.id}`;
     await sql`UPDATE boats SET status = 'suspended', suspension_note = ${note}, suspended_at = now() WHERE id = ${req.params.id}`;
+    if(boatRows.length) await blockBoatNumbers(req.params.id, boatRows[0].organization_id, 'suspended');
     res.json({ ok:true });
   }catch(e){ console.error(e); res.status(500).json({ ok:false, error:'Could not suspend this boat.' }); }
 });
 app.post('/api/admin/boats/:id/unsuspend', requireAdmin, async (req, res) => {
   try{
     await sql`UPDATE boats SET status = 'active', suspension_note = NULL, suspended_at = NULL WHERE id = ${req.params.id}`;
+    await liftBoatNumbers(req.params.id);
     res.json({ ok:true });
   }catch(e){ console.error(e); res.status(500).json({ ok:false, error:'Could not unsuspend this boat.' }); }
 });
@@ -965,11 +1140,12 @@ app.post('/api/admin/boats/:id/unsuspend', requireAdmin, async (req, res) => {
 app.delete('/api/admin/boats/:id', requireAdmin, async (req, res) => {
   try{
     const boatRows = await sql`
-      SELECT b.name AS boat_name, o.mobile, o.owner_name
+      SELECT b.name AS boat_name, b.organization_id, o.mobile, o.owner_name
       FROM boats b JOIN organizations o ON o.id = b.organization_id
       WHERE b.id = ${req.params.id}
     `;
     const boat = boatRows[0];
+    if(boat) await blockBoatNumbers(req.params.id, boat.organization_id, 'deleted_by_admin');
     await sql`DELETE FROM app_data WHERE boat_id = ${req.params.id}`;
     if(boat){
       await sql`
@@ -1152,6 +1328,139 @@ function verifyPasskey(passkey, stored){
   catch(e){ return false; }
 }
 
+// --- Blocked Users / mobile-number blocking ---------------------------------
+// See neon-schema.sql for the full rationale. Short version: every
+// individual number tied to an organization or one of its boats gets
+// tracked separately (even when several are jammed into one free-text
+// field like "7777777 / 9999999"), and blocked from future signups once
+// that organization/boat is suspended or deleted.
+
+// Splits on ANY run of non-digit characters -- "/", "-", ",", spaces,
+// "and", newlines, anything -- so "7777777 / 9876543-7890567" and
+// "7777777, 9876543 or 7890567" both come out as three separate numbers.
+// Keeps only plausible phone-number-length digit runs (7-15 digits) so
+// stray punctuation-only fragments don't turn into junk "numbers".
+function parseNumbers(raw){
+  if(!raw) return [];
+  return Array.from(new Set(
+    String(raw).split(/\D+/).filter(s => s.length >= 7 && s.length <= 15)
+  ));
+}
+
+// Every individual number currently tied to an organization: its own
+// "mobile" (owner's personal number) and "contact_number" (boat contact,
+// possibly several jammed together), plus each of its boats' own contact
+// number(s) as saved in that boat's Trip Defaults settings.
+async function collectOrgNumberSources(organizationId){
+  const orgRows = await sql`SELECT mobile, contact_number, boat_name FROM organizations WHERE id = ${organizationId}`;
+  if(!orgRows.length) return [];
+  const org = orgRows[0];
+  const sources = [];
+  parseNumbers(org.mobile).forEach(m => sources.push({ mobile: m, sourceLabel: 'Owner Mobile' }));
+  parseNumbers(org.contact_number).forEach(m => sources.push({ mobile: m, sourceLabel: `Boat Contact (${org.boat_name})` }));
+  const seen = new Set(); const out = [];
+  for(const s of sources){ if(!seen.has(s.mobile)){ seen.add(s.mobile); out.push(s); } }
+  return out;
+}
+// Same idea, scoped to one boat's own Trip Defaults contact number(s) only
+// -- used when a single boat (not the whole organization) is suspended or
+// deleted.
+async function collectBoatNumberSources(boatId){
+  const boatRows = await sql`
+    SELECT b.name, b.organization_id, o.boat_name AS org_boat_name, o.owner_name
+    FROM boats b JOIN organizations o ON o.id = b.organization_id
+    WHERE b.id = ${boatId}
+  `;
+  if(!boatRows.length) return null;
+  const boat = boatRows[0];
+  const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boatId} AND key = 'settings'`;
+  const contacts = rows.length ? (rows[0].value && rows[0].value.tripDefaults && rows[0].value.tripDefaults.boatContacts) : '';
+  const numbers = parseNumbers(contacts).map(m => ({ mobile: m, sourceLabel: `Boat Contact (${boat.name})` }));
+  return { organizationId: boat.organization_id, orgBoatName: boat.org_boat_name, ownerName: boat.owner_name, numbers };
+}
+
+async function blockOrgNumbers(organizationId, reason){
+  const orgRows = await sql`SELECT boat_name, owner_name FROM organizations WHERE id = ${organizationId}`;
+  if(!orgRows.length) return;
+  const org = orgRows[0];
+  const sources = await collectOrgNumberSources(organizationId);
+  for(const s of sources){
+    await sql`
+      INSERT INTO blocked_numbers (id, mobile, organization_id, boat_id, boat_name, owner_name, source_label, reason, status)
+      VALUES (${'blk-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${s.mobile}, ${organizationId}, NULL, ${org.boat_name}, ${org.owner_name}, ${s.sourceLabel}, ${reason}, 'blocked')
+      ON CONFLICT (mobile, organization_id, boat_id, reason) WHERE status = 'blocked' DO NOTHING
+    `;
+  }
+}
+async function blockBoatNumbers(boatId, organizationId, reason){
+  const info = await collectBoatNumberSources(boatId);
+  if(!info) return;
+  for(const s of info.numbers){
+    await sql`
+      INSERT INTO blocked_numbers (id, mobile, organization_id, boat_id, boat_name, owner_name, source_label, reason, status)
+      VALUES (${'blk-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${s.mobile}, ${organizationId || info.organizationId || null}, ${boatId}, ${info.orgBoatName}, ${info.ownerName}, ${s.sourceLabel}, ${reason}, 'blocked')
+      ON CONFLICT (mobile, organization_id, boat_id, reason) WHERE status = 'blocked' DO NOTHING
+    `;
+  }
+}
+// Unsuspending removes the block entirely -- the number goes straight
+// back to being usable, and drops off the Blocked Users tab (rather than
+// lingering there marked "lifted"). Scoped to reason='suspended' only, so
+// a permanent block from an actual deletion is never touched by this.
+async function liftOrgNumbers(organizationId){
+  await sql`DELETE FROM blocked_numbers WHERE organization_id = ${organizationId} AND reason = 'suspended' AND status = 'blocked'`;
+}
+async function liftBoatNumbers(boatId){
+  await sql`DELETE FROM blocked_numbers WHERE boat_id = ${boatId} AND reason = 'suspended' AND status = 'blocked'`;
+}
+
+// Scans every still-existing organization and boat (regardless of
+// suspended/active status -- suspended accounts still "own" their numbers
+// until deleted) for a number overlapping the ones just entered at
+// signup. This is the plain "you can't reuse a number that's already
+// registered somewhere" rule, separate from the blocked-numbers table
+// (which covers suspended/deleted accounts specifically, with its own
+// pay-to-resolve popup).
+async function findActiveNumberConflict(numbers){
+  if(!numbers.length) return null;
+  const orgs = await sql`SELECT id, boat_name, owner_name, mobile, contact_number FROM organizations`;
+  for(const org of orgs){
+    const orgNums = parseNumbers(org.mobile).concat(parseNumbers(org.contact_number));
+    if(orgNums.some(n => numbers.includes(n))) return { boatName: org.boat_name, ownerName: org.owner_name };
+  }
+  const boats = await sql`SELECT id, name, organization_id FROM boats`;
+  const orgById = Object.fromEntries(orgs.map(o => [o.id, o]));
+  for(const boat of boats){
+    const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boat.id} AND key = 'settings'`;
+    const contacts = rows.length ? (rows[0].value && rows[0].value.tripDefaults && rows[0].value.tripDefaults.boatContacts) : '';
+    const boatNums = parseNumbers(contacts);
+    if(boatNums.some(n => numbers.includes(n))){
+      const org = orgById[boat.organization_id];
+      return { boatName: org ? org.boat_name : boat.name, ownerName: org ? org.owner_name : '' };
+    }
+  }
+  return null;
+}
+
+// After a due-clearance payment (see /api/blocked-numbers/*) completes,
+// the owner chooses to either resume their old (now-paid-up) account, or
+// walk away from it and sign up fresh. Either way every number tied to
+// that organization is removed from the block list entirely -- it was
+// just paid off, so there's nothing left to keep it blocked for.
+async function resolveDuePayment(record, choice){
+  const orgId = record.organization_id;
+  if(!orgId) throw new Error('Payment has no organization to resolve.');
+  await sql`DELETE FROM blocked_numbers WHERE organization_id = ${orgId} AND status = 'blocked'`;
+  if(choice === 'existing'){
+    await sql`UPDATE organizations SET status = 'active', suspension_note = NULL, suspended_at = NULL, due_amount = NULL WHERE id = ${orgId}`;
+    await sql`UPDATE boats SET status = 'active', suspension_note = NULL, suspended_at = NULL WHERE organization_id = ${orgId} AND status = 'suspended'`;
+  } else {
+    const boats = await sql`SELECT id FROM boats WHERE organization_id = ${orgId}`;
+    for(const b of boats){ await sql`DELETE FROM app_data WHERE boat_id = ${b.id}`; }
+    await sql`DELETE FROM organizations WHERE id = ${orgId}`; // boats cascade via FK
+  }
+}
+
 // Create a new owner + their one free boat. Returns the TOTP secret once,
 // in the response, so the front-end can show it to the owner for adding to
 // an authenticator app -- it is never returned again after this call.
@@ -1253,9 +1562,50 @@ app.post('/api/signup', async (req, res) => {
     const existing = await sql`SELECT id FROM organizations WHERE lower(boat_name) = lower(${b.boatName})`;
     if(existing.length > 0) return res.status(409).json({ ok:false, error:'That boat name is already taken as a username. Choose a different one.' });
 
+    // Every individual number entered (both fields can carry more than
+    // one number, e.g. "7777777 / 9999999") gets checked two ways:
+    //   1) is any of them blocked (tied to a suspended or deleted
+    //      account)? -- returns a structured response the front-end turns
+    //      into the "blocked number" popup, with a pay-to-resolve path
+    //      for still-suspended (not yet deleted) accounts.
+    //   2) is any of them already in active use by a different account?
+    //      -- plain rejection, no special popup.
+    const numbersEntered = Array.from(new Set(parseNumbers(b.mobile).concat(parseNumbers(b.contactNumber))));
+    if(numbersEntered.length){
+      const blockedRows = await sql`
+        SELECT * FROM blocked_numbers
+        WHERE status = 'blocked' AND mobile = ANY(${numbersEntered}::text[])
+        ORDER BY created_at DESC LIMIT 1
+      `;
+      if(blockedRows.length){
+        const rec = blockedRows[0];
+        let organizationId = null, dueAmount = 0, dueCurrency = 'MVR';
+        if(rec.organization_id){
+          const orgRows = await sql`SELECT id, due_amount, due_currency FROM organizations WHERE id = ${rec.organization_id}`;
+          if(orgRows.length){
+            organizationId = rec.organization_id;
+            dueAmount = Number(orgRows[0].due_amount) || 0;
+            dueCurrency = orgRows[0].due_currency || 'MVR';
+          }
+        }
+        return res.status(409).json({
+          ok:false, blocked:true, mobile: rec.mobile,
+          boatName: rec.boat_name, ownerName: rec.owner_name, reason: rec.reason,
+          organizationId, dueAmount, dueCurrency,
+        });
+      }
+      const conflict = await findActiveNumberConflict(numbersEntered);
+      if(conflict){
+        return res.status(409).json({ ok:false, error: `That mobile/contact number is already registered under "${conflict.boatName}"${conflict.ownerName ? ` (${conflict.ownerName})` : ''}. Each number can only be used by one account.` });
+      }
+    }
+
     // Was this mobile number previously deleted (by an admin, or
     // automatically after 15 days suspended)? Flag it distinctly for the
-    // Super Admin rather than silently letting it back in unnoticed.
+    // Super Admin rather than silently letting it back in unnoticed. (By
+    // this point it's already confirmed NOT currently blocked, e.g. its
+    // due balance was just paid off -- see resolveDuePayment -- so this
+    // is purely informational for the admin.)
     const priorDeletion = await sql`SELECT boat_name, reason, deleted_at FROM deleted_accounts WHERE mobile = ${b.mobile} ORDER BY deleted_at DESC LIMIT 1`;
 
     const orgId = crypto.randomBytes(8).toString('hex');
