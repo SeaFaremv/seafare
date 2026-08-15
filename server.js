@@ -221,6 +221,22 @@ const SWIPE_BASE_URL = process.env.SWIPE_ENV === 'development'
 const SWIPE_TOKEN_URL = 'https://api.swipe.mv/oauth2/token';
 const SWIPE_PRO_AMOUNT = Number(process.env.SWIPE_PRO_AMOUNT) || 500;
 
+// Swipe's live API reports a completed payment's status as 'FULFILLED' --
+// not 'COMPLETED', which is what this integration originally assumed (a
+// common status name for other providers, but not what Swipe actually
+// sends). That mismatch meant a real, successful payment never matched the
+// `=== 'COMPLETED'` checks below, so Pro was never granted no matter how
+// many times the payment was confirmed on Swipe's side, and it never
+// showed up in the Super Admin's "Paid via Swipe" tab either (that list is
+// filtered on pro_payments.status = 'COMPLETED'). Treat either spelling as
+// "done" on the way in, but always store/report our own canonical
+// 'COMPLETED' afterwards so every other place in the app only ever has to
+// compare against one value.
+const SWIPE_DONE_STATUSES = new Set(['COMPLETED', 'FULFILLED']);
+function isSwipeStatusDone(status){
+  return SWIPE_DONE_STATUSES.has(String(status || '').toUpperCase());
+}
+
 // Cached in memory (per server process) rather than fetched fresh on every
 // request -- client-credentials tokens are normally valid for a while, and
 // refetching one per payment link would be wasteful. Refreshed a minute
@@ -376,9 +392,10 @@ app.get('/api/pro/payment-link/:reference/status', async (req, res) => {
       return res.json({ ok:true, status: 'COMPLETED' });
     }
     const remote = await swipeApiRequest('GET', `/api/v1/payments/${record.swipe_payment_id}`);
-    if(remote.status === 'COMPLETED' && record.status !== 'COMPLETED'){
+    if(isSwipeStatusDone(remote.status) && record.status !== 'COMPLETED'){
       await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE swipe_payment_id = ${req.params.reference}`;
       await grantProForSwipePayment(record);
+      return res.json({ ok:true, status: 'COMPLETED' });
     } else if(remote.status !== record.status){
       await sql`UPDATE pro_payments SET status = ${remote.status} WHERE swipe_payment_id = ${req.params.reference}`;
     }
@@ -419,7 +436,7 @@ app.post('/api/webhooks/swipe', async (req, res) => {
     if(!rows.length) return res.json({ ok:true }); // not one of ours (or a different payment type)
     const record = rows[0];
 
-    if(data.status === 'COMPLETED' && record.status !== 'COMPLETED'){
+    if(isSwipeStatusDone(data.status) && record.status !== 'COMPLETED'){
       await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now(), reference = COALESCE(reference, ${txCode}) WHERE id = ${record.id}`;
       await grantProForSwipePayment(record);
     } else if(data.status !== record.status){
