@@ -25,6 +25,7 @@ const twilio = require('twilio');
 const { authenticator } = require('otplib');
 const { google } = require('googleapis');
 const { neon } = require('@neondatabase/serverless');
+const webpush = require('web-push');
 
 const sql = neon(process.env.DATABASE_URL);
 const app = express();
@@ -316,6 +317,20 @@ async function grantProToOrganization(organizationId){
     WHERE id = ${organizationId}
   `;
 }
+// Grants Pro for a completed Swipe payment AND raises an admin
+// notification -- shared by the webhook and the manual "Check Now"
+// fallback so both notify the same way regardless of which one actually
+// caught the completion first.
+async function grantProForSwipePayment(record){
+  await grantProToBoat(record.boat_id);
+  const orgRows = await sql`
+    SELECT o.boat_name AS org_boat_name, o.owner_name FROM boats b
+    JOIN organizations o ON o.id = b.organization_id
+    WHERE b.id = ${record.boat_id}
+  `;
+  const orgLabel = orgRows.length ? `${orgRows[0].owner_name} (${orgRows[0].org_boat_name})` : record.boat_id;
+  await notifyAdmin('pro_paid_via_swipe', `${orgLabel} paid \u0783${record.amount} via Swipe \u2014 Pro granted automatically, no approval needed.`);
+}
 
 // Creates a Swipe payment link for this boat's Pro upgrade/renewal. The
 // `reference` Swipe returns (its transaction code) is stored alongside the
@@ -362,8 +377,8 @@ app.get('/api/pro/payment-link/:reference/status', async (req, res) => {
     }
     const remote = await swipeApiRequest('GET', `/api/v1/payments/${record.swipe_payment_id}`);
     if(remote.status === 'COMPLETED' && record.status !== 'COMPLETED'){
-      await grantProToBoat(record.boat_id);
       await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE swipe_payment_id = ${req.params.reference}`;
+      await grantProForSwipePayment(record);
     } else if(remote.status !== record.status){
       await sql`UPDATE pro_payments SET status = ${remote.status} WHERE swipe_payment_id = ${req.params.reference}`;
     }
@@ -405,8 +420,8 @@ app.post('/api/webhooks/swipe', async (req, res) => {
     const record = rows[0];
 
     if(data.status === 'COMPLETED' && record.status !== 'COMPLETED'){
-      await grantProToBoat(record.boat_id);
       await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now(), reference = COALESCE(reference, ${txCode}) WHERE id = ${record.id}`;
+      await grantProForSwipePayment(record);
     } else if(data.status !== record.status){
       await sql`UPDATE pro_payments SET status = ${data.status}, reference = COALESCE(reference, ${txCode}) WHERE id = ${record.id}`;
     }
@@ -685,6 +700,8 @@ app.get('/api/admin/settings', requireAdmin, async (req, res) => {
       notifyNewSignups: row.notify_new_signups,
       notifyBoatRequests: row.notify_boat_requests,
       notifyNewBoats: row.notify_new_boats,
+      notifyProRequests: row.notify_pro_requests,
+      notifyProPayments: row.notify_pro_payments,
     }});
   }catch(e){
     console.error(e);
@@ -723,13 +740,15 @@ app.post('/api/admin/settings/bank', requireAdmin, async (req, res) => {
 });
 app.post('/api/admin/settings/notifications', requireAdmin, async (req, res) => {
   try{
-    const { notifyNewSignups, notifyBoatRequests, notifyNewBoats } = req.body || {};
+    const { notifyNewSignups, notifyBoatRequests, notifyNewBoats, notifyProRequests, notifyProPayments } = req.body || {};
     await ensureAdminSettingsRow();
     await sql`
       UPDATE admin_settings SET
         notify_new_signups = ${!!notifyNewSignups},
         notify_boat_requests = ${!!notifyBoatRequests},
         notify_new_boats = ${!!notifyNewBoats},
+        notify_pro_requests = ${!!notifyProRequests},
+        notify_pro_payments = ${!!notifyProPayments},
         updated_at = now()
       WHERE id = 'admin'
     `;
@@ -964,6 +983,59 @@ app.get('/api/admin/boat-requests', requireAdmin, async (req, res) => {
   }
 });
 
+// Every pending manual bank-transfer Pro request across all organizations,
+// for the admin's Pro Requests tab -- the request itself is still
+// submitted per boat (see submitProRequest in index.html), but shown here
+// with its organization's context so the admin can grant Pro (which is
+// org-wide) directly from this list.
+app.get('/api/admin/pro-requests', requireAdmin, async (req, res) => {
+  try{
+    const rows = await sql`
+      SELECT ad.boat_id, ad.value, b.name AS boat_name, b.organization_id,
+             o.boat_name AS org_boat_name, o.owner_name
+      FROM app_data ad
+      JOIN boats b ON b.id = ad.boat_id
+      JOIN organizations o ON o.id = b.organization_id
+      WHERE ad.key = 'settings' AND ad.value->>'proRequestPending' = 'true'
+      ORDER BY (ad.value->>'proRequestedAt') DESC NULLS LAST
+    `;
+    const requests = rows.map(r => ({
+      boatId: r.boat_id,
+      boatName: r.boat_name,
+      organizationId: r.organization_id,
+      orgBoatName: r.org_boat_name,
+      ownerName: r.owner_name,
+      requestedAt: r.value.proRequestedAt || null,
+      screenshot: r.value.proRequestScreenshot || null,
+    }));
+    res.json({ ok:true, requests });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not load Pro requests.' });
+  }
+});
+
+// Every completed Swipe payment that auto-granted Pro (no admin approval
+// involved) -- for the admin's "Paid via Swipe" tab, so there's still
+// visibility into these even though nothing required action.
+app.get('/api/admin/pro-payments', requireAdmin, async (req, res) => {
+  try{
+    const rows = await sql`
+      SELECT pp.id, pp.boat_id, pp.amount, pp.currency, pp.completed_at,
+             b.name AS boat_name, b.organization_id, o.boat_name AS org_boat_name, o.owner_name
+      FROM pro_payments pp
+      JOIN boats b ON b.id = pp.boat_id
+      JOIN organizations o ON o.id = b.organization_id
+      WHERE pp.status = 'COMPLETED'
+      ORDER BY pp.completed_at DESC
+    `;
+    res.json({ ok:true, payments: rows });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not load Swipe payments.' });
+  }
+});
+
 // Approve a pending boat request: creates the new boat row and marks the
 // request approved. This is the step you take after confirming the
 // transfer landed in your account.
@@ -1060,13 +1132,85 @@ function verifyPasskey(passkey, stored){
 // an authenticator app -- it is never returned again after this call.
 // Small helper for the Super Admin notification queue -- used from
 // signup, boat requests, and boat-request approval below.
+//
+// --- Web Push (real notifications reaching the Super Admin even with the
+// tab closed) --------------------------------------------------------------
+// VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY are the keypair generated for this
+// project -- the public half is already embedded in index.html
+// (ADMIN_PUSH_VAPID_PUBLIC_KEY); the private half must only ever live here,
+// as a server env var, never shipped to the browser. VAPID_SUBJECT is a
+// contact URL or mailto: some push services require in the request.
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+const webPushConfigured = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+if(webPushConfigured){
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+}
+
+app.post('/api/admin/push-subscribe', async (req, res) => {
+  try{
+    if(!(await checkAdmin(req))) return res.status(401).json({ ok:false, error:'Invalid admin credentials.' });
+    const { subscription } = req.body || {};
+    if(!subscription || !subscription.endpoint) return res.status(400).json({ ok:false, error:'subscription is required.' });
+    await sql`
+      INSERT INTO admin_push_subscriptions (endpoint, subscription)
+      VALUES (${subscription.endpoint}, ${JSON.stringify(subscription)}::jsonb)
+      ON CONFLICT (endpoint) DO UPDATE SET subscription = ${JSON.stringify(subscription)}::jsonb
+    `;
+    res.json({ ok:true });
+  }catch(e){
+    console.error('push-subscribe failed', e);
+    res.status(500).json({ ok:false, error:'Could not save that subscription.' });
+  }
+});
+
+// Sends a real push to every device the Super Admin has enabled
+// notifications on. A subscription that comes back expired/gone (410 or
+// 404 -- the browser unsubscribed, cleared storage, etc.) is removed so it
+// stops being retried forever; any other failure for one device just gets
+// logged, not thrown, so it never blocks the others or the caller.
+async function sendAdminPush(type, message){
+  if(!webPushConfigured) return;
+  try{
+    const subs = await sql`SELECT endpoint, subscription FROM admin_push_subscriptions`;
+    const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: 'Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: 'Paid via Swipe' };
+    const payload = JSON.stringify({ title: `SeaFare Super Admin \u2014 ${typeLabels[type] || type}`, body: message });
+    await Promise.all(subs.map(async (s) => {
+      try{
+        await webpush.sendNotification(s.subscription, payload);
+      }catch(e){
+        if(e.statusCode === 410 || e.statusCode === 404){
+          await sql`DELETE FROM admin_push_subscriptions WHERE endpoint = ${s.endpoint}`;
+        } else {
+          console.error('sendAdminPush failed for one subscription', e.statusCode || e);
+        }
+      }
+    }));
+  }catch(e){ console.error('sendAdminPush failed', e); }
+}
+
+const NOTIFY_TYPE_TO_SETTING = {
+  new_signup: 'notify_new_signups',
+  resignup_after_deletion: 'notify_new_signups',
+  pending_request: 'notify_boat_requests',
+  new_boat: 'notify_new_boats',
+  pro_request: 'notify_pro_requests',
+  pro_paid_via_swipe: 'notify_pro_payments',
+};
 async function notifyAdmin(type, message){
   try{
+    const settingCol = NOTIFY_TYPE_TO_SETTING[type];
+    if(settingCol){
+      const row = await ensureAdminSettingsRow();
+      if(row[settingCol] === false) return; // this notification type is turned off
+    }
     await sql`
       INSERT INTO admin_notifications (id, type, message)
       VALUES (${'note-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${type}, ${message})
     `;
-  }catch(e){ console.error('notifyAdmin failed', e); }
+  }catch(e){ console.error('notifyAdmin failed', e); return; }
+  await sendAdminPush(type, message);
 }
 
 app.post('/api/signup', async (req, res) => {
@@ -1245,6 +1389,29 @@ app.post('/api/boat-requests', async (req, res) => {
   }catch(e){
     console.error(e);
     res.status(500).json({ ok:false, error:'Could not submit your request. Try again.' });
+  }
+});
+
+// Raises the admin notification for a manual bank-transfer Pro request
+// (see submitProRequest in index.html) -- the request itself is already
+// recorded on the boat's own settings (proRequestPending/proRequestScreenshot,
+// visible in the admin's Pro Requests tab); this just puts it in the
+// notification queue too, same as every other notifyAdmin call.
+app.post('/api/pro-requests', async (req, res) => {
+  try{
+    const { boatId, boatName } = req.body || {};
+    if(!boatId) return res.status(400).json({ ok:false, error:'boatId is required.' });
+    const rows = await sql`
+      SELECT o.boat_name AS org_boat_name, o.owner_name FROM boats b
+      JOIN organizations o ON o.id = b.organization_id
+      WHERE b.id = ${boatId}
+    `;
+    const label = rows.length ? `${rows[0].owner_name} (${rows[0].org_boat_name})` : (boatName || boatId);
+    await notifyAdmin('pro_request', `${label} submitted a Pro upgrade payment for review.`);
+    res.json({ ok:true });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not notify admin.' });
   }
 });
 
