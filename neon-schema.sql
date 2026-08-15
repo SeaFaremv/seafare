@@ -114,6 +114,31 @@ CREATE TABLE IF NOT EXISTS boat_requests (
 CREATE INDEX IF NOT EXISTS boat_requests_organization_id_idx ON boat_requests (organization_id);
 
 -- ---------------------------------------------------------------------------
+-- pro_payments: one row per Swipe payment link created for a boat's Pro
+-- upgrade/renewal (POST /api/pro/payment-link). `reference` is Swipe's
+-- transaction code -- the only thing the webhook (POST /api/webhooks/swipe)
+-- has to look this row up by, since Swipe's webhook payload knows nothing
+-- about SeaFare boat IDs. `swipe_payment_id` is Swipe's own payment ID,
+-- used by the manual "check status" polling route to re-query Swipe
+-- directly.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pro_payments (
+  id                 TEXT PRIMARY KEY,
+  boat_id            TEXT NOT NULL REFERENCES boats(id) ON DELETE CASCADE,
+  swipe_payment_id   TEXT NOT NULL,
+  reference          TEXT NOT NULL UNIQUE,
+  amount             NUMERIC NOT NULL,
+  currency           TEXT NOT NULL,
+  status             TEXT NOT NULL,
+  payment_url        TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at       TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS pro_payments_boat_id_idx ON pro_payments (boat_id);
+CREATE INDEX IF NOT EXISTS pro_payments_reference_idx ON pro_payments (reference);
+
+-- ---------------------------------------------------------------------------
 -- That's the whole schema. No default/seed rows are inserted here (unlike
 -- the old single-tenant version) -- every organization, boat, and its
 -- initial rates/settings are created dynamically through the app's own
