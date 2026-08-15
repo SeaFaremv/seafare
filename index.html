@@ -4902,7 +4902,7 @@ async function renderSwipePaymentPopupBody(){
       body.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.')}</div>`;
       return;
     }
-    _swipeProPaymentRef = data.reference;
+    _swipeProPaymentRef = data.swipePaymentId;
     body.innerHTML = `
       <div class="note">${t('Tap below to pay \u0783')}${SWIPE_PRO_DISPLAY_AMOUNT} ${t('via the Swipe app. Pro activates automatically once payment is confirmed \u2014 no need to notify the Super Admin for this option.')}</div>
       <a href="${escapeHtml(data.paymentUrl)}" target="_blank" rel="noopener" class="btn btn-primary" style="width:100%;margin-top:10px;display:block;text-align:center;text-decoration:none;">${t('Open Payment Link')}</a>
