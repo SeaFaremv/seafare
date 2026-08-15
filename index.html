@@ -852,6 +852,9 @@
   border-radius:10px;
   transition:border-color .15s, box-shadow .15s;
 }
+.admin-shell .settings-block{
+  padding:14px 16px;
+}
 .admin-shell button.settings-block:hover{
   border-color:var(--adm-border-strong);
   box-shadow:0 0 0 1px var(--adm-border-strong), 0 0 24px -8px rgba(45,212,191,0.4);
@@ -9218,13 +9221,12 @@ function renderOrgDashboard(){
     <div style="max-width:600px;margin:0 auto;padding:20px 16px 60px;">
       <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-          <h2 style="margin:0;">${escapeHtml(org.boatName || '')}</h2>
+          <h2 style="margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            ${escapeHtml(org.boatName || '')}
+            ${isOrgPro() ? `<span class="status-pill status-delivered" style="font-size:10px;vertical-align:middle;">PRO</span>` : ''}
+          </h2>
           <button class="btn btn-ghost" id="org-logout-btn">${t("Log out")}</button>
         </div>
-
-        ${isOrgPro() ? `
-          <div class="status-pill status-delivered" style="margin-bottom:16px;display:inline-block;">Pro until ${escapeHtml(fmtDMY((org.proExpiresAt||'').slice(0,10)))}</div>
-        ` : ''}
 
         ${justSignedUp ? `
           <div class="note" style="margin-bottom:16px;">
@@ -9288,6 +9290,7 @@ function renderOrgDashboard(){
           <div class="tag-meta">Bank: ${escapeHtml(org.bankAccountName||'\u2014')} ${org.bankAccountNumber ? '\u00b7 '+escapeHtml(org.bankAccountNumber) : ''}</div>
           <div class="tag-meta">Tracking link: ${renderTruncatableLink('acct-tracking-link', org.trackingLink)}</div>
           <div class="tag-meta">Viber: ${renderTruncatableLink('acct-viber-link', org.viberLink)}</div>
+          ${isOrgPro() ? `<div class="tag-meta">Pro until: ${escapeHtml(fmtDMY((org.proExpiresAt||'').slice(0,10)))}</div>` : ''}
         </div>
 
         <div class="note">${t("Tap a boat above to open its full dispatch app — Dashboard, Trips, Invoices, Reports, and Settings, private to that boat.")}</div>
