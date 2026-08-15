@@ -7697,6 +7697,18 @@ function renderInvalidLinkScreen(message){
 
 function renderAdmin(){
   hideNormalShell();
+  // Super Admin is English-only, full stop -- forced here, at the one
+  // function every admin screen renders through, rather than only at the
+  // entry points into admin mode. This is what actually guarantees it:
+  // no matter what set state.lang beforehand (a boat's saved Dhivehi
+  // preference, a stale value left over from something else), it can
+  // never reach the screen, because this line runs immediately before
+  // anything admin-related is drawn.
+  if(state.lang !== 'en'){
+    state.lang = 'en';
+    applyLangDirection();
+    applyStaticTranslations();
+  }
   if(!state.adminAuthed){ renderAdminLogin(); return; }
   renderAdminDashboard();
 }
