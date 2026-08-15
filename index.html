@@ -801,19 +801,19 @@
    .admin-shell) so none of this reaches the boat/owner/customer UI.
    ========================================================================= */
 :root{
-  --adm-bg:#060B14;
-  --adm-grid:rgba(45,212,191,0.07);
-  --adm-panel:#0D1A2E;
-  --adm-panel-raised:#12233C;
-  --adm-border:rgba(45,212,191,0.22);
-  --adm-border-strong:#2DD4BF;
-  --adm-text:#E7F1F8;
-  --adm-text-soft:#8AA2BC;
-  --adm-cyan:#22D3EE;
-  --adm-violet:#A78BFA;
-  --adm-amber:#F5A623;
-  --adm-rose:#FB4570;
-  --adm-emerald:#34D399;
+  --adm-bg:#EEF2F7;
+  --adm-grid:rgba(15,23,42,0.05);
+  --adm-panel:#FFFFFF;
+  --adm-panel-raised:#F8FAFC;
+  --adm-border:rgba(15,23,42,0.14);
+  --adm-border-strong:#0E7490;
+  --adm-text:#0F172A;
+  --adm-text-soft:#64748B;
+  --adm-cyan:#0891B2;
+  --adm-violet:#7C3AED;
+  --adm-amber:#B45309;
+  --adm-rose:#E11D48;
+  --adm-emerald:#059669;
 }
 
 /* .admin-shell's own dark grid background (below) only ever painted the
@@ -838,6 +838,18 @@
 .admin-shell{
   min-height:100vh;
   color:var(--adm-text);
+}
+/* Page background behind the Super Admin console -- overrides the
+   ordinary app's dark navy wave background (see body{} above) with a
+   plain light one while in admin mode, matching the light --adm-* panel
+   theme. Higher specificity than the plain body{} rule (class beats
+   element), so no !important needed for the color itself; the wave
+   image/animation are explicitly cleared since they were tuned for a
+   dark backdrop. */
+body.admin-mode{
+  background:var(--adm-bg);
+  background-image:none;
+  animation:none;
 }
 .admin-shell .panel{
   background:var(--adm-panel);
@@ -869,7 +881,7 @@
 }
 .admin-shell .sub-tabs button.active{
   color:var(--adm-cyan);border-bottom-color:var(--adm-cyan);
-  text-shadow:0 0 12px rgba(34,211,238,0.5);
+  text-shadow:0 0 10px rgba(8,145,178,0.25);
 }
 .admin-shell .sub-tabs button:hover:not(.active){ color:var(--adm-text); }
 
@@ -887,7 +899,7 @@
 }
 .admin-shell button.settings-block:hover{
   border-color:var(--adm-border-strong);
-  box-shadow:0 0 0 1px var(--adm-border-strong), 0 0 24px -8px rgba(45,212,191,0.4);
+  box-shadow:0 0 0 1px var(--adm-border-strong), 0 0 24px -10px rgba(14,116,144,0.35);
 }
 .admin-shell .tag-label{ color:var(--adm-text-soft); }
 .admin-shell .tag-meta,
@@ -896,7 +908,7 @@
 .admin-shell .empty,
 .admin-popup-panel .empty{ color:var(--adm-text-soft); }
 .admin-shell .note,
-.admin-popup-panel .note{ background:rgba(245,166,35,0.08);border-color:rgba(245,166,35,0.4);color:#F5C777; }
+.admin-popup-panel .note{ background:rgba(180,83,9,0.08);border-color:rgba(180,83,9,0.35);color:#92400E; }
 
 /* Status blips -- a glowing dot + mono label instead of a flat pill.
    Applied to the shared .status-pill class only within admin screens; the
@@ -932,11 +944,11 @@
 }
 .admin-shell .btn-primary,
 .admin-popup-panel .btn-primary{
-  background:var(--adm-cyan);color:#03222A;border:1px solid var(--adm-cyan);
-  box-shadow:0 0 20px -6px rgba(34,211,238,0.6);
+  background:var(--adm-cyan);color:#FFFFFF;border:1px solid var(--adm-cyan);
+  box-shadow:0 0 20px -6px rgba(8,145,178,0.5);
 }
 .admin-shell .btn-primary:hover,
-.admin-popup-panel .btn-primary:hover{ box-shadow:0 0 26px -4px rgba(34,211,238,0.8); }
+.admin-popup-panel .btn-primary:hover{ box-shadow:0 0 26px -4px rgba(8,145,178,0.7); }
 .admin-shell .btn-ghost,
 .admin-popup-panel .btn-ghost{
   background:transparent;color:var(--adm-text);border:1px solid var(--adm-border);
@@ -964,7 +976,7 @@
 .admin-shell textarea:focus,
 .admin-popup-panel input:focus,
 .admin-popup-panel textarea:focus{
-  border-color:var(--adm-cyan) !important;box-shadow:0 0 0 3px rgba(34,211,238,0.18);outline:none;
+  border-color:var(--adm-cyan) !important;box-shadow:0 0 0 3px rgba(8,145,178,0.18);outline:none;
 }
 .admin-shell label,
 .admin-popup-panel label{ color:var(--adm-text-soft); }
@@ -984,12 +996,12 @@
 .admin-popup-panel{
   background:var(--adm-panel) !important;
   border:1px solid var(--adm-border-strong) !important;
-  box-shadow:0 0 0 1px rgba(0,0,0,0.4), 0 0 60px -12px rgba(45,212,191,0.35) !important;
+  box-shadow:0 0 0 1px rgba(15,23,42,0.06), 0 24px 60px -20px rgba(15,23,42,0.2) !important;
 }
 
 .admin-shell .pin-box{
   background:var(--adm-panel);border:1px solid var(--adm-border-strong);
-  box-shadow:0 0 0 1px rgba(0,0,0,0.4), 0 0 60px -12px rgba(45,212,191,0.35);
+  box-shadow:0 0 0 1px rgba(15,23,42,0.06), 0 24px 60px -20px rgba(15,23,42,0.2);
 }
 .admin-shell .pin-box .rname{
   color:var(--adm-text);letter-spacing:0.09em;
@@ -2474,10 +2486,12 @@ let state = {
   adminPasskey: '',
   adminError: '',
   adminTab: 'organizations',
+  adminSearchQuery: '',
   adminOrgs: null,
   adminRequests: null,
   adminProRequests: null,
   adminProPayments: null,
+  adminBlockedNumbers: null,
   adminBusyId: null,
   adminRevealedTotp: null,
   adminOrgDetailId: null,
@@ -8169,6 +8183,12 @@ async function loadAdminProPayments(){
     state.adminProPayments = data.payments || [];
   }catch(e){ state.adminProPayments = state.adminProPayments || []; }
 }
+async function loadAdminBlockedNumbers(){
+  try{
+    const data = await adminFetch('/api/admin/blocked-numbers');
+    state.adminBlockedNumbers = data.groups || [];
+  }catch(e){ state.adminBlockedNumbers = state.adminBlockedNumbers || []; }
+}
 async function loadAdminNotifications(){
   try{
     const data = await adminFetch('/api/admin/notifications');
@@ -8418,7 +8438,7 @@ function showMessageBox(title, message){
   overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
 }
 
-function confirmAdminAction(label, onConfirm, withNote){
+function confirmAdminAction(label, onConfirm, withNote, withAmount){
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2400;display:flex;align-items:center;justify-content:center;padding:20px;';
   overlay.innerHTML = `
@@ -8427,6 +8447,11 @@ function confirmAdminAction(label, onConfirm, withNote){
       ${withNote ? `
         <label>${t("Reason (shown to the organization)")}</label>
         <textarea id="admin-confirm-note" rows="2" placeholder="${t("e.g. Overdue payment for additional boat")}">${escapeHtml(DEFAULT_SUSPEND_NOTE)}</textarea>
+      ` : ''}
+      ${withAmount ? `
+        <label>${t("Outstanding balance owed, if any (optional)")}</label>
+        <input type="number" id="admin-confirm-amount" placeholder="${t("e.g. 500")}" min="0" step="0.01">
+        <p class="sub" style="margin-top:-8px;">${t("Shown to the owner along with a Pay to Continue option if they try to sign up again with any of their numbers.")}</p>
       ` : ''}
       <p class="sub" style="margin-bottom:12px;">${t("Re-enter your Super Admin password to continue.")}</p>
       <input type="password" id="admin-confirm-password" placeholder="${t("Password")}">
@@ -8458,8 +8483,9 @@ function confirmAdminAction(label, onConfirm, withNote){
     const btn = document.getElementById('admin-confirm-go');
     btn.disabled = true; btn.textContent = 'Working\u2026';
     const note = withNote ? document.getElementById('admin-confirm-note').value.trim() : undefined;
+    const amount = withAmount ? document.getElementById('admin-confirm-amount').value.trim() : undefined;
     try{
-      await onConfirm(note);
+      await onConfirm(note, amount);
       close();
     }catch(e){
       errorEl.textContent = 'Something went wrong. Try again.';
@@ -8564,6 +8590,7 @@ function openAdminOrgPopup(orgId){
           <div class="item-result-row" style="margin-bottom:6px;flex-wrap:wrap;">
             <span>${escapeHtml(b.name)}${b.is_primary ? ' (primary)' : ''}</span>
             <span class="rprice">${escapeHtml(b.status)}</span>
+            ${b.contact_number ? `<div class="tag-meta" style="width:100%;">${telLink(b.contact_number)}</div>` : ''}
             ${b.status==='suspended' && b.suspension_note ? `<div class="note" style="border-color:var(--red);color:var(--red);width:100%;margin:6px 0 0;">Reason: ${escapeHtml(b.suspension_note)}</div>` : ''}
             <div style="display:flex;gap:6px;width:100%;margin-top:6px;">
               <button class="btn btn-ghost" style="flex:1;padding:7px 10px;font-size:12px;" data-boat-toggle-suspend="${b.id}" data-suspended="${b.status==='suspended'}">${b.status==='suspended' ? 'Unsuspend' : 'Suspend'}</button>
@@ -8592,18 +8619,18 @@ function openAdminOrgPopup(orgId){
   document.getElementById('admin-org-popup-panel').querySelectorAll('[data-org-toggle-suspend]').forEach(btn => btn.addEventListener('click', () => {
     const id = btn.dataset.orgToggleSuspend;
     const isSuspended = btn.dataset.suspended === 'true';
-    confirmAdminAction(isSuspended ? 'Unsuspend organization' : 'Suspend organization', async (note) => {
-      await adminFetch(`/api/admin/organizations/${id}/${isSuspended ? 'unsuspend' : 'suspend'}`, { method:'POST', body:{ note } });
-      state.adminOrgs = null;
+    confirmAdminAction(isSuspended ? 'Unsuspend organization' : 'Suspend organization', async (note, amount) => {
+      await adminFetch(`/api/admin/organizations/${id}/${isSuspended ? 'unsuspend' : 'suspend'}`, { method:'POST', body: isSuspended ? { note } : { note, dueAmount: amount } });
+      state.adminOrgs = null; state.adminBlockedNumbers = null;
       await loadAdminOrgs();
       openAdminOrgPopup(id);
-    }, !isSuspended);
+    }, !isSuspended, !isSuspended);
   }));
   document.getElementById('admin-org-popup-panel').querySelectorAll('[data-org-delete]').forEach(btn => btn.addEventListener('click', () => {
     const id = btn.dataset.orgDelete;
     confirmAdminAction('Permanently delete organization (cannot be undone)', async () => {
       await adminFetch(`/api/admin/organizations/${id}`, { method:'DELETE' });
-      state.adminOrgs = null;
+      state.adminOrgs = null; state.adminBlockedNumbers = null;
       closeAdminOrgPopup();
       renderAdminDashboard();
     });
@@ -8613,7 +8640,7 @@ function openAdminOrgPopup(orgId){
     const isSuspended = btn.dataset.suspended === 'true';
     confirmAdminAction(isSuspended ? 'Unsuspend boat' : 'Suspend boat', async (note) => {
       await adminFetch(`/api/admin/boats/${id}/${isSuspended ? 'unsuspend' : 'suspend'}`, { method:'POST', body:{ note } });
-      state.adminOrgs = null;
+      state.adminOrgs = null; state.adminBlockedNumbers = null;
       await loadAdminOrgs();
       openAdminOrgPopup(orgId);
     }, !isSuspended);
@@ -8622,7 +8649,7 @@ function openAdminOrgPopup(orgId){
     const id = btn.dataset.boatDelete;
     confirmAdminAction('Permanently delete boat (cannot be undone)', async () => {
       await adminFetch(`/api/admin/boats/${id}`, { method:'DELETE' });
-      state.adminOrgs = null;
+      state.adminOrgs = null; state.adminBlockedNumbers = null;
       await loadAdminOrgs();
       openAdminOrgPopup(orgId);
     });
@@ -8630,6 +8657,75 @@ function openAdminOrgPopup(orgId){
 }
 function closeAdminOrgPopup(){
   const overlay = document.getElementById('admin-org-popup-overlay');
+  if(overlay) unlockBodyScroll();
+  overlay?.remove();
+}
+
+// Blocked Users tab -- popup listing every individually-blocked number for
+// one signup name (organization's boat_name + owner_name), including
+// which boat each one came from. Unsuspending an org/boat, or paying off
+// a due balance, removes its numbers from this list entirely -- so every
+// row shown here is currently, actively blocked. Deleted-account entries
+// (no org left to unsuspend) can only come off via the manual Unblock
+// button below.
+const BLOCKED_REASON_LABELS = {
+  suspended: 'Suspended',
+  deleted_by_admin: 'Deleted by admin',
+  auto_deleted_inactive_suspension: 'Auto-deleted (15 days suspended)',
+};
+function openBlockedGroupPopup(boatName, ownerName){
+  closeBlockedGroupPopup();
+  lockBodyScroll();
+  const g = (state.adminBlockedNumbers || []).find(x => x.boatName === boatName && x.ownerName === ownerName);
+  if(!g) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'admin-blocked-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2300;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="panel admin-popup-panel" id="admin-blocked-popup-panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:460px;margin:0;animation:invoice-pop-in 0.18s ease-out;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;">
+        <div>
+          <h3 style="margin-bottom:4px;">${escapeHtml(g.boatName)}</h3>
+          <p class="sub" style="margin-bottom:2px;">${escapeHtml(g.ownerName)}</p>
+        </div>
+        <button type="button" class="btn btn-ghost" id="admin-blocked-popup-close-btn" style="padding:8px 14px;">\u2715</button>
+      </div>
+      <span class="status-pill ${g.orgStatus==='suspended'?'status-in_transit':(g.orgStatus==='deleted'?'status-pending':'status-delivered')}">${escapeHtml(g.orgStatus || 'deleted')}</span>
+      ${g.orgStatus==='suspended' ? `<div class="note" style="margin-top:10px;">${t('Outstanding balance')}: <strong>${escapeHtml(g.dueCurrency||'MVR')} ${escapeHtml(String(g.dueAmount||0))}</strong> ${t('-- the owner sees this and a Pay to Continue option if they try to sign up with any of these numbers. Unsuspending the account (from Owners & Boats) clears its numbers from this list automatically.')}</div>` : ''}
+      ${g.orgStatus==='deleted' ? `<div class="note" style="margin-top:10px;">${t('This account no longer exists -- these numbers stay blocked from future signups until you unblock them below.')}</div>` : ''}
+      <div style="margin-top:12px;">
+        <div class="tag-label" style="margin-bottom:6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">${t('Numbers')} (${(g.numbers||[]).length})</div>
+        ${(g.numbers||[]).map(n => `
+          <div class="item-result-row" style="flex-wrap:wrap;margin-bottom:6px;">
+            <span>${escapeHtml(n.mobile)}</span>
+            <span class="rprice">${t('Blocked')}</span>
+            <div class="tag-meta" style="width:100%;">${escapeHtml(n.source_label)} \u00b7 ${escapeHtml(BLOCKED_REASON_LABELS[n.reason] || n.reason)} \u00b7 ${fmtDate(n.created_at)}</div>
+            <button type="button" class="btn btn-ghost" style="width:100%;margin-top:6px;padding:6px 10px;font-size:12px;" data-unblock-id="${n.id}">${t('Unblock this number')}</button>
+          </div>
+        `).join('') || `<div class="empty">${t('No numbers on record.')}</div>`}
+      </div>
+    </div>
+  `;
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) closeBlockedGroupPopup(); });
+  document.body.appendChild(overlay);
+  document.getElementById('admin-blocked-popup-close-btn').addEventListener('click', closeBlockedGroupPopup);
+  document.getElementById('admin-blocked-popup-panel').querySelectorAll('[data-unblock-id]').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.unblockId;
+    confirmAdminAction('Unblock this number', async () => {
+      await adminFetch(`/api/admin/blocked-numbers/${id}/unblock`, { method:'POST' });
+      state.adminBlockedNumbers = null;
+      await loadAdminBlockedNumbers();
+      if((state.adminBlockedNumbers || []).some(x => x.boatName === boatName && x.ownerName === ownerName)){
+        openBlockedGroupPopup(boatName, ownerName);
+      } else {
+        closeBlockedGroupPopup();
+        renderAdminDashboard();
+      }
+    });
+  }));
+}
+function closeBlockedGroupPopup(){
+  const overlay = document.getElementById('admin-blocked-popup-overlay');
   if(overlay) unlockBodyScroll();
   overlay?.remove();
 }
@@ -8788,10 +8884,16 @@ function renderAdminDashboard(){
         <div class="sub-tabs">
           <button class="${state.adminTab==='organizations'?'active':''}" data-admintab="organizations">${t("Owners & Boats")}</button>
           <button class="${state.adminTab==='requests'?'active':''}" data-admintab="requests">${t("Boat Requests")}</button>
+          <button class="${state.adminTab==='blocked'?'active':''}" data-admintab="blocked">${t("Blocked Users")}</button>
           <button class="${state.adminTab==='proRequests'?'active':''}" data-admintab="proRequests">Pro Requests${(state.adminProRequests||[]).length ? ` (${(state.adminProRequests||[]).length})` : ''}</button>
           <button class="${state.adminTab==='proPayments'?'active':''}" data-admintab="proPayments">Paid via Swipe${(state.adminProPayments||[]).length ? ` (${(state.adminProPayments||[]).length})` : ''}</button>
           <button class="${state.adminTab==='notifications'?'active':''}" data-admintab="notifications">Notifications${(state.adminNotifications||[]).filter(n=>!n.read).length ? ` (${(state.adminNotifications||[]).filter(n=>!n.read).length})` : ''}</button>
         </div>
+        ${state.adminTab !== 'notifications' ? `
+        <div style="margin-top:10px;">
+          <input type="text" id="admin-search-input" placeholder="${escapeHtml(ADMIN_SEARCH_PLACEHOLDERS[state.adminTab] || 'Search\u2026')}" value="${escapeHtml(state.adminSearchQuery || '')}" style="width:100%;">
+        </div>
+        ` : ''}
         <div id="admin-body" style="margin-top:16px;">Loading\u2026</div>
       </div>
     </div>
@@ -8800,7 +8902,7 @@ function renderAdminDashboard(){
     openAdminSettingsPopup();
   });
   document.getElementById('admin-logout-btn').addEventListener('click', () => {
-    state.adminAuthed = false; state.adminUsername=''; state.adminPasskey=''; state.adminOrgs=null; state.adminRequests=null; state.adminOrgDetailId=null;
+    state.adminAuthed = false; state.adminUsername=''; state.adminPasskey=''; state.adminOrgs=null; state.adminRequests=null; state.adminOrgDetailId=null; state.adminBlockedNumbers=null;
     clearAdminSession();
     stopAdminNotificationPolling();
     renderAdmin();
@@ -8808,16 +8910,44 @@ function renderAdminDashboard(){
   area.querySelectorAll('[data-admintab]').forEach(b => b.addEventListener('click', () => {
     state.adminTab = b.dataset.admintab;
     state.adminOrgDetailId = null;
+    state.adminSearchQuery = '';
     renderAdminDashboard();
   }));
+  document.getElementById('admin-search-input')?.addEventListener('input', (e) => {
+    state.adminSearchQuery = e.target.value;
+    renderAdminTabBody();
+  });
 
+  renderAdminTabBody();
+}
+
+// Simple case-insensitive "does this text contain the query" filter shared
+// by every admin tab's search box below.
+function adminMatchesSearch(query, ...fields){
+  const q = (query || '').trim().toLowerCase();
+  if(!q) return true;
+  return fields.some(f => String(f || '').toLowerCase().includes(q));
+}
+const ADMIN_SEARCH_PLACEHOLDERS = {
+  organizations: 'Search by boat name, owner, or mobile\u2026',
+  requests: 'Search by boat name or owner\u2026',
+  blocked: 'Search by name or mobile number\u2026',
+  proRequests: 'Search by boat name or owner\u2026',
+  proPayments: 'Search by boat name or owner\u2026',
+};
+
+function renderAdminTabBody(){
   const body = document.getElementById('admin-body');
+  if(!body) return;
 
   if(state.adminTab === 'organizations'){
     (async () => {
       if(state.adminOrgs === null) await loadAdminOrgs();
       if(!document.getElementById('admin-body')) return; // tab changed while loading
-      const orgs = state.adminOrgs || [];
+      const orgs = (state.adminOrgs || []).filter(o => adminMatchesSearch(
+        state.adminSearchQuery, o.boat_name, o.owner_name, o.mobile, o.contact_number,
+        ...(o.boats||[]).map(b => `${b.name} ${b.contact_number||''}`)
+      ));
 
       // Compact list -- tap an organization to open its details in a
       // popup (contact info, authenticator secret, Pro status, boats,
@@ -8846,7 +8976,7 @@ function renderAdminDashboard(){
     (async () => {
       if(state.adminProRequests === null) await loadAdminProRequests();
       if(!document.getElementById('admin-body')) return;
-      const reqs = state.adminProRequests || [];
+      const reqs = (state.adminProRequests || []).filter(r => adminMatchesSearch(state.adminSearchQuery, r.ownerName, r.orgBoatName, r.boatName));
       body.innerHTML = reqs.length === 0 ? `<div class="empty">No pending Pro requests.</div>` : reqs.map(r => `
         <div class="settings-block">
           <h3 style="margin-bottom:4px;">${escapeHtml(r.ownerName)} \u2014 ${escapeHtml(r.orgBoatName)}</h3>
@@ -8870,7 +9000,7 @@ function renderAdminDashboard(){
     (async () => {
       if(state.adminProPayments === null) await loadAdminProPayments();
       if(!document.getElementById('admin-body')) return;
-      const pays = state.adminProPayments || [];
+      const pays = (state.adminProPayments || []).filter(p => adminMatchesSearch(state.adminSearchQuery, p.owner_name, p.org_boat_name, p.boat_name));
       body.innerHTML = pays.length === 0 ? `<div class="empty">No Swipe payments yet.</div>` : pays.map(p => `
         <button type="button" class="settings-block" data-pro-payment-org="${p.organization_id}" style="display:block;width:100%;text-align:left;cursor:pointer;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
@@ -8889,11 +9019,36 @@ function renderAdminDashboard(){
         openAdminOrgPopup(orgId);
       }));
     })();
+  } else if(state.adminTab === 'blocked'){
+    (async () => {
+      if(state.adminBlockedNumbers === null) await loadAdminBlockedNumbers();
+      if(!document.getElementById('admin-body')) return;
+      const groups = (state.adminBlockedNumbers || []).filter(g => adminMatchesSearch(
+        state.adminSearchQuery, g.boatName, g.ownerName, ...(g.numbers||[]).map(n => n.mobile)
+      ));
+      body.innerHTML = `<p class="sub" style="margin-bottom:10px;">${t("Every number tied to a suspended or deleted account, grouped by the name they signed up with. Tap one to see all of its boats' numbers.")}</p>` + (groups.length === 0 ? `<div class="empty">${t("No blocked users yet.")}</div>` : groups.map(g => {
+        const activeCount = (g.numbers||[]).filter(n => n.status === 'blocked').length;
+        return `
+        <button type="button" class="settings-block" data-blocked-boat="${escapeHtml(g.boatName)}" data-blocked-owner="${escapeHtml(g.ownerName)}" style="display:block;width:100%;text-align:left;cursor:pointer;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+            <div>
+              <h3 style="margin-bottom:4px;">${escapeHtml(g.boatName)} \u2192</h3>
+              <p class="sub" style="margin-bottom:4px;">${escapeHtml(g.ownerName)}</p>
+            </div>
+            <span class="status-pill ${g.orgStatus==='suspended'?'status-in_transit':(g.orgStatus==='deleted'?'status-pending':'status-delivered')}">${escapeHtml(g.orgStatus || 'deleted')}</span>
+          </div>
+          <div class="tag-meta">${activeCount} ${t("number(s) currently blocked")}${g.dueAmount ? ` \u00b7 ${t("Due")}: ${escapeHtml(g.dueCurrency||'MVR')} ${escapeHtml(String(g.dueAmount))}` : ''}</div>
+        </button>
+      `; }).join(''));
+      body.querySelectorAll('[data-blocked-boat]').forEach(btn => btn.addEventListener('click', () => {
+        openBlockedGroupPopup(btn.dataset.blockedBoat, btn.dataset.blockedOwner);
+      }));
+    })();
   } else if(state.adminTab === 'requests'){
     (async () => {
       if(state.adminRequests === null) await loadAdminRequests();
       if(!document.getElementById('admin-body')) return;
-      const reqs = state.adminRequests || [];
+      const reqs = (state.adminRequests || []).filter(r => adminMatchesSearch(state.adminSearchQuery, r.requested_boat_name, r.owner_name, r.org_boat_name));
       // A notification tap can land here wanting one specific request
       // called out (see navigateToNotification) -- give that card's
       // wrapper a data-hook and a highlight ring so it's obvious which one
@@ -9148,15 +9303,154 @@ async function submitSignup(){
       };
       state.orgBoats = [{ id: data.boatId, name: body.boatName, is_primary: true, status: 'active' }];
       renderOrgArea();
+    } else if(data && data.blocked){
+      errorEl.textContent = '';
+      openBlockedNumberPopup(data);
     } else {
       const msg = (data && data.error) || 'Could not create your account.';
       errorEl.textContent = msg;
       if(/boat name/i.test(msg)) markFieldError('su-boat-name', true);
+      if(/mobile number is already in use/i.test(msg)){ markFieldError('su-mobile', false); markFieldError('su-contact', false); }
     }
   }catch(e){
     console.error('signup failed', e);
     btn.disabled = false; btn.textContent = t('Create My Boat');
     errorEl.textContent = 'Something went wrong. Try again.';
+  }
+}
+
+// Shown when a signup attempt uses a number tied to a suspended or
+// deleted account (see the blocked-numbers check in POST /api/signup).
+// Suspended accounts (still in the database) get a pay-to-continue path
+// via Swipe; deleted accounts don't -- there's nothing left to pay off or
+// resume.
+let _blockedDuePaymentRef = null;
+let _blockedDuePaymentOrgId = null;
+function openBlockedNumberPopup(info){
+  closeBlockedNumberPopup();
+  lockBodyScroll();
+  _blockedDuePaymentRef = null;
+  _blockedDuePaymentOrgId = info.organizationId || null;
+  const overlay = document.createElement('div');
+  overlay.id = 'blocked-number-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2300;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const canPay = info.organizationId && info.reason === 'suspended';
+  overlay.innerHTML = `
+    <div class="panel" id="blocked-number-popup-panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:440px;margin:0;animation:invoice-pop-in 0.18s ease-out;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;">
+        <h3 style="margin-bottom:2px;">${t("Can't sign up with this number")}</h3>
+        <button type="button" class="btn btn-ghost" id="blocked-number-popup-close-btn" style="padding:8px 14px;">\u2715</button>
+      </div>
+      <div id="blocked-number-popup-body"></div>
+    </div>
+  `;
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) closeBlockedNumberPopup(); });
+  document.body.appendChild(overlay);
+  document.getElementById('blocked-number-popup-close-btn').addEventListener('click', closeBlockedNumberPopup);
+
+  const body = document.getElementById('blocked-number-popup-body');
+  if(canPay){
+    body.innerHTML = `
+      <p class="sub">${t("This number belongs to a suspended account,")} <strong>${escapeHtml(info.boatName)}</strong> (${escapeHtml(info.ownerName)}), ${t("with an outstanding balance.")}</p>
+      <div class="note" style="margin:10px 0;">${t('Amount due')}: <strong>${escapeHtml(info.dueCurrency||'MVR')} ${escapeHtml(String(info.dueAmount||0))}</strong></div>
+      <p class="sub" style="margin-bottom:10px;">${t("Pay the outstanding balance to continue -- you can then choose to reactivate that account, or start a fresh one (the new one won't include Pro).")}</p>
+      <div id="blocked-payment-area"></div>
+    `;
+    const area = document.getElementById('blocked-payment-area');
+    area.innerHTML = `<button class="btn btn-primary" id="blocked-pay-btn" style="width:100%;">${t('Pay to Continue')}</button>`;
+    document.getElementById('blocked-pay-btn').addEventListener('click', () => renderBlockedDuePaymentBody(info.organizationId));
+  } else {
+    body.innerHTML = `
+      <p class="sub">${t("This number was used by a previously removed account,")} <strong>${escapeHtml(info.boatName)}</strong> (${escapeHtml(info.ownerName)}), ${t("and can't be reused. Contact the Super Admin if you believe this is a mistake.")}</p>
+      <button class="btn btn-ghost" id="blocked-number-ok-btn" style="width:100%;margin-top:10px;">${t('OK')}</button>
+    `;
+    document.getElementById('blocked-number-ok-btn').addEventListener('click', closeBlockedNumberPopup);
+  }
+}
+function closeBlockedNumberPopup(){
+  const overlay = document.getElementById('blocked-number-popup-overlay');
+  if(overlay) unlockBodyScroll();
+  overlay?.remove();
+  _blockedDuePaymentRef = null;
+  _blockedDuePaymentOrgId = null;
+}
+async function renderBlockedDuePaymentBody(organizationId){
+  const area = document.getElementById('blocked-payment-area');
+  if(!area) return;
+  area.innerHTML = `<div class="note">${t('Generating a payment link\u2026')}</div>`;
+  try{
+    const res = await fetch(`${API_BASE}/api/blocked-numbers/due-payment-link`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ organizationId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.ok || !data.paymentUrl){
+      area.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Try again in a moment.')}</div>`;
+      return;
+    }
+    _blockedDuePaymentRef = data.swipePaymentId;
+    area.innerHTML = `
+      <a href="${escapeHtml(data.paymentUrl)}" target="_blank" rel="noopener" class="btn btn-primary" style="width:100%;display:block;text-align:center;text-decoration:none;">${t('Open Payment Link')}</a>
+      <button type="button" class="btn btn-ghost" id="blocked-payment-check-btn" style="width:100%;margin-top:8px;">${t('Check Now')}</button>
+      <div id="blocked-payment-status" class="tag-meta" style="margin-top:8px;">${t('Status')}: ${escapeHtml(data.status || 'PENDING')}</div>
+    `;
+    document.getElementById('blocked-payment-check-btn').addEventListener('click', () => checkBlockedDuePaymentStatus(false));
+  }catch(e){
+    console.error('renderBlockedDuePaymentBody failed', e);
+    area.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Try again in a moment.')}</div>`;
+  }
+}
+async function checkBlockedDuePaymentStatus(isAutoPoll){
+  if(!_blockedDuePaymentRef) return;
+  const btn = document.getElementById('blocked-payment-check-btn');
+  const statusEl = document.getElementById('blocked-payment-status');
+  if(!isAutoPoll && btn){ btn.disabled = true; btn.textContent = t('Checking\u2026'); }
+  try{
+    const res = await fetch(`${API_BASE}/api/blocked-numbers/due-payment-link/${encodeURIComponent(_blockedDuePaymentRef)}/status`);
+    const data = await res.json().catch(() => ({}));
+    if(data.ok && data.status === 'COMPLETED'){
+      renderBlockedDuePaymentChoice();
+      return;
+    }
+    if(statusEl) statusEl.textContent = `${t('Status')}: ${data.status || 'PENDING'}`;
+  }catch(e){ console.error('checkBlockedDuePaymentStatus failed', e); }
+  if(!isAutoPoll && btn){ btn.disabled = false; btn.textContent = t('Check Now'); }
+}
+function renderBlockedDuePaymentChoice(){
+  const area = document.getElementById('blocked-payment-area');
+  if(!area) return;
+  area.innerHTML = `
+    <div class="note" style="border-color:var(--green);margin-bottom:10px;">${t('Payment confirmed. What would you like to do?')}</div>
+    <button class="btn btn-primary" id="blocked-resolve-existing-btn" style="width:100%;margin-bottom:8px;">${t('Continue with my previous account')}</button>
+    <button class="btn btn-ghost" id="blocked-resolve-new-btn" style="width:100%;">${t('Start a new account instead')}</button>
+    <p class="sub" style="margin-top:8px;">${t('A new account starts on the free plan, not Pro.')}</p>
+  `;
+  document.getElementById('blocked-resolve-existing-btn').addEventListener('click', () => submitBlockedDuePaymentResolve('existing'));
+  document.getElementById('blocked-resolve-new-btn').addEventListener('click', () => submitBlockedDuePaymentResolve('new'));
+}
+async function submitBlockedDuePaymentResolve(choice){
+  const area = document.getElementById('blocked-payment-area');
+  if(area) area.innerHTML = `<div class="note">${t('Working\u2026')}</div>`;
+  try{
+    const res = await fetch(`${API_BASE}/api/blocked-numbers/resolve`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ reference: _blockedDuePaymentRef, choice }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.ok){
+      if(area) area.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${(data && data.error) || t('Something went wrong. Try again.')}</div>`;
+      return;
+    }
+    closeBlockedNumberPopup();
+    if(choice === 'existing'){
+      state.orgScreen = 'login';
+      state.orgError = '';
+      renderOrgArea();
+      alert(t("Your account is reactivated. Log in with your boat name and PIN."));
+    } else {
+      alert(t("You're clear to sign up with these numbers now. Please submit the form again."));
+    }
+  }catch(e){
+    console.error('submitBlockedDuePaymentResolve failed', e);
+    if(area) area.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Something went wrong. Try again.')}</div>`;
   }
 }
 
