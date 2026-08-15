@@ -9357,6 +9357,11 @@ function renderOrgDashboard(){
                 <span>${escapeHtml(b.name)}${b.is_primary?' (primary, free)':''}</span>
                 <span class="rprice" style="color:var(--red);">Inactive</span>
               </button>
+            ` : (!b.is_primary && !isOrgPro()) ? `
+              <button type="button" class="item-result-row" data-open-pro-required="${b.id}" style="margin-bottom:6px;width:100%;text-align:left;opacity:0.75;">
+                <span>${escapeHtml(b.name)}</span>
+                <span class="rprice" style="color:var(--red);">${t('Needs Pro')} \u2192 ${t('Upgrade')}</span>
+              </button>
             ` : `
               <button type="button" class="item-result-row" data-open-dispatch="${b.id}" style="margin-bottom:6px;width:100%;text-align:left;">
                 <span>${escapeHtml(b.name)}${b.is_primary?' (primary, free)':''}</span>
@@ -9437,6 +9442,18 @@ function renderOrgDashboard(){
   document.querySelectorAll('[data-view-suspend-reason]').forEach(b => b.addEventListener('click', () => {
     const boat = boats.find(x => x.id === b.dataset.viewSuspendReason);
     if(boat) renderBoatSuspendedPage(boat);
+  }));
+  // Non-primary boats are Pro-gated: once Pro lapses (or was never active),
+  // only the free primary boat stays reachable from this list -- tapping
+  // any other boat sends the owner straight to the Upgrade to Pro popup
+  // instead of opening its dispatch app. Same "use the primary boat's ID
+  // for the payment link" pattern as Request Additional Boat below, since
+  // the popup's Payment Link tab needs a real, currently-open boat ID.
+  document.querySelectorAll('[data-open-pro-required]').forEach(b => b.addEventListener('click', () => {
+    const orgBoats = state.orgBoats || [];
+    const primaryBoat = orgBoats.find(x => x.is_primary) || orgBoats[0];
+    if(primaryBoat) CURRENT_BOAT_ID = primaryBoat.id;
+    openUpgradeToProPopup();
   }));
   document.getElementById('request-boat-toggle-btn')?.addEventListener('click', () => {
     const opening = !state.boatRequestOpen;
