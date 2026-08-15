@@ -321,15 +321,13 @@ app.post('/api/pro/payment-link', async (req, res) => {
       type: 'LINK',
       description: `SeaFare Pro upgrade -- boat ${boatId}`,
     });
-    // TEMP DEBUG -- remove once we've confirmed Swipe's actual field names.
-    console.log('SWIPE PAYMENT RESPONSE:', JSON.stringify(payment));
 
     await sql`
       INSERT INTO pro_payments (id, boat_id, swipe_payment_id, reference, amount, currency, status, payment_url)
-      VALUES (${'pp-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${boatId}, ${payment.id}, ${payment.transaction_code}, ${payment.amount}, ${payment.currency}, ${payment.status}, ${payment.payment_url || null})
+      VALUES (${'pp-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${boatId}, ${payment.id}, ${payment.short_code}, ${payment.amount}, ${payment.currency}, ${payment.status}, ${payment.payment_url || null})
     `;
 
-    res.status(201).json({ ok:true, paymentUrl: payment.payment_url, reference: payment.transaction_code, status: payment.status });
+    res.status(201).json({ ok:true, paymentUrl: payment.payment_url, reference: payment.short_code, status: payment.status });
   }catch(e){
     console.error('create payment link failed', e);
     res.status(502).json({ ok:false, error: 'Could not create a Swipe payment link. Try again, or use the bank transfer option.' });
