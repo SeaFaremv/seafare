@@ -1357,6 +1357,7 @@ app.post('/api/org-login', async (req, res) => {
         bankAccountName: org.bank_account_name, bankAccountNumber: org.bank_account_number,
         trackingLink: org.tracking_link, viberLink: org.viber_link,
         socialLinks: org.social_links, routes: org.routes,
+        isPro: org.is_pro, proExpiresAt: org.pro_expires_at,
       },
       boats,
     });
