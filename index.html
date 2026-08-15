@@ -2448,6 +2448,7 @@ let state = {
   adminBusyId: null,
   adminRevealedTotp: null,
   adminOrgDetailId: null,
+  adminHighlightRequestId: null,
   adminBoatProInfo: {},
   orgScreen: 'login', // 'signup' | 'login' | 'dashboard'
   orgAuthed: false,
@@ -8105,6 +8106,37 @@ async function pollAdminNotificationsOnce(){
     renderAdminDashboard();
   }
 }
+// Jumps straight to whatever a notification is about, instead of just
+// marking it read. 'organization' notifications (new signups, re-signups,
+// new boats, Pro requests, Swipe payments) open that org's existing detail
+// popup -- suspend/delete/Pro controls, all in one place. 'boat_request'
+// notifications switch to the Boat Requests tab and highlight the specific
+// pending request so it's obvious which one to act on, without having to
+// scan the whole list. Older notifications from before this existed have no
+// reference_type/reference_id -- those just fall back to staying on the
+// Notifications tab, same as today.
+function navigateToNotification(n){
+  if(n.reference_type === 'organization' && n.reference_id){
+    state.adminTab = 'organizations';
+    state.adminOrgDetailId = n.reference_id;
+    renderAdminDashboard();
+    (async () => {
+      if(state.adminOrgs === null) await loadAdminOrgs();
+      if(!document.getElementById('admin-body')) return; // tab changed again before this resolved
+      openAdminOrgPopup(n.reference_id);
+    })();
+    return;
+  }
+  if(n.reference_type === 'boat_request' && n.reference_id){
+    state.adminTab = 'requests';
+    state.adminHighlightRequestId = n.reference_id;
+    state.adminRequests = null; // reload so a since-reviewed request shows its current status
+    renderAdminDashboard();
+    return;
+  }
+  state.adminTab = 'notifications';
+  renderAdminDashboard();
+}
 function updateAdminTabTitleBadge(unreadCount){
   if(_adminBaseTitle == null) _adminBaseTitle = document.title.replace(/^\(\d+\)\s*/, '');
   document.title = unreadCount > 0 ? `(${unreadCount}) ${_adminBaseTitle}` : _adminBaseTitle;
@@ -8126,8 +8158,7 @@ function showAdminNotificationBanner(n){
       const native = new Notification('SeaFare Super Admin \u2014 ' + title, { body: n.message || '', tag: 'seafare-admin-' + n.id });
       native.onclick = () => {
         window.focus();
-        state.adminTab = 'notifications'; state.adminOrgDetailId = null;
-        renderAdminDashboard();
+        navigateToNotification(n);
         native.close();
       };
     }catch(e){ /* some browsers reject construction outside a user gesture in certain contexts */ }
@@ -8144,8 +8175,7 @@ function showAdminNotificationBanner(n){
   `;
   el.addEventListener('click', (e) => {
     if(e.target.closest('[data-admin-banner-dismiss]')){ el.remove(); return; }
-    state.adminTab = 'notifications'; state.adminOrgDetailId = null;
-    renderAdminDashboard();
+    navigateToNotification(n);
     el.remove();
   });
   stack.appendChild(el);
@@ -8737,8 +8767,13 @@ function renderAdminDashboard(){
       if(state.adminRequests === null) await loadAdminRequests();
       if(!document.getElementById('admin-body')) return;
       const reqs = state.adminRequests || [];
+      // A notification tap can land here wanting one specific request
+      // called out (see navigateToNotification) -- give that card's
+      // wrapper a data-hook and a highlight ring so it's obvious which one
+      // to look at, instead of dropping the admin into an unmarked list.
+      const highlightId = state.adminHighlightRequestId || null;
       body.innerHTML = reqs.length === 0 ? `<div class="empty">${t("No boat requests yet.")}</div>` : reqs.map(r => `
-        <div class="settings-block">
+        <div class="settings-block" data-request-card="${r.id}" ${r.id === highlightId ? 'style="border-color:var(--teal);box-shadow:0 0 0 2px var(--teal);"' : ''}>
           <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div>
               <h3 style="margin-bottom:4px;">${escapeHtml(r.requested_boat_name)}</h3>
@@ -8755,6 +8790,12 @@ function renderAdminDashboard(){
           ` : r.admin_note ? `<p class="sub">Note: ${escapeHtml(r.admin_note)}</p>` : ''}
         </div>
       `).join('');
+      if(highlightId){
+        // One-shot -- clears itself so the ring doesn't linger through
+        // later re-renders of this tab (approve/reject, tab revisits, etc).
+        state.adminHighlightRequestId = null;
+        document.querySelector(`[data-request-card="${highlightId}"]`)?.scrollIntoView({ behavior:'smooth', block:'center' });
+      }
       body.querySelectorAll('[data-approve]').forEach(b => b.addEventListener('click', async () => {
         const id = b.dataset.approve;
         const reqRow = (state.adminRequests||[]).find(r => r.id === id);
@@ -8817,10 +8858,17 @@ function renderAdminDashboard(){
       });
       body.querySelectorAll('[data-notif-id]').forEach(btn => btn.addEventListener('click', async () => {
         const n = state.adminNotifications.find(x => x.id === btn.dataset.notifId);
-        if(!n || n.read) return;
+        if(!n) return;
+        // Tapping a notification always takes you to what it's about, read
+        // or not -- marking it read shouldn't be the only thing tapping
+        // does, and it was previously a dead end once a notification had
+        // already been read.
+        const wasUnread = !n.read;
         n.read = true;
-        renderAdminDashboard();
-        try{ await adminFetch(`/api/admin/notifications/${btn.dataset.notifId}/read`, { method:'POST' }); }catch(e){ console.error(e); }
+        navigateToNotification(n);
+        if(wasUnread){
+          try{ await adminFetch(`/api/admin/notifications/${btn.dataset.notifId}/read`, { method:'POST' }); }catch(e){ console.error(e); }
+        }
       }));
     })();
   }
@@ -9174,6 +9222,10 @@ function renderOrgDashboard(){
           <button class="btn btn-ghost" id="org-logout-btn">${t("Log out")}</button>
         </div>
 
+        ${isOrgPro() ? `
+          <div class="status-pill status-delivered" style="margin-bottom:16px;display:inline-block;">Pro until ${escapeHtml(fmtDMY((org.proExpiresAt||'').slice(0,10)))}</div>
+        ` : ''}
+
         ${justSignedUp ? `
           <div class="note" style="margin-bottom:16px;">
             <strong>Save this authenticator secret now \u2014 it won't be shown again:</strong><br>
@@ -9205,7 +9257,15 @@ function renderOrgDashboard(){
             <button class="btn btn-primary" id="first-boat-submit-btn" style="width:100%;">${t("+ Add Your Free Boat")}</button>
           ` : `
             <button class="btn btn-amber" id="request-boat-toggle-btn" style="margin-top:10px;">${state.boatRequestOpen ? t('Cancel') : '+ Request Additional Boat'}</button>
-            ${state.boatRequestOpen ? `
+            ${state.boatRequestOpen ? (isOrgPro() ? `
+              <div style="margin-top:14px;">
+                <p class="sub">${t("You're on Pro — additional boats are granted instantly, no payment or approval needed.")}</p>
+                <label>${t("New boat name")}</label>
+                <input type="text" id="req-boat-name">
+                <div class="pin-error" id="req-boat-error">${escapeHtml(state.orgError || '')}</div>
+                <button class="btn btn-primary" id="req-boat-submit-btn" style="width:100%;margin-top:8px;">${t("Add Boat")}</button>
+              </div>
+            ` : `
               <div style="margin-top:14px;">
                 <p class="sub">${t("Additional boats require approval after payment. Enter a name for the new boat and attach a screenshot of your transfer.")}</p>
                 <label>${t("New boat name")}</label>
@@ -9215,7 +9275,7 @@ function renderOrgDashboard(){
                 <div class="pin-error" id="req-boat-error">${escapeHtml(state.orgError || '')}</div>
                 <button class="btn btn-primary" id="req-boat-submit-btn" style="width:100%;margin-top:8px;">${t("Submit Request")}</button>
               </div>
-            ` : ''}
+            `) : ''}
           `}
         </div>
 
@@ -9334,12 +9394,15 @@ function renderOrgDashboard(){
   document.getElementById('req-boat-submit-btn')?.addEventListener('click', async () => {
     const errorEl = document.getElementById('req-boat-error');
     const btn = document.getElementById('req-boat-submit-btn');
+    const submitLabel = isOrgPro() ? 'Add Boat' : 'Submit Request';
     clearFieldErrors(['req-boat-name']);
     const name = document.getElementById('req-boat-name').value.trim();
-    const file = document.getElementById('req-boat-screenshot').files[0];
+    // The screenshot field doesn't exist at all for a Pro org (see the
+    // markup above) -- optional chaining so this doesn't throw there.
+    const file = document.getElementById('req-boat-screenshot')?.files[0];
     if(!name){ markFieldError('req-boat-name', false); errorEl.textContent = 'Enter a name for the new boat.'; return; }
     errorEl.textContent = '';
-    btn.disabled = true; btn.textContent = 'Submitting\u2026';
+    btn.disabled = true; btn.textContent = isOrgPro() ? 'Adding\u2026' : 'Submitting\u2026';
     try{
       let screenshot = null;
       if(file) screenshot = await compressImageToDataUrl(file, 800, 0.55);
@@ -9350,16 +9413,28 @@ function renderOrgDashboard(){
       const data = await res.json().catch(() => ({}));
       if(res.ok && data.ok){
         state.boatRequestOpen = false;
-        alert(t('Request submitted. It will be reviewed once your payment is confirmed.'));
+        if(data.autoApproved){
+          // The boat already exists server-side -- refresh the boat list
+          // (same pattern as the free-first-boat flow) so it shows up
+          // immediately instead of the org having to log out/in.
+          const refreshed = await fetch(`${API_BASE}/api/org-login`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ boatName: org.boatName, passkey: state.orgPasskey })
+          }).then(r => r.json()).catch(() => null);
+          if(refreshed && refreshed.ok) state.orgBoats = refreshed.boats || [];
+          alert(t('Boat added.'));
+        } else {
+          alert(t('Request submitted. It will be reviewed once your payment is confirmed.'));
+        }
         renderOrgDashboard();
       } else {
-        btn.disabled = false; btn.textContent = t('Submit Request');
+        btn.disabled = false; btn.textContent = t(submitLabel);
         errorEl.textContent = (data && data.error) || 'Could not submit your request.';
         markFieldError('req-boat-name', false);
       }
     }catch(e){
       console.error('boat request failed', e);
-      btn.disabled = false; btn.textContent = t('Submit Request');
+      btn.disabled = false; btn.textContent = t(submitLabel);
       errorEl.textContent = 'Something went wrong. Try again.';
     }
   });
