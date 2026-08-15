@@ -340,7 +340,7 @@ app.post('/api/pro/payment-link', async (req, res) => {
       VALUES (${'pp-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${boatId}, ${payment.id}, ${payment.reference}, ${payment.amount}, ${payment.currency}, ${payment.status}, ${payment.payment_url || null})
     `;
 
-    res.status(201).json({ ok:true, paymentUrl: payment.payment_url, reference: payment.reference, status: payment.status });
+    res.status(201).json({ ok:true, paymentUrl: payment.payment_url, swipePaymentId: payment.id, reference: payment.reference || null, status: payment.status });
   }catch(e){
     console.error('create payment link failed', e);
     res.status(502).json({ ok:false, error: 'Could not create a Swipe payment link. Try again, or use the bank transfer option.' });
@@ -354,7 +354,7 @@ app.post('/api/pro/payment-link', async (req, res) => {
 // processed yet, in case the webhook was missed or isn't configured yet.
 app.get('/api/pro/payment-link/:reference/status', async (req, res) => {
   try{
-    const rows = await sql`SELECT * FROM pro_payments WHERE reference = ${req.params.reference}`;
+    const rows = await sql`SELECT * FROM pro_payments WHERE swipe_payment_id = ${req.params.reference}`;
     if(!rows.length) return res.status(404).json({ ok:false, error:'Unknown payment reference.' });
     const record = rows[0];
     if(record.status === 'COMPLETED'){
@@ -363,9 +363,9 @@ app.get('/api/pro/payment-link/:reference/status', async (req, res) => {
     const remote = await swipeApiRequest('GET', `/api/v1/payments/${record.swipe_payment_id}`);
     if(remote.status === 'COMPLETED' && record.status !== 'COMPLETED'){
       await grantProToBoat(record.boat_id);
-      await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE reference = ${req.params.reference}`;
+      await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE swipe_payment_id = ${req.params.reference}`;
     } else if(remote.status !== record.status){
-      await sql`UPDATE pro_payments SET status = ${remote.status} WHERE reference = ${req.params.reference}`;
+      await sql`UPDATE pro_payments SET status = ${remote.status} WHERE swipe_payment_id = ${req.params.reference}`;
     }
     res.json({ ok:true, status: remote.status });
   }catch(e){
@@ -389,18 +389,26 @@ app.post('/api/webhooks/swipe', async (req, res) => {
     if(eventType !== 'transaction.state_changed' || !data){
       return res.json({ ok:true }); // acknowledged, nothing to do
     }
-    const reference = data.transaction_code;
-    if(!reference) return res.json({ ok:true });
+    // transaction_id (Swipe's own payment ID, always present) is the
+    // reliable correlation key -- transaction_code/reference isn't always
+    // assigned at creation time, so a stored row's reference column can
+    // be NULL, and "WHERE reference = <code>" would never match a NULL
+    // column even if Swipe does send a code here. Try the ID first, fall
+    // back to the code for older rows that do have one on record.
+    const txId = data.transaction_id || data.id || null;
+    const txCode = data.transaction_code || null;
+    if(!txId && !txCode) return res.json({ ok:true });
 
-    const rows = await sql`SELECT * FROM pro_payments WHERE reference = ${reference}`;
+    let rows = txId ? await sql`SELECT * FROM pro_payments WHERE swipe_payment_id = ${txId}` : [];
+    if(!rows.length && txCode) rows = await sql`SELECT * FROM pro_payments WHERE reference = ${txCode}`;
     if(!rows.length) return res.json({ ok:true }); // not one of ours (or a different payment type)
     const record = rows[0];
 
     if(data.status === 'COMPLETED' && record.status !== 'COMPLETED'){
       await grantProToBoat(record.boat_id);
-      await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE reference = ${reference}`;
+      await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now(), reference = COALESCE(reference, ${txCode}) WHERE id = ${record.id}`;
     } else if(data.status !== record.status){
-      await sql`UPDATE pro_payments SET status = ${data.status} WHERE reference = ${reference}`;
+      await sql`UPDATE pro_payments SET status = ${data.status}, reference = COALESCE(reference, ${txCode}) WHERE id = ${record.id}`;
     }
     res.json({ ok:true });
   }catch(e){
