@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS organizations (
   suspension_note         TEXT,
   google_refresh_token    TEXT,
   google_connected_email  TEXT,
+  is_pro                  BOOLEAN NOT NULL DEFAULT false,
+  pro_started_at          TIMESTAMPTZ,
+  pro_expires_at          TIMESTAMPTZ,
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -40,6 +43,13 @@ CREATE TABLE IF NOT EXISTS organizations (
 -- and enforces the uniqueness at the database level too, not just in app code.
 CREATE UNIQUE INDEX IF NOT EXISTS organizations_boat_name_lower_idx
   ON organizations (lower(boat_name));
+
+-- Safe to run against an existing database that already has the
+-- organizations table from before Pro moved to the organization level --
+-- adds the three columns only if they're not already there.
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS is_pro BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS pro_started_at TIMESTAMPTZ;
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS pro_expires_at TIMESTAMPTZ;
 
 -- ---------------------------------------------------------------------------
 -- boats: one row per boat. Every organization gets one free boat at
@@ -114,29 +124,62 @@ CREATE TABLE IF NOT EXISTS boat_requests (
 CREATE INDEX IF NOT EXISTS boat_requests_organization_id_idx ON boat_requests (organization_id);
 
 -- ---------------------------------------------------------------------------
--- pro_payments: one row per Swipe payment link created for a boat's Pro
--- upgrade/renewal (POST /api/pro/payment-link). `reference` is Swipe's
--- transaction code -- the only thing the webhook (POST /api/webhooks/swipe)
--- has to look this row up by, since Swipe's webhook payload knows nothing
--- about SeaFare boat IDs. `swipe_payment_id` is Swipe's own payment ID,
--- used by the manual "check status" polling route to re-query Swipe
--- directly.
+-- admin_settings: a single row (id = 'admin') holding the Super Admin's
+-- in-app-editable settings -- an optional username/password override (falls
+-- back to the ADMIN_USERNAME/ADMIN_PASSWORD env vars when not set here), the
+-- bank account details shown to owners in the Pro upgrade payment popup, and
+-- which notification types should be raised to the admin queue. There's only
+-- ever one admin account, so a single fixed-id row is enough -- no need for
+-- a full table keyed by user.
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS pro_payments (
-  id                 TEXT PRIMARY KEY,
-  boat_id            TEXT NOT NULL REFERENCES boats(id) ON DELETE CASCADE,
-  swipe_payment_id   TEXT NOT NULL,
-  reference          TEXT NOT NULL UNIQUE,
-  amount             NUMERIC NOT NULL,
-  currency           TEXT NOT NULL,
-  status             TEXT NOT NULL,
-  payment_url        TEXT,
-  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-  completed_at       TIMESTAMPTZ
+CREATE TABLE IF NOT EXISTS admin_settings (
+  id                    TEXT PRIMARY KEY DEFAULT 'admin',
+  username              TEXT,
+  password_hash         TEXT,
+  bank_account_name     TEXT,
+  bank_account_number   TEXT,
+  notify_new_signups    BOOLEAN NOT NULL DEFAULT true,
+  notify_boat_requests  BOOLEAN NOT NULL DEFAULT true,
+  notify_new_boats      BOOLEAN NOT NULL DEFAULT true,
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS pro_payments_boat_id_idx ON pro_payments (boat_id);
+-- ---------------------------------------------------------------------------
+-- pro_payments: one row per Swipe payment link created from the Pro upgrade
+-- popup. `reference` is Swipe's transaction code for the payment (returned
+-- as `reference` from POST /api/v1/payments, and again as `transaction_code`
+-- on the webhook payload) -- it's what correlates an incoming webhook back
+-- to the boat that requested the link, since the webhook itself has no idea
+-- which SeaFare boat initiated the payment.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pro_payments (
+  id            TEXT PRIMARY KEY,
+  boat_id       TEXT NOT NULL REFERENCES boats(id) ON DELETE CASCADE,
+  swipe_payment_id TEXT NOT NULL,
+  reference     TEXT,
+  amount        NUMERIC NOT NULL,
+  currency      TEXT NOT NULL DEFAULT 'MVR',
+  status        TEXT NOT NULL DEFAULT 'PENDING',   -- 'PENDING' | 'COMPLETED' | 'EXPIRED' | 'CANCELLED'
+  payment_url   TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at  TIMESTAMPTZ
+);
+
+-- swipe_payment_id, not reference, is the reliable correlation key --
+-- Swipe doesn't always return `reference` at creation time (it may only
+-- get assigned once the payment actually progresses), so it can't be
+-- required or relied on for matching a webhook back to this row.
+CREATE UNIQUE INDEX IF NOT EXISTS pro_payments_swipe_payment_id_idx ON pro_payments (swipe_payment_id);
 CREATE INDEX IF NOT EXISTS pro_payments_reference_idx ON pro_payments (reference);
+CREATE INDEX IF NOT EXISTS pro_payments_boat_id_idx ON pro_payments (boat_id);
+
+-- Safe to run against an existing database that already has this table
+-- from before this fix -- drops the old NOT NULL + unique constraint on
+-- reference and adds the new unique index on swipe_payment_id instead.
+ALTER TABLE pro_payments ALTER COLUMN reference DROP NOT NULL;
+DROP INDEX IF EXISTS pro_payments_reference_idx;
+CREATE INDEX IF NOT EXISTS pro_payments_reference_idx ON pro_payments (reference);
+CREATE UNIQUE INDEX IF NOT EXISTS pro_payments_swipe_payment_id_idx ON pro_payments (swipe_payment_id);
 
 -- ---------------------------------------------------------------------------
 -- That's the whole schema. No default/seed rows are inserted here (unlike
