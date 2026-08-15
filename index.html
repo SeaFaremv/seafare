@@ -805,7 +805,7 @@
   background:
     linear-gradient(var(--adm-grid) 1px, transparent 1px) 0 0/100% 34px,
     linear-gradient(90deg, var(--adm-grid) 1px, transparent 1px) 0 0/34px 100%,
-    radial-gradient(ellipse at 50% -10%, #0F2038 0%, var(--adm-bg) 55%);
+    linear-gradient(180deg, rgba(6,11,20,0.55) 0%, rgba(6,11,20,0.78) 100%);
   min-height:100vh;
   color:var(--adm-text);
 }
@@ -4910,6 +4910,16 @@ function isProAccount(){
   const s = state.settings || {};
   if(!s.isPro) return false;
   if(s.proExpiresAt && new Date(s.proExpiresAt).getTime() <= Date.now()) return false;
+  return true;
+}
+// Same check, but from the Org Dashboard screen's own org-level data
+// (state.orgData, set at org login/signup) rather than a specific boat's
+// settings -- used before a specific boat's dispatch app (and therefore
+// state.settings) has been opened, e.g. the "Request Additional Boat" flow.
+function isOrgPro(){
+  const o = state.orgData || {};
+  if(!o.isPro) return false;
+  if(o.proExpiresAt && new Date(o.proExpiresAt).getTime() <= Date.now()) return false;
   return true;
 }
 function proDaysLeft(){
@@ -9256,12 +9266,12 @@ function renderOrgDashboard(){
     const opening = !state.boatRequestOpen;
     state.boatRequestOpen = opening; state.orgError = '';
     renderOrgDashboard();
-    // The free plan covers one boat; requesting another is the Pro-gated
-    // action here, so show the same payment popup every other Pro gate
-    // uses on the way to opening the request form -- the form itself
-    // (with its screenshot upload) still needs filling in below, since
-    // that's the actual proof-of-payment step an admin confirms.
-    if(opening){
+    // The free plan covers one boat; requesting another is normally a
+    // Pro-gated action -- but an organization that's already Pro doesn't
+    // need to pay again for it, so the payment popup only shows up here
+    // when this org isn't already Pro. Either way the request form itself
+    // (name + screenshot) is what an admin actually reviews below.
+    if(opening && !isOrgPro()){
       // The org dashboard doesn't set CURRENT_BOAT_ID until a specific
       // boat's dispatch app is opened -- but the popup's Payment Link tab
       // needs a real boat ID right now to create the Swipe payment for.
