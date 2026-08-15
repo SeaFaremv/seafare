@@ -773,6 +773,209 @@
   html[lang="dv"] .dp-weekdays span{
     font-family:'Oswald',sans-serif !important;
   }
+
+/* =========================================================================
+   SUPER ADMIN -- "Fleet Command Console" theme
+   A distinct look from the rest of the app: deep-space navy with a faint
+   radar-style grid, glowing status blips instead of flat pills, and heavier
+   use of the mono face already loaded (JetBrains Mono) for IDs, amounts,
+   and timestamps -- a control-room read on the same maritime identity the
+   rest of the app already has, not a different app bolted on. Scoped to
+   .admin-shell (wraps every admin screen) and .admin-popup-panel (the org
+   detail / settings popups, appended to <body> rather than nested inside
+   .admin-shell) so none of this reaches the boat/owner/customer UI.
+   ========================================================================= */
+:root{
+  --adm-bg:#060B14;
+  --adm-grid:rgba(45,212,191,0.07);
+  --adm-panel:#0D1A2E;
+  --adm-panel-raised:#12233C;
+  --adm-border:rgba(45,212,191,0.22);
+  --adm-border-strong:#2DD4BF;
+  --adm-text:#E7F1F8;
+  --adm-text-soft:#8AA2BC;
+  --adm-cyan:#22D3EE;
+  --adm-violet:#A78BFA;
+  --adm-amber:#F5A623;
+  --adm-rose:#FB4570;
+  --adm-emerald:#34D399;
+}
+
+.admin-shell{
+  background:
+    linear-gradient(var(--adm-grid) 1px, transparent 1px) 0 0/100% 34px,
+    linear-gradient(90deg, var(--adm-grid) 1px, transparent 1px) 0 0/34px 100%,
+    radial-gradient(ellipse at 50% -10%, #0F2038 0%, var(--adm-bg) 55%);
+  min-height:100vh;
+  color:var(--adm-text);
+}
+.admin-shell .panel{
+  background:var(--adm-panel);
+  border:1px solid var(--adm-border);
+  box-shadow:0 0 0 1px rgba(0,0,0,0.3), 0 20px 60px -20px rgba(0,0,0,0.7);
+}
+.admin-shell h2{
+  font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.09em;
+  color:var(--adm-text);font-size:19px;
+  display:flex;align-items:center;gap:10px;
+}
+.admin-shell h2::before{
+  content:'';width:9px;height:9px;border-radius:50%;
+  background:var(--adm-cyan);box-shadow:0 0 10px 2px var(--adm-cyan);
+  animation:adm-pulse 2.4s ease-in-out infinite;
+}
+.admin-shell h3{ color:var(--adm-text); }
+.admin-shell .sub{ color:var(--adm-text-soft); }
+
+/* Console menu bar -- underline indicator instead of filled pill tabs */
+.admin-shell .sub-tabs{
+  background:transparent;border:none;border-bottom:1px solid var(--adm-border);
+  border-radius:0;padding:0;gap:2px;display:flex;flex-wrap:wrap;
+}
+.admin-shell .sub-tabs button{
+  font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;
+  background:transparent;border:none;border-bottom:2px solid transparent;border-radius:0;
+  color:var(--adm-text-soft);padding:10px 14px;margin-bottom:-1px;transition:color .15s,border-color .15s;
+}
+.admin-shell .sub-tabs button.active{
+  color:var(--adm-cyan);border-bottom-color:var(--adm-cyan);
+  text-shadow:0 0 12px rgba(34,211,238,0.5);
+}
+.admin-shell .sub-tabs button:hover:not(.active){ color:var(--adm-text); }
+
+/* Cards -- org rows, boat requests, notifications, etc. */
+.admin-shell .settings-block,
+.admin-shell .item-result-row,
+.admin-popup-panel .item-result-row{
+  background:var(--adm-panel-raised);
+  border:1px solid var(--adm-border);
+  border-radius:10px;
+  transition:border-color .15s, box-shadow .15s;
+}
+.admin-shell button.settings-block:hover{
+  border-color:var(--adm-border-strong);
+  box-shadow:0 0 0 1px var(--adm-border-strong), 0 0 24px -8px rgba(45,212,191,0.4);
+}
+.admin-shell .tag-label{ color:var(--adm-text-soft); }
+.admin-shell .tag-meta,
+.admin-popup-panel .tag-meta{ color:var(--adm-text-soft);font-family:'JetBrains Mono',monospace;font-size:11.5px; }
+.admin-shell .rprice{ color:var(--adm-cyan); }
+.admin-shell .empty,
+.admin-popup-panel .empty{ color:var(--adm-text-soft); }
+.admin-shell .note,
+.admin-popup-panel .note{ background:rgba(245,166,35,0.08);border-color:rgba(245,166,35,0.4);color:#F5C777; }
+
+/* Status blips -- a glowing dot + mono label instead of a flat pill.
+   Applied to the shared .status-pill class only within admin screens; the
+   rest of the app keeps the ordinary flat-pill look untouched. */
+.admin-shell .status-pill,
+.admin-popup-panel .status-pill{
+  background:transparent !important;color:var(--adm-text) !important;
+  font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:0.04em;text-transform:uppercase;
+  padding:4px 10px 4px 8px !important;border-radius:999px;
+  border:1px solid var(--adm-border);display:inline-flex;align-items:center;gap:6px;
+}
+.admin-shell .status-pill::before,
+.admin-popup-panel .status-pill::before{
+  content:'';width:7px;height:7px;border-radius:50%;flex:none;
+  background:var(--adm-text-soft);
+}
+.admin-shell .status-delivered::before,
+.admin-popup-panel .status-delivered::before{ background:var(--adm-emerald);box-shadow:0 0 8px 1px var(--adm-emerald); }
+.admin-shell .status-delivered,
+.admin-popup-panel .status-delivered{ border-color:rgba(52,211,153,0.4); }
+.admin-shell .status-in_transit::before,
+.admin-popup-panel .status-in_transit::before{ background:var(--adm-amber);box-shadow:0 0 8px 1px var(--adm-amber); }
+.admin-shell .status-in_transit,
+.admin-popup-panel .status-in_transit{ border-color:rgba(245,166,35,0.4); }
+.admin-shell .status-pending::before,
+.admin-popup-panel .status-pending::before{ background:var(--adm-text-soft); }
+
+/* Buttons */
+.admin-shell .btn,
+.admin-popup-panel .btn{
+  font-family:'JetBrains Mono',monospace;letter-spacing:0.03em;text-transform:uppercase;font-size:11.5px;
+  border-radius:8px;
+}
+.admin-shell .btn-primary,
+.admin-popup-panel .btn-primary{
+  background:var(--adm-cyan);color:#03222A;border:1px solid var(--adm-cyan);
+  box-shadow:0 0 20px -6px rgba(34,211,238,0.6);
+}
+.admin-shell .btn-primary:hover,
+.admin-popup-panel .btn-primary:hover{ box-shadow:0 0 26px -4px rgba(34,211,238,0.8); }
+.admin-shell .btn-ghost,
+.admin-popup-panel .btn-ghost{
+  background:transparent;color:var(--adm-text);border:1px solid var(--adm-border);
+}
+.admin-shell .btn-ghost:hover,
+.admin-popup-panel .btn-ghost:hover{ border-color:var(--adm-border-strong);color:var(--adm-cyan); }
+.admin-shell .btn-danger,
+.admin-popup-panel .btn-danger{
+  background:transparent;color:var(--adm-rose);border:1px solid rgba(251,69,112,0.5);
+}
+.admin-shell .btn-danger:hover,
+.admin-popup-panel .btn-danger:hover{ background:rgba(251,69,112,0.12);box-shadow:0 0 20px -8px var(--adm-rose); }
+
+/* Inputs */
+.admin-shell input,
+.admin-shell textarea,
+.admin-shell select,
+.admin-popup-panel input,
+.admin-popup-panel textarea,
+.admin-popup-panel select{
+  background:var(--adm-bg) !important;border:1px solid var(--adm-border) !important;
+  color:var(--adm-text) !important;border-radius:8px;
+}
+.admin-shell input:focus,
+.admin-shell textarea:focus,
+.admin-popup-panel input:focus,
+.admin-popup-panel textarea:focus{
+  border-color:var(--adm-cyan) !important;box-shadow:0 0 0 3px rgba(34,211,238,0.18);outline:none;
+}
+.admin-shell label,
+.admin-popup-panel label{ color:var(--adm-text-soft); }
+
+/* view-field (authenticator secret show/hide) */
+.admin-shell .view-field,
+.admin-popup-panel .view-field{
+  background:var(--adm-bg);border:1px solid var(--adm-border);border-radius:8px;
+}
+.admin-shell .vf-value,
+.admin-popup-panel .vf-value{ color:var(--adm-text); }
+.admin-shell .vf-show,
+.admin-popup-panel .vf-show{ color:var(--adm-cyan); }
+
+/* Popup panels (org detail, settings) -- appended to <body>, not nested
+   inside .admin-shell, so they get their own explicit background. */
+.admin-popup-panel{
+  background:var(--adm-panel) !important;
+  border:1px solid var(--adm-border-strong) !important;
+  box-shadow:0 0 0 1px rgba(0,0,0,0.4), 0 0 60px -12px rgba(45,212,191,0.35) !important;
+}
+
+.admin-shell .pin-box{
+  background:var(--adm-panel);border:1px solid var(--adm-border-strong);
+  box-shadow:0 0 0 1px rgba(0,0,0,0.4), 0 0 60px -12px rgba(45,212,191,0.35);
+}
+.admin-shell .pin-box .rname{
+  color:var(--adm-text);letter-spacing:0.09em;
+  display:flex;align-items:center;justify-content:center;gap:9px;
+}
+.admin-shell .pin-box .rname::before{
+  content:'';width:8px;height:8px;border-radius:50%;
+  background:var(--adm-cyan);box-shadow:0 0 10px 2px var(--adm-cyan);
+  animation:adm-pulse 2.4s ease-in-out infinite;
+}
+.admin-shell .pin-box label{ color:var(--adm-text-soft); }
+
+@keyframes adm-pulse{
+  0%,100%{ opacity:1; }
+  50%{ opacity:0.4; }
+}
+@media (prefers-reduced-motion: reduce){
+  .admin-shell h2::before{ animation:none; }
+}
 </style>
 </head>
 <body>
@@ -2240,6 +2443,8 @@ let state = {
   adminTab: 'organizations',
   adminOrgs: null,
   adminRequests: null,
+  adminProRequests: null,
+  adminProPayments: null,
   adminBusyId: null,
   adminRevealedTotp: null,
   adminOrgDetailId: null,
@@ -7697,6 +7902,7 @@ function hideNormalShell(){
   document.getElementById('panel').style.display = 'none';
   document.getElementById('role-pill').style.display = 'none';
   document.getElementById('gate-area').style.display = 'block';
+  document.getElementById('gate-area').classList.remove('admin-shell');
 }
 
 function renderInvalidLinkScreen(message){
@@ -7714,6 +7920,7 @@ function renderInvalidLinkScreen(message){
 
 function renderAdmin(){
   hideNormalShell();
+  document.getElementById('gate-area').classList.add('admin-shell');
   // Super Admin is English-only, full stop -- forced here, at the one
   // function every admin screen renders through, rather than only at the
   // entry points into admin mode. This is what actually guarantees it:
@@ -7812,6 +8019,18 @@ async function loadAdminRequests(){
     state.adminRequests = data.requests || [];
   }catch(e){ state.adminRequests = state.adminRequests || []; }
 }
+async function loadAdminProRequests(){
+  try{
+    const data = await adminFetch('/api/admin/pro-requests');
+    state.adminProRequests = data.requests || [];
+  }catch(e){ state.adminProRequests = state.adminProRequests || []; }
+}
+async function loadAdminProPayments(){
+  try{
+    const data = await adminFetch('/api/admin/pro-payments');
+    state.adminProPayments = data.payments || [];
+  }catch(e){ state.adminProPayments = state.adminProPayments || []; }
+}
 async function loadAdminNotifications(){
   try{
     const data = await adminFetch('/api/admin/notifications');
@@ -7890,7 +8109,7 @@ function createAdminBannerStack(){
   return stack;
 }
 function showAdminNotificationBanner(n){
-  const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested' };
+  const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: '\u2705 Paid via Swipe' };
   const title = typeLabels[n.type] || n.type || 'New notification';
   if(typeof Notification !== 'undefined' && Notification.permission === 'granted'){
     try{
@@ -7944,7 +8163,7 @@ function showAdminNotificationBanner(n){
    has nowhere real to go yet -- that call is written against the
    endpoint contract in the spec doc, ready to work the moment the
    backend implements it. */
-const ADMIN_PUSH_VAPID_PUBLIC_KEY = 'REPLACE_WITH_YOUR_VAPID_PUBLIC_KEY';
+const ADMIN_PUSH_VAPID_PUBLIC_KEY = 'BOWeAWH_VWxCKgUB1gZDDWgTw27KWZqxGxndX45xxXPMio_9PIuFbdbY-_U2pZGveNblcWZWuZsyLWgj_axoqL0';
 
 function urlBase64ToUint8Array(base64String){
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -8034,9 +8253,9 @@ function showMessageBox(title, message){
 
 function confirmAdminAction(label, onConfirm, withNote){
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2400;display:flex;align-items:center;justify-content:center;padding:20px;';
   overlay.innerHTML = `
-    <div class="panel" style="max-width:360px;width:100%;">
+    <div class="panel admin-popup-panel" style="max-width:360px;width:100%;">
       <h3 style="margin-bottom:6px;">Confirm: ${escapeHtml(label)}</h3>
       ${withNote ? `
         <label>${t("Reason (shown to the organization)")}</label>
@@ -8084,69 +8303,37 @@ function confirmAdminAction(label, onConfirm, withNote){
   input.addEventListener('keydown', e => { if(e.key === 'Enter') go(); });
 }
 
-// Pro status block shown under each boat row in the org detail view --
-// reflects the ORGANIZATION's Pro status (shared by every boat under it),
-// read directly from the already-loaded admin org list rather than a
-// separate per-boat fetch.
-function renderAdminBoatProBlock(boatId, orgId){
+// Pro status block shown once per organization (not repeated per boat --
+// Pro is org-wide now) inside the org detail popup below.
+function renderAdminOrgProBlock(orgId){
   const org = (state.adminOrgs || []).find(o => o.id === orgId);
   if(!org) return `<div class="tag-meta" style="color:var(--red);">Could not check Pro status.</div>`;
   const active = org.is_pro && (!org.pro_expires_at || new Date(org.pro_expires_at).getTime() > Date.now());
   const lapsed = org.is_pro && !active;
-  // "Requested" only reflects THIS boat's own pending-request flag (the
-  // manual bank-transfer flow is still submitted per boat) -- Pro itself,
-  // once granted, is org-wide.
-  const boatInfo = state.adminBoatProInfo[boatId];
   const statusPill = active
     ? `<span class="status-pill status-delivered">Pro until ${escapeHtml(fmtDMY((org.pro_expires_at||'').slice(0,10)))}</span>`
-    : (boatInfo && boatInfo.proRequestPending
-      ? `<span class="status-pill status-in_transit">Pro Requested</span>`
-      : `<span class="status-pill status-pending">Free</span>`);
+    : `<span class="status-pill status-pending">Free</span>`;
   return `
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
       ${statusPill}
       ${lapsed ? `<span class="tag-meta" style="color:var(--red);">(expired)</span>` : ''}
     </div>
-    ${boatInfo && boatInfo.proRequestScreenshot ? `
-      <div class="tag-meta" style="margin-top:6px;">Transfer slip:</div>
-      <img src="${boatInfo.proRequestScreenshot}" style="max-width:100%;border-radius:8px;border:1px solid var(--line);margin-top:4px;">
-    ` : (boatInfo && boatInfo.proRequestPending ? `<div class="tag-meta" style="margin-top:6px;">No transfer slip attached.</div>` : '')}
     <div style="display:flex;gap:6px;width:100%;margin-top:6px;">
       <button class="btn btn-primary" style="flex:1;padding:7px 10px;font-size:12px;" data-admin-approve-pro="${orgId}">${active ? 'Renew Pro (+30 days)' : 'Grant Pro (30 days)'}</button>
       ${active ? `<button class="btn btn-ghost" style="flex:1;padding:7px 10px;font-size:12px;" data-admin-revoke-pro="${orgId}">Revoke Pro</button>` : ''}
     </div>
   `;
 }
-// Still fetches this one boat's own pending-request flag + screenshot
-// (that part of the flow stays per-boat) -- Pro status itself comes
-// straight from state.adminOrgs, no fetch needed.
-async function loadAdminBoatProInfo(boatId, orgId){
-  try{
-    const settings = await adminGetBoatSettings(boatId);
-    state.adminBoatProInfo[boatId] = {
-      proRequestPending: !!settings.proRequestPending,
-      proRequestScreenshot: settings.proRequestScreenshot || null
-    };
-  }catch(e){
-    console.error('loadAdminBoatProInfo failed for', boatId, e);
-    state.adminBoatProInfo[boatId] = { error: true };
-  }
-  const el = document.getElementById(`admin-boat-pro-${boatId}`);
-  if(el){
-    el.innerHTML = renderAdminBoatProBlock(boatId, orgId);
-    wireAdminBoatProButtons();
-  }
-}
-function wireAdminBoatProButtons(){
+function wireAdminOrgProButtons(){
   document.querySelectorAll('[data-admin-approve-pro]').forEach(btn => {
     if(btn._proWired) return; btn._proWired = true;
     btn.addEventListener('click', () => {
       const orgId = btn.dataset.adminApprovePro;
       confirmAdminAction('Grant/renew Pro for this organization (30 days) \u2014 shared by every boat, owner, manager, and staff under it, and this also clears any pending transfer-slip request', async () => {
         await adminApproveProForOrganization(orgId);
-        state.adminOrgs = null;
+        state.adminOrgs = null; state.adminProRequests = null;
         await loadAdminOrgs();
-        renderAdmin();
+        openAdminOrgPopup(orgId);
       });
     });
   });
@@ -8158,9 +8345,260 @@ function wireAdminBoatProButtons(){
         await adminRevokeProForOrganization(orgId);
         state.adminOrgs = null;
         await loadAdminOrgs();
-        renderAdmin();
+        openAdminOrgPopup(orgId);
       });
     });
+  });
+}
+
+// Organization detail popup -- same themed overlay+panel pattern as every
+// other popup in the app (invoice, delivery confirmation, etc.), reached
+// by tapping an organization in the Owners & Boats list. Replaces the old
+// in-place "detail view" that swapped the list out underneath itself.
+function openAdminOrgPopup(orgId){
+  closeAdminOrgPopup();
+  lockBodyScroll();
+  const o = (state.adminOrgs || []).find(x => x.id === orgId);
+  if(!o) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'admin-org-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2300;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="panel admin-popup-panel" id="admin-org-popup-panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:460px;margin:0;animation:invoice-pop-in 0.18s ease-out;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;">
+        <div>
+          <h3 style="margin-bottom:4px;">${escapeHtml(o.boat_name)}</h3>
+          <p class="sub" style="margin-bottom:2px;">${escapeHtml(o.owner_name)}</p>
+        </div>
+        <button type="button" class="btn btn-ghost" id="admin-org-popup-close-btn" style="padding:8px 14px;">\u2715</button>
+      </div>
+      <span class="status-pill ${o.status==='suspended'?'status-in_transit':'status-delivered'}">${escapeHtml(o.status)}</span>
+      ${o.status==='suspended' && o.suspension_note ? `<div class="note" style="border-color:var(--red);color:var(--red);margin-top:10px;">Reason: ${escapeHtml(o.suspension_note)}</div>` : ''}
+      ${o.status==='suspended' && suspensionDeleteWarning(o.suspended_at) ? `<div class="note" style="border-color:var(--red);color:var(--red);margin-top:10px;font-weight:700;">${escapeHtml(suspensionDeleteWarning(o.suspended_at))}</div>` : ''}
+      ${o.priorDeletion ? `<div class="note" style="border-color:var(--amber);color:#8a5a00;margin-top:10px;"><strong>Previously deleted:</strong> "${escapeHtml(o.priorDeletion.boat_name||'')}" was removed on ${escapeHtml(String(o.priorDeletion.deleted_at).slice(0,10))} (${o.priorDeletion.reason === 'auto_deleted_inactive_suspension' ? 'auto-deleted after 15 days suspended' : 'deleted by admin'}). This owner has since signed up again with the same mobile number.</div>` : ''}
+      <div class="tag-meta" style="margin-top:10px;">${o.contact_number ? telLink(o.contact_number) : ''} ${o.gmail ? '\u00b7 '+escapeHtml(o.gmail) : ''}</div>
+
+      <div style="margin-top:12px;">
+        <div class="tag-label" style="margin-bottom:6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">Pro Subscription</div>
+        <div id="admin-org-popup-pro">${renderAdminOrgProBlock(o.id)}</div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <div class="tag-label" style="margin-bottom:6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">Authenticator Secret</div>
+        <div class="view-field">
+          <span class="vf-value" style="font-family:'JetBrains Mono',monospace;letter-spacing:1px;word-break:break-all;">${state.adminRevealedTotp === o.id ? escapeHtml(o.totp_secret || 'Not set') : '\u2022'.repeat(20)}</span>
+          <button class="vf-show" data-admin-toggle-totp="${o.id}">${state.adminRevealedTotp === o.id ? 'Hide' : 'Show'}</button>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <div class="tag-label" style="margin-bottom:6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">Boats (${(o.boats||[]).length})</div>
+        ${(o.boats||[]).map(b => `
+          <div class="item-result-row" style="margin-bottom:6px;flex-wrap:wrap;">
+            <span>${escapeHtml(b.name)}${b.is_primary ? ' (primary)' : ''}</span>
+            <span class="rprice">${escapeHtml(b.status)}</span>
+            ${b.status==='suspended' && b.suspension_note ? `<div class="note" style="border-color:var(--red);color:var(--red);width:100%;margin:6px 0 0;">Reason: ${escapeHtml(b.suspension_note)}</div>` : ''}
+            <div style="display:flex;gap:6px;width:100%;margin-top:6px;">
+              <button class="btn btn-ghost" style="flex:1;padding:7px 10px;font-size:12px;" data-boat-toggle-suspend="${b.id}" data-suspended="${b.status==='suspended'}">${b.status==='suspended' ? 'Unsuspend' : 'Suspend'}</button>
+              <button class="btn btn-danger" style="flex:1;padding:7px 10px;font-size:12px;" data-boat-delete="${b.id}">${t("Delete")}</button>
+            </div>
+          </div>
+        `).join('') || '<div class="empty">No boats yet.</div>'}
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:14px;">
+        <button class="btn btn-ghost" style="flex:1;" data-org-toggle-suspend="${o.id}" data-suspended="${o.status==='suspended'}">${o.status==='suspended' ? 'Unsuspend Organization' : 'Suspend Organization'}</button>
+        <button class="btn btn-danger" style="flex:1;" data-org-delete="${o.id}">${t("Delete Organization")}</button>
+      </div>
+    </div>
+  `;
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) closeAdminOrgPopup(); });
+  document.body.appendChild(overlay);
+  document.getElementById('admin-org-popup-close-btn').addEventListener('click', closeAdminOrgPopup);
+  wireAdminOrgProButtons();
+
+  document.getElementById('admin-org-popup-panel').querySelectorAll('[data-admin-toggle-totp]').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.adminToggleTotp;
+    state.adminRevealedTotp = state.adminRevealedTotp === id ? null : id;
+    openAdminOrgPopup(orgId);
+  }));
+  document.getElementById('admin-org-popup-panel').querySelectorAll('[data-org-toggle-suspend]').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.orgToggleSuspend;
+    const isSuspended = btn.dataset.suspended === 'true';
+    confirmAdminAction(isSuspended ? 'Unsuspend organization' : 'Suspend organization', async (note) => {
+      await adminFetch(`/api/admin/organizations/${id}/${isSuspended ? 'unsuspend' : 'suspend'}`, { method:'POST', body:{ note } });
+      state.adminOrgs = null;
+      await loadAdminOrgs();
+      openAdminOrgPopup(id);
+    }, !isSuspended);
+  }));
+  document.getElementById('admin-org-popup-panel').querySelectorAll('[data-org-delete]').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.orgDelete;
+    confirmAdminAction('Permanently delete organization (cannot be undone)', async () => {
+      await adminFetch(`/api/admin/organizations/${id}`, { method:'DELETE' });
+      state.adminOrgs = null;
+      closeAdminOrgPopup();
+      renderAdminDashboard();
+    });
+  }));
+  document.getElementById('admin-org-popup-panel').querySelectorAll('[data-boat-toggle-suspend]').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.boatToggleSuspend;
+    const isSuspended = btn.dataset.suspended === 'true';
+    confirmAdminAction(isSuspended ? 'Unsuspend boat' : 'Suspend boat', async (note) => {
+      await adminFetch(`/api/admin/boats/${id}/${isSuspended ? 'unsuspend' : 'suspend'}`, { method:'POST', body:{ note } });
+      state.adminOrgs = null;
+      await loadAdminOrgs();
+      openAdminOrgPopup(orgId);
+    }, !isSuspended);
+  }));
+  document.getElementById('admin-org-popup-panel').querySelectorAll('[data-boat-delete]').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.boatDelete;
+    confirmAdminAction('Permanently delete boat (cannot be undone)', async () => {
+      await adminFetch(`/api/admin/boats/${id}`, { method:'DELETE' });
+      state.adminOrgs = null;
+      await loadAdminOrgs();
+      openAdminOrgPopup(orgId);
+    });
+  }));
+}
+function closeAdminOrgPopup(){
+  const overlay = document.getElementById('admin-org-popup-overlay');
+  if(overlay) unlockBodyScroll();
+  overlay?.remove();
+}
+
+// Super Admin Settings popup -- login credentials, the bank account shown
+// to owners in the Pro upgrade payment popup, and which notification types
+// should reach the admin (now actually enforced server-side by
+// notifyAdmin, not just stored).
+const ADMIN_NOTIFY_TOGGLES = [
+  { key: 'notifyNewSignups', label: 'New signups (and re-signups after deletion)' },
+  { key: 'notifyBoatRequests', label: 'Additional-boat requests' },
+  { key: 'notifyNewBoats', label: 'New boats created' },
+  { key: 'notifyProRequests', label: 'Pro upgrade requests (bank transfer)' },
+  { key: 'notifyProPayments', label: 'Pro paid via Swipe' },
+];
+function openAdminSettingsPopup(){
+  closeAdminSettingsPopup();
+  lockBodyScroll();
+  const overlay = document.createElement('div');
+  overlay.id = 'admin-settings-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2300;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="panel admin-popup-panel" id="admin-settings-popup-panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:460px;margin:0;animation:invoice-pop-in 0.18s ease-out;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;">
+        <h3 style="margin-bottom:2px;">Super Admin Settings</h3>
+        <button type="button" class="btn btn-ghost" id="admin-settings-popup-close-btn" style="padding:8px 14px;">\u2715</button>
+      </div>
+      <div id="admin-settings-popup-body"><div class="note">Loading\u2026</div></div>
+    </div>
+  `;
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) closeAdminSettingsPopup(); });
+  document.body.appendChild(overlay);
+  document.getElementById('admin-settings-popup-close-btn').addEventListener('click', closeAdminSettingsPopup);
+  renderAdminSettingsPopupBody();
+}
+function closeAdminSettingsPopup(){
+  const overlay = document.getElementById('admin-settings-popup-overlay');
+  if(overlay) unlockBodyScroll();
+  overlay?.remove();
+}
+async function renderAdminSettingsPopupBody(){
+  const body = document.getElementById('admin-settings-popup-body');
+  if(!body) return;
+  let settings;
+  try{
+    const data = await adminFetch('/api/admin/settings');
+    if(!data.ok) throw new Error(data.error || 'Could not load settings.');
+    settings = data.settings;
+  }catch(e){
+    console.error('load admin settings failed', e);
+    body.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">Could not load settings. Try again.</div>`;
+    return;
+  }
+  if(!document.getElementById('admin-settings-popup-body')) return; // popup closed while loading
+
+  body.innerHTML = `
+    <div class="tag-label" style="margin-bottom:6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">Login Credentials</div>
+    <label style="margin-top:2px;">Username</label>
+    <input type="text" id="as-username" value="${escapeHtml(settings.username || '')}">
+    <label style="margin-top:6px;">New Password</label>
+    <input type="password" id="as-password" placeholder="At least 6 characters">
+    <p class="tag-meta" style="margin-top:4px;">Leave blank if you only want to change the username \u2014 but changing either one still requires typing a new password here (this is what the server checks against).</p>
+    <button class="btn btn-primary" id="as-credentials-save-btn" style="width:100%;margin-top:8px;">Save Credentials</button>
+    <div id="as-credentials-status" class="tag-meta" style="margin-top:6px;"></div>
+
+    <div class="tag-label" style="margin:16px 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">Bank Account (shown to owners in the Pro payment popup)</div>
+    <label>Account Name</label>
+    <input type="text" id="as-bank-name" value="${escapeHtml(settings.bankAccountName || '')}">
+    <label style="margin-top:6px;">Account Number</label>
+    <input type="text" id="as-bank-number" value="${escapeHtml(settings.bankAccountNumber || '')}">
+    <button class="btn btn-primary" id="as-bank-save-btn" style="width:100%;margin-top:8px;">Save Bank Account</button>
+    <div id="as-bank-status" class="tag-meta" style="margin-top:6px;"></div>
+
+    <div class="tag-label" style="margin:16px 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">Notify Me About</div>
+    ${ADMIN_NOTIFY_TOGGLES.map(t => `
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-bottom:8px;">
+        <input type="checkbox" id="as-notify-${t.key}" ${settings[t.key] ? 'checked' : ''} style="width:auto;">
+        ${escapeHtml(t.label)}
+      </label>
+    `).join('')}
+    <button class="btn btn-primary" id="as-notify-save-btn" style="width:100%;margin-top:4px;">Save Notification Preferences</button>
+    <div id="as-notify-status" class="tag-meta" style="margin-top:6px;"></div>
+  `;
+
+  document.getElementById('as-credentials-save-btn').addEventListener('click', async () => {
+    const statusEl = document.getElementById('as-credentials-status');
+    const newUsername = document.getElementById('as-username').value.trim();
+    const newPassword = document.getElementById('as-password').value;
+    if(!newUsername){ statusEl.textContent = 'Username is required.'; return; }
+    if(!newPassword || newPassword.length < 6){ statusEl.textContent = 'Type a new password (at least 6 characters) to save changes.'; return; }
+    statusEl.textContent = 'Saving\u2026';
+    try{
+      const data = await adminFetch('/api/admin/settings/credentials', { method:'POST', body:{ newUsername, newPassword } });
+      if(!data.ok) throw new Error(data.error || 'Could not save.');
+      // The password just changed -- this device's saved admin session
+      // needs the new one too, or the next request gets rejected as
+      // unauthorized.
+      state.adminUsername = newUsername;
+      state.adminPasskey = newPassword;
+      saveAdminSession(newUsername, newPassword);
+      statusEl.textContent = 'Saved.';
+      document.getElementById('as-password').value = '';
+    }catch(e){
+      console.error(e);
+      statusEl.textContent = 'Could not save. Try again.';
+    }
+  });
+
+  document.getElementById('as-bank-save-btn').addEventListener('click', async () => {
+    const statusEl = document.getElementById('as-bank-status');
+    const bankAccountName = document.getElementById('as-bank-name').value.trim();
+    const bankAccountNumber = document.getElementById('as-bank-number').value.trim();
+    statusEl.textContent = 'Saving\u2026';
+    try{
+      const data = await adminFetch('/api/admin/settings/bank', { method:'POST', body:{ bankAccountName, bankAccountNumber } });
+      if(!data.ok) throw new Error(data.error || 'Could not save.');
+      statusEl.textContent = 'Saved.';
+    }catch(e){
+      console.error(e);
+      statusEl.textContent = 'Could not save. Try again.';
+    }
+  });
+
+  document.getElementById('as-notify-save-btn').addEventListener('click', async () => {
+    const statusEl = document.getElementById('as-notify-status');
+    const body = {};
+    ADMIN_NOTIFY_TOGGLES.forEach(t => { body[t.key] = document.getElementById(`as-notify-${t.key}`).checked; });
+    statusEl.textContent = 'Saving\u2026';
+    try{
+      const data = await adminFetch('/api/admin/settings/notifications', { method:'POST', body });
+      if(!data.ok) throw new Error(data.error || 'Could not save.');
+      statusEl.textContent = 'Saved.';
+    }catch(e){
+      console.error(e);
+      statusEl.textContent = 'Could not save. Try again.';
+    }
   });
 }
 
@@ -8175,17 +8613,25 @@ function renderAdminDashboard(){
       <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
           <h2 style="margin:0;">Super Admin</h2>
-          <button class="btn btn-ghost" id="admin-logout-btn">${t("Log out")}</button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-ghost" id="admin-settings-btn" title="Settings" style="padding:8px 12px;">\u2699\ufe0f</button>
+            <button class="btn btn-ghost" id="admin-logout-btn">${t("Log out")}</button>
+          </div>
         </div>
         <div class="sub-tabs">
           <button class="${state.adminTab==='organizations'?'active':''}" data-admintab="organizations">${t("Owners & Boats")}</button>
           <button class="${state.adminTab==='requests'?'active':''}" data-admintab="requests">${t("Boat Requests")}</button>
+          <button class="${state.adminTab==='proRequests'?'active':''}" data-admintab="proRequests">Pro Requests${(state.adminProRequests||[]).length ? ` (${(state.adminProRequests||[]).length})` : ''}</button>
+          <button class="${state.adminTab==='proPayments'?'active':''}" data-admintab="proPayments">Paid via Swipe${(state.adminProPayments||[]).length ? ` (${(state.adminProPayments||[]).length})` : ''}</button>
           <button class="${state.adminTab==='notifications'?'active':''}" data-admintab="notifications">Notifications${(state.adminNotifications||[]).filter(n=>!n.read).length ? ` (${(state.adminNotifications||[]).filter(n=>!n.read).length})` : ''}</button>
         </div>
         <div id="admin-body" style="margin-top:16px;">Loading\u2026</div>
       </div>
     </div>
   `;
+  document.getElementById('admin-settings-btn').addEventListener('click', () => {
+    openAdminSettingsPopup();
+  });
   document.getElementById('admin-logout-btn').addEventListener('click', () => {
     state.adminAuthed = false; state.adminUsername=''; state.adminPasskey=''; state.adminOrgs=null; state.adminRequests=null; state.adminOrgDetailId=null;
     clearAdminSession();
@@ -8206,109 +8652,9 @@ function renderAdminDashboard(){
       if(!document.getElementById('admin-body')) return; // tab changed while loading
       const orgs = state.adminOrgs || [];
 
-      // Detail view for one organization -- everything (contact info,
-      // authenticator secret, per-boat controls, suspend/delete) lives
-      // here, reached by tapping an org in the compact list below.
-      if(state.adminOrgDetailId){
-        const o = orgs.find(x => x.id === state.adminOrgDetailId);
-        if(!o){ state.adminOrgDetailId = null; renderAdminDashboard(); return; }
-        body.innerHTML = `
-          <button class="btn btn-ghost" id="admin-org-back-btn" style="margin-bottom:14px;">${t("\u2190 Back to Organizations")}</button>
-          <div class="settings-block">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-              <div>
-                <h3 style="margin-bottom:4px;">${escapeHtml(o.boat_name)}</h3>
-                <p class="sub" style="margin-bottom:10px;">${escapeHtml(o.owner_name)}</p>
-              </div>
-              <span class="status-pill ${o.status==='suspended'?'status-in_transit':'status-delivered'}">${escapeHtml(o.status)}</span>
-            </div>
-            ${o.status==='suspended' && o.suspension_note ? `<div class="note" style="border-color:var(--red);color:var(--red);margin-bottom:10px;">Reason: ${escapeHtml(o.suspension_note)}</div>` : ''}
-            ${o.status==='suspended' && suspensionDeleteWarning(o.suspended_at) ? `<div class="note" style="border-color:var(--red);color:var(--red);margin-bottom:10px;font-weight:700;">${escapeHtml(suspensionDeleteWarning(o.suspended_at))}</div>` : ''}
-            ${o.priorDeletion ? `<div class="note" style="border-color:var(--amber);color:#8a5a00;margin-bottom:10px;"><strong>Previously deleted:</strong> "${escapeHtml(o.priorDeletion.boat_name||'')}" was removed on ${escapeHtml(String(o.priorDeletion.deleted_at).slice(0,10))} (${o.priorDeletion.reason === 'auto_deleted_inactive_suspension' ? 'auto-deleted after 15 days suspended' : 'deleted by admin'}). This owner has since signed up again with the same mobile number.</div>` : ''}
-            <div class="tag-meta">${o.contact_number ? telLink(o.contact_number) : ''} ${o.gmail ? '\u00b7 '+escapeHtml(o.gmail) : ''}</div>
-
-            <div style="margin-top:10px;">
-              <div class="tag-label" style="margin-bottom:6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">Authenticator Secret</div>
-              <div class="view-field">
-                <span class="vf-value" style="font-family:'JetBrains Mono',monospace;letter-spacing:1px;word-break:break-all;">${state.adminRevealedTotp === o.id ? escapeHtml(o.totp_secret || 'Not set') : '\u2022'.repeat(20)}</span>
-                <button class="vf-show" data-admin-toggle-totp="${o.id}">${state.adminRevealedTotp === o.id ? 'Hide' : 'Show'}</button>
-              </div>
-            </div>
-
-            <div style="margin-top:10px;">
-              <div class="tag-label" style="margin-bottom:6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">Boats (${(o.boats||[]).length})</div>
-              ${(o.boats||[]).map(b => `
-                <div class="item-result-row" style="margin-bottom:6px;flex-wrap:wrap;">
-                  <span>${escapeHtml(b.name)}${b.is_primary ? ' (primary)' : ''}</span>
-                  <span class="rprice">${escapeHtml(b.status)}</span>
-                  ${b.status==='suspended' && b.suspension_note ? `<div class="note" style="border-color:var(--red);color:var(--red);width:100%;margin:6px 0 0;">Reason: ${escapeHtml(b.suspension_note)}</div>` : ''}
-                  <div style="display:flex;gap:6px;width:100%;margin-top:6px;">
-                    <button class="btn btn-ghost" style="flex:1;padding:7px 10px;font-size:12px;" data-boat-toggle-suspend="${b.id}" data-suspended="${b.status==='suspended'}">${b.status==='suspended' ? 'Unsuspend' : 'Suspend'}</button>
-                    <button class="btn btn-danger" style="flex:1;padding:7px 10px;font-size:12px;" data-boat-delete="${b.id}">${t("Delete")}</button>
-                  </div>
-                  <div id="admin-boat-pro-${b.id}" style="width:100%;margin-top:6px;">${renderAdminBoatProBlock(b.id, o.id)}</div>
-                </div>
-              `).join('') || '<div class="empty">${t("No boats yet.")}</div>'}
-            </div>
-
-            <div style="display:flex;gap:8px;margin-top:14px;">
-              <button class="btn btn-ghost" style="flex:1;" data-org-toggle-suspend="${o.id}" data-suspended="${o.status==='suspended'}">${o.status==='suspended' ? 'Unsuspend Organization' : 'Suspend Organization'}</button>
-              <button class="btn btn-danger" style="flex:1;" data-org-delete="${o.id}">${t("Delete Organization")}</button>
-            </div>
-          </div>
-        `;
-
-        document.getElementById('admin-org-back-btn').addEventListener('click', () => {
-          state.adminOrgDetailId = null;
-          state.adminRevealedTotp = null;
-          renderAdminDashboard();
-        });
-        body.querySelectorAll('[data-admin-toggle-totp]').forEach(btn => btn.addEventListener('click', () => {
-          const id = btn.dataset.adminToggleTotp;
-          state.adminRevealedTotp = state.adminRevealedTotp === id ? null : id;
-          renderAdminDashboard();
-        }));
-        body.querySelectorAll('[data-org-toggle-suspend]').forEach(btn => btn.addEventListener('click', () => {
-          const id = btn.dataset.orgToggleSuspend;
-          const isSuspended = btn.dataset.suspended === 'true';
-          confirmAdminAction(isSuspended ? 'Unsuspend organization' : 'Suspend organization', async (note) => {
-            await adminFetch(`/api/admin/organizations/${id}/${isSuspended ? 'unsuspend' : 'suspend'}`, { method:'POST', body:{ note } });
-            state.adminOrgs = null;
-            renderAdminDashboard();
-          }, !isSuspended);
-        }));
-        body.querySelectorAll('[data-org-delete]').forEach(btn => btn.addEventListener('click', () => {
-          const id = btn.dataset.orgDelete;
-          confirmAdminAction('Permanently delete organization (cannot be undone)', async () => {
-            await adminFetch(`/api/admin/organizations/${id}`, { method:'DELETE' });
-            state.adminOrgs = null;
-            state.adminOrgDetailId = null;
-            renderAdminDashboard();
-          });
-        }));
-        body.querySelectorAll('[data-boat-toggle-suspend]').forEach(btn => btn.addEventListener('click', () => {
-          const id = btn.dataset.boatToggleSuspend;
-          const isSuspended = btn.dataset.suspended === 'true';
-          confirmAdminAction(isSuspended ? 'Unsuspend boat' : 'Suspend boat', async (note) => {
-            await adminFetch(`/api/admin/boats/${id}/${isSuspended ? 'unsuspend' : 'suspend'}`, { method:'POST', body:{ note } });
-            state.adminOrgs = null;
-            renderAdminDashboard();
-          }, !isSuspended);
-        }));
-        body.querySelectorAll('[data-boat-delete]').forEach(btn => btn.addEventListener('click', () => {
-          const id = btn.dataset.boatDelete;
-          confirmAdminAction('Permanently delete boat (cannot be undone)', async () => {
-            await adminFetch(`/api/admin/boats/${id}`, { method:'DELETE' });
-            state.adminOrgs = null;
-            renderAdminDashboard();
-          });
-        }));
-        (o.boats||[]).forEach(b => loadAdminBoatProInfo(b.id, o.id));
-        wireAdminBoatProButtons();
-        return;
-      }
-
-      // Compact list -- tap an organization to drill into its details.
+      // Compact list -- tap an organization to open its details in a
+      // popup (contact info, authenticator secret, Pro status, boats,
+      // suspend/delete), rather than swapping this list out in place.
       body.innerHTML = orgs.length === 0 ? `<div class="empty">${t("No organizations yet. This phase only manages data — owner self-signup comes in a later phase.")}</div>` : orgs.map(o => `
         <button type="button" class="settings-block" data-open-org="${o.id}" style="display:block;width:100%;text-align:left;cursor:pointer;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
@@ -8319,14 +8665,61 @@ function renderAdminDashboard(){
             <span class="status-pill ${o.status==='suspended'?'status-in_transit':'status-delivered'}">${escapeHtml(o.status)}</span>
           </div>
           ${o.priorDeletion ? `<div class="status-pill" style="background:var(--amber);color:#3a2600;margin-bottom:8px;display:inline-block;">\u26a0 Previously deleted \u2014 tap for details</div>` : ''}
+          ${o.is_pro && (!o.pro_expires_at || new Date(o.pro_expires_at).getTime() > Date.now()) ? `<div class="status-pill status-delivered" style="margin-bottom:8px;display:inline-block;">Pro until ${escapeHtml(fmtDMY((o.pro_expires_at||'').slice(0,10)))}</div>` : ''}
           <div class="tag-label" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;margin-bottom:4px;">Boats (${(o.boats||[]).length})</div>
           ${(o.boats||[]).length ? (o.boats||[]).map(b => `<div class="tag-meta" style="margin-bottom:2px;">\u2022 ${escapeHtml(b.name)}${b.is_primary?' (primary)':''} \u2014 ${escapeHtml(b.status)}</div>`).join('') : '<div class="tag-meta">${t("No boats yet.")}</div>'}
         </button>
       `).join('');
 
       body.querySelectorAll('[data-open-org]').forEach(btn => btn.addEventListener('click', () => {
-        state.adminOrgDetailId = btn.dataset.openOrg;
-        renderAdminDashboard();
+        openAdminOrgPopup(btn.dataset.openOrg);
+      }));
+    })();
+  } else if(state.adminTab === 'proRequests'){
+    (async () => {
+      if(state.adminProRequests === null) await loadAdminProRequests();
+      if(!document.getElementById('admin-body')) return;
+      const reqs = state.adminProRequests || [];
+      body.innerHTML = reqs.length === 0 ? `<div class="empty">No pending Pro requests.</div>` : reqs.map(r => `
+        <div class="settings-block">
+          <h3 style="margin-bottom:4px;">${escapeHtml(r.ownerName)} \u2014 ${escapeHtml(r.orgBoatName)}</h3>
+          <p class="sub" style="margin-bottom:8px;">Requested from boat: ${escapeHtml(r.boatName)}${r.requestedAt ? ` \u00b7 ${fmtDate(r.requestedAt)}` : ''}</p>
+          ${r.screenshot ? `<img src="${r.screenshot}" style="max-width:100%;border-radius:8px;border:1px solid var(--line);margin-bottom:10px;">` : `<p class="sub" style="margin-bottom:10px;">No transfer slip attached.</p>`}
+          <button class="btn btn-primary" style="width:100%;" data-pro-req-grant="${r.organizationId}" ${state.adminBusyId===r.organizationId?'disabled':''}>Grant Pro (30 days)</button>
+        </div>
+      `).join('');
+      body.querySelectorAll('[data-pro-req-grant]').forEach(btn => btn.addEventListener('click', async () => {
+        const orgId = btn.dataset.proReqGrant;
+        confirmAdminAction('Grant Pro for this organization (30 days) \u2014 shared by every boat, owner, manager, and staff under it, and this clears the request', async () => {
+          state.adminBusyId = orgId; renderAdminDashboard();
+          try{ await adminApproveProForOrganization(orgId); }
+          catch(e){ console.error(e); }
+          state.adminBusyId = null; state.adminOrgs = null; state.adminProRequests = null;
+          renderAdminDashboard();
+        });
+      }));
+    })();
+  } else if(state.adminTab === 'proPayments'){
+    (async () => {
+      if(state.adminProPayments === null) await loadAdminProPayments();
+      if(!document.getElementById('admin-body')) return;
+      const pays = state.adminProPayments || [];
+      body.innerHTML = pays.length === 0 ? `<div class="empty">No Swipe payments yet.</div>` : pays.map(p => `
+        <button type="button" class="settings-block" data-pro-payment-org="${p.organization_id}" style="display:block;width:100%;text-align:left;cursor:pointer;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+            <div>
+              <h3 style="margin-bottom:4px;">${escapeHtml(p.owner_name)} \u2014 ${escapeHtml(p.org_boat_name)}</h3>
+              <p class="sub" style="margin-bottom:2px;">Paid from boat: ${escapeHtml(p.boat_name)}</p>
+              <p class="tag-meta">${p.completed_at ? fmtDate(p.completed_at) : ''}</p>
+            </div>
+            <span class="status-pill status-delivered">${escapeHtml(p.currency)} ${escapeHtml(String(p.amount))}</span>
+          </div>
+        </button>
+      `).join('');
+      body.querySelectorAll('[data-pro-payment-org]').forEach(btn => btn.addEventListener('click', async () => {
+        const orgId = btn.dataset.proPaymentOrg;
+        if(state.adminOrgs === null) await loadAdminOrgs();
+        openAdminOrgPopup(orgId);
       }));
     })();
   } else if(state.adminTab === 'requests'){
@@ -8385,7 +8778,7 @@ function renderAdminDashboard(){
       if(!document.getElementById('admin-body')) return;
       const notes = state.adminNotifications || [];
       const unreadCount = notes.filter(n => !n.read).length;
-      const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested' };
+      const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: '\u2705 Paid via Swipe' };
       body.innerHTML = `
         <button type="button" class="btn btn-ghost" id="admin-enable-push-btn" style="width:100%;margin-bottom:12px;">${t('\ud83d\udd14 Enable Push Notifications on This Device')}</button>
         ${unreadCount ? `<button type="button" class="btn btn-ghost" id="admin-notif-mark-all-btn" style="width:100%;margin-bottom:12px;">Mark all ${unreadCount} as read</button>` : ''}
