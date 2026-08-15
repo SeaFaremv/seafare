@@ -1596,7 +1596,7 @@ app.post('/api/signup', async (req, res) => {
       }
       const conflict = await findActiveNumberConflict(numbersEntered);
       if(conflict){
-        return res.status(409).json({ ok:false, error: `That mobile/contact number is already registered under "${conflict.boatName}"${conflict.ownerName ? ` (${conflict.ownerName})` : ''}. Each number can only be used by one account.` });
+        return res.status(409).json({ ok:false, error: 'This mobile number is already in use. Please use another mobile number.' });
       }
     }
 
