@@ -5115,22 +5115,29 @@ function renderUpgradeToProAccountBody(which){
 // Upgrade-to-Pro panel the BML/MIB tabs use (see renderUpgradeToProAccountBody
 // above) rather than a second popup stacked on top of it.
 //
-// While this tab is open the app polls the payment's status on its own
-// every few seconds -- Swipe's webhook confirms it in the background
-// regardless, but polling means the status flips to fulfilled the moment
-// it clears without the person needing to tap "Check Now" themselves. That
-// button is still there as a manual fallback (slow connection, or just
-// wanting to force an immediate check). Since Pro lives on the
-// organization, a confirmed payment here shows up for every boat, owner,
-// manager, and staff under it -- not just this device or boat.
+// Rather than polling on a timer while this tab just sits there (which
+// could flip the status -- and pop the "Pro activated" animation --
+// while the person isn't even looking at the screen, e.g. still over in
+// the Swipe app or the pay.swipe.mv tab), the check instead fires the
+// moment the person actually comes back to this tab: on 'visibilitychange'
+// (tab regains focus) and plain window 'focus' (covers switching back
+// into the same window/app on mobile). That's naturally when they'd
+// expect to see whether it went through. The "Check Now" button is still
+// there as a manual fallback. Since Pro lives on the organization, a
+// confirmed payment here shows up for every boat, owner, manager, and
+// staff under it -- not just this device or boat.
 let _swipeProPaymentRef = null;
-let _swipeProPollTimer = null;
+let _swipeProReturnHandler = null;
 // Set by openUpgradeToProPopup() the moment the popup opens -- see there
 // for why this (rather than re-reading live state) is what
 // handleProPaymentConfirmed() below uses to decide where to return to.
 let _proUpgradeReturnContext = null;
 function stopSwipePaymentPolling(){
-  if(_swipeProPollTimer){ clearInterval(_swipeProPollTimer); _swipeProPollTimer = null; }
+  if(_swipeProReturnHandler){
+    document.removeEventListener('visibilitychange', _swipeProReturnHandler);
+    window.removeEventListener('focus', _swipeProReturnHandler);
+    _swipeProReturnHandler = null;
+  }
   _swipeProPaymentRef = null;
 }
 async function renderSwipeAccountBody(){
@@ -5156,10 +5163,14 @@ async function renderSwipeAccountBody(){
       <div id="swipe-payment-status" class="tag-meta" style="margin-top:8px;">${t('Status')}: ${escapeHtml(data.status || 'PENDING')}</div>
     `;
     document.getElementById('swipe-payment-check-btn').addEventListener('click', () => checkSwipeProPaymentStatus(false));
-    // Auto-poll every 4s while this tab is showing -- cleared by
-    // stopSwipePaymentPolling() on tab switch, popup close, or once the
-    // payment actually clears.
-    _swipeProPollTimer = setInterval(() => checkSwipeProPaymentStatus(true), 4000);
+    // Check automatically the moment the person comes back to this tab --
+    // not on a timer running the whole time they're away. Cleared by
+    // stopSwipePaymentPolling() on popup close or once the payment clears.
+    _swipeProReturnHandler = () => {
+      if(document.visibilityState === 'visible') checkSwipeProPaymentStatus(true);
+    };
+    document.addEventListener('visibilitychange', _swipeProReturnHandler);
+    window.addEventListener('focus', _swipeProReturnHandler);
   }catch(e){
     console.error('renderSwipeAccountBody failed', e);
     body.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.')}</div>`;
