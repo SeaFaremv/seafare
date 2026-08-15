@@ -348,9 +348,15 @@ app.get('/api/pro/payment-link/:reference/status', async (req, res) => {
       return res.json({ ok:true, status: 'COMPLETED' });
     }
     const remote = await swipeApiRequest('GET', `/api/v1/payments/${record.swipe_payment_id}`);
-    if(remote.status === 'COMPLETED' && record.status !== 'COMPLETED'){
+    // Swipe's own status vocabulary (confirmed from the merchant dashboard's
+    // status tabs) uses FULFILLED for a completed payment, not COMPLETED --
+    // we still store/report 'COMPLETED' as our own internal label so the
+    // rest of this app (and the front-end popup) has one consistent value
+    // to check for, regardless of what Swipe calls it on their side.
+    if(remote.status === 'FULFILLED' && record.status !== 'COMPLETED'){
       await grantProToBoat(record.boat_id);
       await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE reference = ${req.params.reference}`;
+      return res.json({ ok:true, status: 'COMPLETED' });
     } else if(remote.status !== record.status){
       await sql`UPDATE pro_payments SET status = ${remote.status} WHERE reference = ${req.params.reference}`;
     }
@@ -362,10 +368,21 @@ app.get('/api/pro/payment-link/:reference/status', async (req, res) => {
 });
 
 // Swipe calls this whenever a transaction's status changes. Only
-// transaction.state_changed events with status COMPLETED, for a reference
-// we actually created a link for, ever grant Pro -- and only once (the
-// pro_payments.status check makes this safe against Swipe retrying/
-// redelivering the same webhook).
+// transaction.state_changed events with status FULFILLED (Swipe's own
+// vocabulary for a completed payment -- see the status-check route above
+// for the same correction), for a reference we actually created a link
+// for, ever grant Pro -- and only once (the pro_payments.status check
+// makes this safe against Swipe retrying/redelivering the same webhook).
+//
+// NOTE: this handler still reads data.transaction_code as the reference
+// field, matching the webhook payload shape as originally documented --
+// that field name has NOT yet been verified against a real webhook
+// delivery the way the payment-creation response's short_code field was.
+// If Pro doesn't get granted automatically after a real payment even
+// though the status-check route above confirms FULFILLED, log the raw
+// webhook body here the same way we did for the creation response, and
+// check whether Swipe's webhook payload actually uses a different field
+// name for the reference.
 app.post('/api/webhooks/swipe', async (req, res) => {
   try{
     const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
@@ -383,7 +400,7 @@ app.post('/api/webhooks/swipe', async (req, res) => {
     if(!rows.length) return res.json({ ok:true }); // not one of ours (or a different payment type)
     const record = rows[0];
 
-    if(data.status === 'COMPLETED' && record.status !== 'COMPLETED'){
+    if(data.status === 'FULFILLED' && record.status !== 'COMPLETED'){
       await grantProToBoat(record.boat_id);
       await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE reference = ${reference}`;
     } else if(data.status !== record.status){
