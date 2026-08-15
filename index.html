@@ -128,6 +128,10 @@
     0%{ transform: scale(0.9); opacity: 0; }
     100%{ transform: scale(1); opacity: 1; }
   }
+  /* Payment-confirmed checkmark (see showProActivatedAnimation) -- the
+     circle draws itself first, then the tick strokes in right after. */
+  @keyframes pro-check-circle{ to{ stroke-dashoffset: 0; } }
+  @keyframes pro-check-mark{ to{ stroke-dashoffset: 0; } }
   /* Super Admin new-notification banner (see showAdminNotificationBanner)
      -- same navy/paper palette as the rest of the app's chrome, slides
      down from the top and fades out on its own after a few seconds. */
@@ -4998,8 +5002,19 @@ async function submitProRequest(screenshotDataUrl){
 // sub-tabs, rather than inventing a new tab style just for this. Doubles
 // as the renewal popup (see openProExpiryWarningPopup) -- same accounts,
 // same "I've Paid" button, just opened at a different moment.
+//
+// Captures exactly where this was opened from (_proUpgradeReturnContext)
+// so that once payment clears, handleProPaymentConfirmed() can land the
+// person back on that same screen -- whether that's the Org Dashboard's
+// "add a boat" flow, the GPS-tracking prompt on Home, the routes/trip
+// settings page, the language toggle inside Settings, or anywhere else
+// Upgrade to Pro can be triggered from. The popup itself is just an
+// overlay on top of the page -- it never touches the underlying screen's
+// state -- so whatever was there before opening it is still there
+// afterwards; this just remembers which tab to redraw once Pro is live.
 function openUpgradeToProPopup(){
   closeUpgradeToProPopup();
+  _proUpgradeReturnContext = { entryMode: state.entryMode, tab: state.tab, settingsTab: state.settingsTab };
   lockBodyScroll();
   const alreadyRequested = !!(state.settings && state.settings.proRequestPending);
   const overlay = document.createElement('div');
@@ -5030,6 +5045,7 @@ function openUpgradeToProPopup(){
 }
 
 function closeUpgradeToProPopup(){
+  stopSwipePaymentPolling();
   const overlay = document.getElementById('upgrade-pro-popup-overlay');
   if(overlay) unlockBodyScroll();
   overlay?.remove();
@@ -5037,14 +5053,22 @@ function closeUpgradeToProPopup(){
 
 function wireUpgradeToProAccountTabs(){
   document.querySelectorAll('#upgrade-pro-account-tabs [data-pro-account-tab]').forEach(b => b.addEventListener('click', () => {
-    if(b.dataset.proAccountTab === 'swipe'){ openSwipePaymentPopup(); return; }
+    stopSwipePaymentPolling();
     document.querySelectorAll('#upgrade-pro-account-tabs [data-pro-account-tab]').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     renderUpgradeToProAccountBody(b.dataset.proAccountTab);
   }));
 }
 
+// The Swipe tab renders into the very same #upgrade-pro-account-body slot
+// as BML/MIB below, instead of opening a second stacked popup on top of
+// this one -- that used to double up the dark overlay (two translucent
+// backdrops layered on each other) so the organization app behind looked
+// noticeably darker/grayer than every other popup in the app. One panel,
+// one overlay, same as everywhere else.
 function renderUpgradeToProAccountBody(which){
+  if(which === 'swipe'){ renderSwipeAccountBody(); return; }
+  stopSwipePaymentPolling();
   const a = PRO_UPGRADE_ACCOUNTS[which] || PRO_UPGRADE_ACCOUNTS.bml;
   const body = document.getElementById('upgrade-pro-account-body');
   if(!body) return;
@@ -5070,46 +5094,34 @@ function renderUpgradeToProAccountBody(which){
   }));
 }
 
-// "Pay by Swipe" popup -- creates a real payment link via the server
-// (which talks to Swipe with a server-side API key; the browser never
-// sees it), then shows it with an Open + Copy button. Pro activates on
-// its own once Swipe's webhook confirms payment (picked up the next time
-// settings refresh, same as everywhere else in the app -- no
-// special-cased polling loop needed here), but a manual "Check Now"
-// button is included as a fallback in case the webhook is slow, not yet
-// registered in the Merchant Portal, or the person just wants to confirm
-// sooner rather than waiting for the next refresh. Since Pro now lives on
-// the organization, a confirmed payment here shows up for every boat,
-// owner, manager, and staff under it -- not just this device or boat.
+// "Pay by Swipe" tab -- creates a real payment link via the server (which
+// talks to Swipe with a server-side API key; the browser never sees it),
+// then shows it with an Open + status line, right inside the same
+// Upgrade-to-Pro panel the BML/MIB tabs use (see renderUpgradeToProAccountBody
+// above) rather than a second popup stacked on top of it.
+//
+// While this tab is open the app polls the payment's status on its own
+// every few seconds -- Swipe's webhook confirms it in the background
+// regardless, but polling means the status flips to fulfilled the moment
+// it clears without the person needing to tap "Check Now" themselves. That
+// button is still there as a manual fallback (slow connection, or just
+// wanting to force an immediate check). Since Pro lives on the
+// organization, a confirmed payment here shows up for every boat, owner,
+// manager, and staff under it -- not just this device or boat.
 let _swipeProPaymentRef = null;
-function openSwipePaymentPopup(){
-  closeSwipePaymentPopup();
-  lockBodyScroll();
-  const overlay = document.createElement('div');
-  overlay.id = 'swipe-payment-popup-overlay';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2300;display:flex;align-items:center;justify-content:center;padding:20px;';
-  overlay.innerHTML = `
-    <div class="panel" id="swipe-payment-popup-panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:420px;margin:0;animation:invoice-pop-in 0.18s ease-out;">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
-        <h3 style="margin-bottom:2px;">${t('Pay by Swipe')}</h3>
-        <button type="button" class="btn btn-ghost" id="swipe-payment-popup-close-btn" style="padding:8px 14px;">\u2715</button>
-      </div>
-      <div id="swipe-payment-popup-body"><div class="note">${t('Generating a payment link\u2026')}</div></div>
-    </div>
-  `;
-  overlay.addEventListener('click', (e) => { if(e.target === overlay) closeSwipePaymentPopup(); });
-  document.body.appendChild(overlay);
-  document.getElementById('swipe-payment-popup-close-btn').addEventListener('click', closeSwipePaymentPopup);
-  renderSwipePaymentPopupBody();
+let _swipeProPollTimer = null;
+// Set by openUpgradeToProPopup() the moment the popup opens -- see there
+// for why this (rather than re-reading live state) is what
+// handleProPaymentConfirmed() below uses to decide where to return to.
+let _proUpgradeReturnContext = null;
+function stopSwipePaymentPolling(){
+  if(_swipeProPollTimer){ clearInterval(_swipeProPollTimer); _swipeProPollTimer = null; }
+  _swipeProPaymentRef = null;
 }
-function closeSwipePaymentPopup(){
-  const overlay = document.getElementById('swipe-payment-popup-overlay');
-  if(overlay) unlockBodyScroll();
-  overlay?.remove();
-}
-async function renderSwipePaymentPopupBody(){
-  const body = document.getElementById('swipe-payment-popup-body');
+async function renderSwipeAccountBody(){
+  const body = document.getElementById('upgrade-pro-account-body');
   if(!body) return;
+  body.innerHTML = `<div class="note">${t('Generating a payment link\u2026')}</div>`;
   try{
     const res = await fetch(`${API_BASE}/api/pro/payment-link`, {
       method: 'POST',
@@ -5126,27 +5138,29 @@ async function renderSwipePaymentPopupBody(){
       <div class="note">${t('Tap below to pay \u0783')}${SWIPE_PRO_DISPLAY_AMOUNT} ${t('via the Swipe app. Pro activates automatically once payment is confirmed \u2014 no need to notify the Super Admin for this option.')}</div>
       <a href="${escapeHtml(data.paymentUrl)}" target="_blank" rel="noopener" class="btn btn-primary" style="width:100%;margin-top:10px;display:block;text-align:center;text-decoration:none;">${t('Open Payment Link')}</a>
       <button type="button" class="btn btn-ghost" id="swipe-payment-check-btn" style="width:100%;margin-top:8px;">${t('Check Now')}</button>
-      <div id="swipe-payment-status" class="tag-meta" style="margin-top:8px;"></div>
+      <div id="swipe-payment-status" class="tag-meta" style="margin-top:8px;">${t('Status')}: ${escapeHtml(data.status || 'PENDING')}</div>
     `;
-    document.getElementById('swipe-payment-check-btn').addEventListener('click', checkSwipeProPaymentStatus);
+    document.getElementById('swipe-payment-check-btn').addEventListener('click', () => checkSwipeProPaymentStatus(false));
+    // Auto-poll every 4s while this tab is showing -- cleared by
+    // stopSwipePaymentPolling() on tab switch, popup close, or once the
+    // payment actually clears.
+    _swipeProPollTimer = setInterval(() => checkSwipeProPaymentStatus(true), 4000);
   }catch(e){
-    console.error('renderSwipePaymentPopupBody failed', e);
+    console.error('renderSwipeAccountBody failed', e);
     body.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.')}</div>`;
   }
 }
-async function checkSwipeProPaymentStatus(){
+async function checkSwipeProPaymentStatus(isAutoPoll){
   if(!_swipeProPaymentRef) return;
   const btn = document.getElementById('swipe-payment-check-btn');
   const statusEl = document.getElementById('swipe-payment-status');
-  if(btn){ btn.disabled = true; btn.textContent = t('Checking\u2026'); }
+  if(!isAutoPoll && btn){ btn.disabled = true; btn.textContent = t('Checking\u2026'); }
   try{
     const res = await fetch(`${API_BASE}/api/pro/payment-link/${encodeURIComponent(_swipeProPaymentRef)}/status`);
     const data = await res.json().catch(() => ({}));
     if(data.ok && data.status === 'COMPLETED'){
-      state.settings = await loadSettings();
-      closeSwipePaymentPopup();
-      closeUpgradeToProPopup();
-      render();
+      stopSwipePaymentPolling();
+      await handleProPaymentConfirmed();
       return;
     }
     if(statusEl) statusEl.textContent = data.ok ? `${t('Status')}: ${data.status}` : t('Could not check payment status.');
@@ -5154,8 +5168,79 @@ async function checkSwipeProPaymentStatus(){
     console.error('checkSwipeProPaymentStatus failed', e);
     if(statusEl) statusEl.textContent = t('Could not check payment status.');
   }finally{
-    if(btn){ btn.disabled = false; btn.textContent = t('Check Now'); }
+    if(!isAutoPoll && btn){ btn.disabled = false; btn.textContent = t('Check Now'); }
   }
+}
+
+// Shared "Pro just activated" moment, fired the instant a Swipe payment is
+// confirmed (whether caught by the auto-poll or a manual "Check Now").
+// Closes the payment panel, shows a brief animated confirmation, then
+// refreshes whichever screen the person was on -- captured in
+// _proUpgradeReturnContext when the popup was first opened -- so Pro-only
+// options appear immediately and they can pick up right where they left
+// off, no manual reload or renavigating needed. On the Org Dashboard
+// specifically that means landing back on the (now Pro) "add another
+// boat" flow, since that's the only thing Upgrade to Pro is ever
+// triggered from there; everywhere else (Home's GPS prompt, routes/trip
+// settings, the language toggle inside Settings, or any other page) just
+// redraws that same tab now that isProAccount()/isOrgPro() reflect the
+// new payment.
+async function handleProPaymentConfirmed(){
+  const returnContext = _proUpgradeReturnContext || { entryMode: state.entryMode, tab: state.tab, settingsTab: state.settingsTab };
+  _proUpgradeReturnContext = null;
+  closeUpgradeToProPopup();
+  await showProActivatedAnimation();
+  if(returnContext.entryMode === 'org' && state.orgData){
+    try{
+      const refreshed = await fetch(`${API_BASE}/api/org-login`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ boatName: state.orgData.boatName, passkey: state.orgPasskey })
+      }).then(r => r.json()).catch(() => null);
+      if(refreshed && refreshed.ok){
+        state.orgData = refreshed.organization;
+        state.orgBoats = refreshed.boats || [];
+      }
+    }catch(e){ console.error('org refresh after Pro payment failed', e); }
+    state.boatRequestOpen = true;
+    state.orgError = '';
+    renderOrgDashboard();
+  } else {
+    try{ state.settings = await loadSettings(); }catch(e){ console.error('settings refresh after Pro payment failed', e); }
+    // Restore the exact tab/sub-tab the payment was started from (in case
+    // anything else changed state.tab in the background while the popup
+    // was open, e.g. a poll-driven redirect) before redrawing it.
+    if(returnContext.tab) state.tab = returnContext.tab;
+    if(returnContext.settingsTab) state.settingsTab = returnContext.settingsTab;
+    render();
+  }
+}
+
+// Animated teal check + a small "SeaFare Pro" mark, held for ~2s so the
+// confirmation actually registers before moving on. Same single
+// rgba(0,0,0,0.5) overlay treatment as every other popup in the app.
+function showProActivatedAnimation(){
+  return new Promise((resolve) => {
+    lockBodyScroll();
+    const overlay = document.createElement('div');
+    overlay.id = 'pro-activated-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2400;display:flex;align-items:center;justify-content:center;padding:20px;';
+    overlay.innerHTML = `
+      <div class="panel" style="max-width:320px;width:100%;text-align:center;animation:invoice-pop-in 0.18s ease-out;">
+        <svg viewBox="0 0 64 64" width="72" height="72" style="margin:0 auto 14px;display:block;">
+          <circle cx="32" cy="32" r="29" fill="none" stroke="var(--teal)" stroke-width="4" stroke-linecap="round"
+            stroke-dasharray="182" stroke-dashoffset="182" style="animation:pro-check-circle 0.5s ease-out forwards;"/>
+          <polyline points="19 33 28 42 46 22" fill="none" stroke="var(--teal)" stroke-width="4.5"
+            stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="40" stroke-dashoffset="40"
+            style="animation:pro-check-mark 0.35s ease-out 0.4s forwards;"/>
+        </svg>
+        <h3 style="margin-bottom:4px;">${t('Payment Successful')}</h3>
+        <div style="font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.08em;color:var(--teal);font-weight:700;font-size:15px;">SeaFare Pro</div>
+        <p class="sub" style="margin:8px 0 0;">${t('Pro is now active for your organization.')}</p>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    setTimeout(() => { unlockBodyScroll(); overlay.remove(); resolve(); }, 2000);
+  });
 }
 
 function renderUpgradeToProRequestArea(alreadyRequested){
