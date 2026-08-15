@@ -805,11 +805,26 @@
   --adm-emerald:#34D399;
 }
 
+/* .admin-shell's own dark grid background (below) only ever painted the
+   #gate-area box itself -- which sits inside .shell (max-width:920px,
+   centered), which in turn sits on <body>'s own blue wave background.
+   On anything wider than ~920px that left the intended "distinct look
+   from the rest of the app" console theme surrounded by strips of the
+   ordinary blue app background on both sides (and above/below, for
+   shorter screens) -- exactly the "grid behind the background" seam.
+   body.admin-mode (toggled alongside #gate-area's own admin-shell class,
+   see hideNormalShell()/renderAdmin()) repaints <body> itself with the
+   same dark navy + grid, edge to edge, so there's no blue left showing
+   anywhere behind the Super Admin screens.  Same grid tile size/position
+   as .admin-shell below so the two backgrounds tile seamlessly. */
+/* Grid pattern removed on both layers below -- the app's normal animated
+   wave background (painted on body itself, see body{} above) now shows
+   through the whole admin console instead. body.admin-mode no longer
+   overrides background/animation at all, so it just inherits body{}'s
+   wave-drift. .admin-shell keeps only a translucent navy wash (no grid
+   lines) so panels/text still read clearly against the wave underneath. */
 .admin-shell{
-  background:
-    linear-gradient(var(--adm-grid) 1px, transparent 1px) 0 0/100% 34px,
-    linear-gradient(90deg, var(--adm-grid) 1px, transparent 1px) 0 0/34px 100%,
-    linear-gradient(180deg, rgba(6,11,20,0.55) 0%, rgba(6,11,20,0.78) 100%);
+  background:linear-gradient(180deg, rgba(6,11,20,0.55) 0%, rgba(6,11,20,0.78) 100%);
   min-height:100vh;
   color:var(--adm-text);
 }
@@ -8002,6 +8017,7 @@ function hideNormalShell(){
   document.getElementById('role-pill').style.display = 'none';
   document.getElementById('gate-area').style.display = 'block';
   document.getElementById('gate-area').classList.remove('admin-shell');
+  document.body.classList.remove('admin-mode');
 }
 
 function renderInvalidLinkScreen(message){
@@ -8020,6 +8036,7 @@ function renderInvalidLinkScreen(message){
 function renderAdmin(){
   hideNormalShell();
   document.getElementById('gate-area').classList.add('admin-shell');
+  document.body.classList.add('admin-mode');
   // Super Admin is English-only, full stop -- forced here, at the one
   // function every admin screen renders through, rather than only at the
   // entry points into admin mode. This is what actually guarantees it:
