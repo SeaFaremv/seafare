@@ -817,14 +817,14 @@
    same dark navy + grid, edge to edge, so there's no blue left showing
    anywhere behind the Super Admin screens.  Same grid tile size/position
    as .admin-shell below so the two backgrounds tile seamlessly. */
-/* Grid pattern removed on both layers below -- the app's normal animated
-   wave background (painted on body itself, see body{} above) now shows
-   through the whole admin console instead. body.admin-mode no longer
-   overrides background/animation at all, so it just inherits body{}'s
-   wave-drift. .admin-shell keeps only a translucent navy wash (no grid
-   lines) so panels/text still read clearly against the wave underneath. */
+/* Grid AND the dark navy wash both removed -- .admin-shell no longer
+   paints any background of its own, so the app's normal animated wave
+   background (painted on body itself, see body{} above) shows straight
+   through the whole admin console with nothing darkening it. Only the
+   individual .panel cards below stay dark, for text contrast on top of
+   the wave -- the space around/between them is now plain wave, not a
+   dark box. */
 .admin-shell{
-  background:linear-gradient(180deg, rgba(6,11,20,0.55) 0%, rgba(6,11,20,0.78) 100%);
   min-height:100vh;
   color:var(--adm-text);
 }
