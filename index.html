@@ -1632,6 +1632,7 @@ const TR = {
   "Receiver's name at this island (required)": "ހަވާލުވާފަރާތުގެ ނަން ( ލިޔުއްވާ )",
   "Refresh": "ރީފްރެޝް",
   "Register Your Boat": "ބޯޓް ރަޖިސްޓްރީ ކޮށްލާ",
+  "Register a New User or Organization": "ބޯޓް ރަޖިސްޓްރީ ކޮށްލާ",
   "Reject": "ރިޖެކްޓް",
   "Remove": "ރިމޫވް",
   "Report": "ރިޕޯޓް",
@@ -2505,7 +2506,10 @@ let state = {
   orgError: '',
   orgBusy: false,
   orgSignupTotpSecret: null,
-  signupExtrasOpen: false,
+  signupExtras: null,
+  signupOtpSentTo: null,
+  signupOtpVerifiedMobile: null,
+  signupOtpCooldownUntil: 0,
   orgForgotBoatName: '',
   orgResetToken: null,
   boatRequestOpen: false,
@@ -9166,49 +9170,29 @@ function renderOrgArea(){
 
 function orgBackToStart(){
   state.entryMode = 'customer'; state.role = null;
+  state.signupOtpSentTo = null; state.signupOtpVerifiedMobile = null; state.signupOtpCooldownUntil = 0;
   location.hash = '';
   handleHash();
 }
 
 function renderSignupForm(){
   const area = document.getElementById('gate-area');
-  const extrasOpen = !!state.signupExtrasOpen;
   area.innerHTML = `
     <div style="max-width:520px;margin:0 auto;padding:20px 16px 60px;">
       <div class="panel">
-        <h2>${t("Register Your Boat")}</h2>
+        <h2>${t("Register a New User or Organization")}</h2>
         <p class="sub">${t("Every owner starts with one free boat. Fill in the basics below — everything else is optional and can be added later from Settings.")}</p>
 
         <label>${t("Boat name (this is also your login username) *")}</label>
         <input type="text" id="su-boat-name" placeholder="${t("e.g. GreenLine Cargo")}" autocomplete="off">
         <label>${t("Owner name *")}</label>
         <input type="text" id="su-owner-name" placeholder="e.g. Ahmed Bassam" autocomplete="off">
-        <label>${t("Boat contact number(s) *")}</label>
-        <input type="tel" id="su-contact" placeholder="${t("e.g. 7777777 / 9999999")}" autocomplete="off">
         <label>${t("Owner's personal mobile number *")}</label>
         <input type="tel" id="su-mobile" autocomplete="off">
+        <div id="su-mobile-verify-area" style="margin:6px 0 10px;"></div>
 
-        <button type="button" class="btn btn-ghost" id="su-extras-toggle" style="width:100%;margin:6px 0 14px;">${extrasOpen ? '\u2212' : '+'} Additional Setup Information (optional \u2014 can be filled in later)</button>
-
-        <div id="su-extras-fields" style="display:${extrasOpen ? 'block' : 'none'};">
-          <label>${t("Gmail (optional, for future PIN reset)")}</label>
-          <input type="email" id="su-gmail" autocomplete="off">
-
-          <label style="margin-top:6px;">Bank account name (optional)</label>
-          <input type="text" id="su-bank-name" autocomplete="off">
-          <label>${t("Bank account number (optional)")}</label>
-          <input type="text" id="su-bank-number" autocomplete="off">
-
-          <label style="margin-top:6px;">Routes (one per line, optional)</label>
-          <textarea id="su-routes" rows="2" placeholder="${t("e.g. Male' → Maalhos, Himandhoo, Feridhoo")}"></textarea>
-
-          <label>${t("Tracking link (optional)")}</label>
-          <input type="text" id="su-tracking" placeholder="${t("e.g. https://m.followme.mv/public/...")}" autocomplete="off">
-          <label>${t("Viber group link (optional)")}</label>
-          <input type="text" id="su-viber" placeholder="${t("e.g. https://invite.viber.com/...")}" autocomplete="off">
-          <label>${t("Other social media links (one per line, optional)")}</label>
-          <textarea id="su-social" rows="2" placeholder="${t("e.g. https://instagram.com/yourboat")}"></textarea>
-        </div>
+        <button type="button" class="btn btn-ghost" id="su-extras-btn" style="width:100%;margin:6px 0;">${t("Additional Setup Information (optional)")}</button>
+        <div id="su-extras-summary" class="tag-meta" style="margin:0 0 14px;"></div>
 
         <label style="margin-top:6px;">Set your PIN *</label>
         <input type="password" id="su-passkey" placeholder="${t("At least 6 characters")}" autocomplete="new-password">
@@ -9221,20 +9205,213 @@ function renderSignupForm(){
       </div>
     </div>
   `;
-  document.getElementById('su-extras-toggle').addEventListener('click', () => {
-    state.signupExtrasOpen = !state.signupExtrasOpen;
-    const fieldsDiv = document.getElementById('su-extras-fields');
-    const toggleBtn = document.getElementById('su-extras-toggle');
-    if(fieldsDiv) fieldsDiv.style.display = state.signupExtrasOpen ? 'block' : 'none';
-    if(toggleBtn) toggleBtn.textContent = `${state.signupExtrasOpen ? '\u2212' : '+'} Additional Setup Information (optional \u2014 can be filled in later)`;
-  });
+  document.getElementById('su-extras-btn').addEventListener('click', openSignupExtrasPopup);
+  renderSuExtrasSummary();
   wireMobileValidation('su-mobile');
+  document.getElementById('su-mobile').addEventListener('input', renderSuMobileVerifyArea);
+  renderSuMobileVerifyArea();
   document.getElementById('su-submit-btn').addEventListener('click', submitSignup);
   document.getElementById('su-login-instead-btn').addEventListener('click', () => { state.orgScreen = 'login'; state.orgError=''; renderOrgArea(); });
   document.getElementById('su-back-btn').addEventListener('click', orgBackToStart);
 }
 
-const SIGNUP_FIELD_IDS = ['su-boat-name','su-owner-name','su-contact','su-mobile','su-gmail','su-bank-name','su-bank-number','su-routes','su-tracking','su-viber','su-social','su-passkey'];
+// Additional Setup Information -- optional signup fields (boat contact,
+// gmail, bank details, routes, tracking/viber links, social links) live
+// in their own popup rather than an inline expand/collapse section.
+// Values persist in state.signupExtras (not the DOM) across opening and
+// closing the popup, since the inputs themselves are torn down when it
+// closes; submitSignup() reads from state.signupExtras rather than the
+// DOM for these fields.
+function defaultSignupExtras(){
+  return { contactNumber:'', gmail:'', bankAccountName:'', bankAccountNumber:'', routes:'', trackingLink:'', viberLink:'', socialLinks:'' };
+}
+function renderSuExtrasSummary(){
+  const el = document.getElementById('su-extras-summary');
+  if(!el) return;
+  const x = state.signupExtras || {};
+  const filledCount = Object.values(x).filter(v => (v || '').trim()).length;
+  el.textContent = filledCount ? `${t('Added')}: ${filledCount} ${t('field(s)')}` : t('Nothing added yet \u2014 all optional, can be filled in later from Settings.');
+}
+function openSignupExtrasPopup(){
+  closeSignupExtrasPopup();
+  lockBodyScroll();
+  const x = state.signupExtras || defaultSignupExtras();
+  const overlay = document.createElement('div');
+  overlay.id = 'signup-extras-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2300;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="panel" id="signup-extras-popup-panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:460px;margin:0;animation:invoice-pop-in 0.18s ease-out;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;">
+        <h3 style="margin-bottom:2px;">${t("Additional Setup Information")}</h3>
+        <button type="button" class="btn btn-ghost" id="signup-extras-popup-close-btn" style="padding:8px 14px;">\u2715</button>
+      </div>
+      <p class="sub" style="margin-bottom:10px;">${t("All optional \u2014 you can add or change any of this later from Settings.")}</p>
+
+      <label>${t("Boat contact number(s) (optional \u2014 can be added later in Settings)")}</label>
+      <input type="tel" id="su-contact" placeholder="${t("e.g. 7777777 / 9999999")}" autocomplete="off" value="${escapeHtml(x.contactNumber)}">
+      <p class="sub" style="margin-top:-10px;">${t("Leave blank to use your mobile number as the boat's contact number for now \u2014 you can change it anytime in Settings.")}</p>
+
+      <label style="margin-top:6px;">${t("Gmail (optional, for future PIN reset)")}</label>
+      <input type="email" id="su-gmail" autocomplete="off" value="${escapeHtml(x.gmail)}">
+
+      <label style="margin-top:6px;">Bank account name (optional)</label>
+      <input type="text" id="su-bank-name" autocomplete="off" value="${escapeHtml(x.bankAccountName)}">
+      <label>${t("Bank account number (optional)")}</label>
+      <input type="text" id="su-bank-number" autocomplete="off" value="${escapeHtml(x.bankAccountNumber)}">
+
+      <label style="margin-top:6px;">Routes (one per line, optional)</label>
+      <textarea id="su-routes" rows="2" placeholder="${t("e.g. Male' → Maalhos, Himandhoo, Feridhoo")}">${escapeHtml(x.routes)}</textarea>
+
+      <label>${t("Tracking link (optional)")}</label>
+      <input type="text" id="su-tracking" placeholder="${t("e.g. https://m.followme.mv/public/...")}" autocomplete="off" value="${escapeHtml(x.trackingLink)}">
+      <label>${t("Viber group link (optional)")}</label>
+      <input type="text" id="su-viber" placeholder="${t("e.g. https://invite.viber.com/...")}" autocomplete="off" value="${escapeHtml(x.viberLink)}">
+      <label>${t("Other social media links (one per line, optional)")}</label>
+      <textarea id="su-social" rows="2" placeholder="${t("e.g. https://instagram.com/yourboat")}">${escapeHtml(x.socialLinks)}</textarea>
+
+      <button class="btn btn-primary" id="signup-extras-save-btn" style="width:100%;margin-top:10px;">${t("Save")}</button>
+    </div>
+  `;
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) saveAndCloseSignupExtrasPopup(); });
+  document.body.appendChild(overlay);
+  document.getElementById('signup-extras-popup-close-btn').addEventListener('click', saveAndCloseSignupExtrasPopup);
+  document.getElementById('signup-extras-save-btn').addEventListener('click', saveAndCloseSignupExtrasPopup);
+}
+function saveAndCloseSignupExtrasPopup(){
+  const val = (id) => (document.getElementById(id)?.value || '').trim();
+  state.signupExtras = {
+    contactNumber: val('su-contact'), gmail: val('su-gmail'),
+    bankAccountName: val('su-bank-name'), bankAccountNumber: val('su-bank-number'),
+    routes: val('su-routes'), trackingLink: val('su-tracking'), viberLink: val('su-viber'),
+    socialLinks: val('su-social'),
+  };
+  closeSignupExtrasPopup();
+  renderSuExtrasSummary();
+}
+function closeSignupExtrasPopup(){
+  const overlay = document.getElementById('signup-extras-popup-overlay');
+  if(overlay) unlockBodyScroll();
+  overlay?.remove();
+}
+
+
+// --- Signup mobile verification (SMS OTP) -----------------------------------
+// Redraws just the small area under the mobile field -- "Send Verification
+// Code" button, then a code-entry box once sent, then a checkmark once
+// verified -- without touching the rest of the form, so typing elsewhere
+// or the extras toggle never disturbs this. Also re-runs on every
+// keystroke in the mobile field itself: editing the number after a
+// previous send/verify naturally falls back to the "Send Code" state,
+// since neither state.signupOtpSentTo nor signupOtpVerifiedMobile match
+// the new value anymore.
+let _suOtpCooldownTimer = null;
+function renderSuMobileVerifyArea(){
+  const area = document.getElementById('su-mobile-verify-area');
+  if(!area) return;
+  const mobileVal = (document.getElementById('su-mobile')?.value || '').trim();
+  if(state.signupOtpVerifiedMobile && state.signupOtpVerifiedMobile === mobileVal){
+    area.innerHTML = `<div class="tag-meta" style="color:var(--teal);">\u2713 ${t('Mobile number verified')}</div>`;
+    return;
+  }
+  if(state.signupOtpSentTo && state.signupOtpSentTo === mobileVal && mobileVal){
+    const cooldownRemaining = Math.max(0, Math.ceil((state.signupOtpCooldownUntil - Date.now()) / 1000));
+    area.innerHTML = `
+      <div class="tag-meta" style="margin-bottom:6px;">${t('Code sent to')} ${escapeHtml(mobileVal)}. ${t('Enter it below.')}</div>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="su-otp-code" inputmode="numeric" maxlength="6" placeholder="${t('6-digit code')}" style="flex:1;">
+        <button type="button" class="btn btn-primary" id="su-verify-code-btn" style="flex:none;">${t('Verify')}</button>
+      </div>
+      <div class="pin-error" id="su-otp-error"></div>
+      <button type="button" class="btn btn-ghost" id="su-resend-code-btn" style="width:100%;margin-top:6px;" ${cooldownRemaining>0?'disabled':''}>${cooldownRemaining>0 ? `${t('Resend code')} (${cooldownRemaining}s)` : t('Resend code')}</button>
+    `;
+    document.getElementById('su-verify-code-btn').addEventListener('click', submitVerifySignupOtp);
+    document.getElementById('su-otp-code').addEventListener('keydown', e => { if(e.key === 'Enter') submitVerifySignupOtp(); });
+    document.getElementById('su-otp-code').focus();
+    document.getElementById('su-resend-code-btn').addEventListener('click', sendSignupOtp);
+    if(cooldownRemaining > 0) startSuOtpCooldownTicker();
+  } else {
+    area.innerHTML = `<button type="button" class="btn btn-ghost" id="su-send-code-btn" style="width:100%;">${t('Send Verification Code')}</button><div class="pin-error" id="su-otp-error"></div>`;
+    document.getElementById('su-send-code-btn').addEventListener('click', sendSignupOtp);
+  }
+}
+function startSuOtpCooldownTicker(){
+  if(_suOtpCooldownTimer) clearInterval(_suOtpCooldownTimer);
+  _suOtpCooldownTimer = setInterval(() => {
+    const btn = document.getElementById('su-resend-code-btn');
+    if(!btn){ clearInterval(_suOtpCooldownTimer); _suOtpCooldownTimer = null; return; }
+    const remaining = Math.max(0, Math.ceil((state.signupOtpCooldownUntil - Date.now()) / 1000));
+    if(remaining <= 0){
+      btn.disabled = false; btn.textContent = t('Resend code');
+      clearInterval(_suOtpCooldownTimer); _suOtpCooldownTimer = null;
+    } else {
+      btn.textContent = `${t('Resend code')} (${remaining}s)`;
+    }
+  }, 1000);
+}
+async function sendSignupOtp(){
+  const mobileEl = document.getElementById('su-mobile');
+  const mobile = (mobileEl.value || '').trim();
+  if(!isValidMaldivesMobile(mobile)){
+    clearFieldErrors(['su-mobile']);
+    markFieldError('su-mobile', false);
+    const mainError = document.getElementById('su-error');
+    if(mainError) mainError.textContent = 'Invalid mobile number \u2014 must start with 7 or 9 and have 7 digits.';
+    return;
+  }
+  const btn = document.getElementById('su-send-code-btn') || document.getElementById('su-resend-code-btn');
+  const errorEl = document.getElementById('su-otp-error');
+  if(btn){ btn.disabled = true; btn.textContent = t('Sending\u2026'); }
+  try{
+    const res = await fetch(`${API_BASE}/api/signup/send-code`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ mobile }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.ok){
+      if(data && data.blocked){
+        openBlockedNumberPopup(data);
+      } else if(errorEl){
+        errorEl.textContent = (data && data.error) || 'Could not send a code. Try again.';
+      }
+      if(btn){ btn.disabled = false; btn.textContent = t(btn.id === 'su-resend-code-btn' ? 'Resend code' : 'Send Verification Code'); }
+      return;
+    }
+    state.signupOtpSentTo = mobile;
+    state.signupOtpVerifiedMobile = null;
+    state.signupOtpCooldownUntil = Date.now() + 45000;
+    renderSuMobileVerifyArea();
+  }catch(e){
+    console.error('sendSignupOtp failed', e);
+    if(errorEl) errorEl.textContent = 'Something went wrong. Try again.';
+    if(btn){ btn.disabled = false; btn.textContent = t('Send Verification Code'); }
+  }
+}
+async function submitVerifySignupOtp(){
+  const mobile = (document.getElementById('su-mobile').value || '').trim();
+  const code = (document.getElementById('su-otp-code').value || '').trim();
+  const errorEl = document.getElementById('su-otp-error');
+  const btn = document.getElementById('su-verify-code-btn');
+  if(!code){ if(errorEl) errorEl.textContent = t('Enter the code sent to your number.'); return; }
+  if(btn){ btn.disabled = true; btn.textContent = t('Verifying\u2026'); }
+  try{
+    const res = await fetch(`${API_BASE}/api/signup/verify-code`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ mobile, code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.ok){
+      if(errorEl) errorEl.textContent = (data && data.error) || t('Incorrect code.');
+      if(btn){ btn.disabled = false; btn.textContent = t('Verify'); }
+      return;
+    }
+    state.signupOtpVerifiedMobile = mobile;
+    renderSuMobileVerifyArea();
+  }catch(e){
+    console.error('submitVerifySignupOtp failed', e);
+    if(errorEl) errorEl.textContent = 'Something went wrong. Try again.';
+    if(btn){ btn.disabled = false; btn.textContent = t('Verify'); }
+  }
+}
+
+const SIGNUP_FIELD_IDS = ['su-boat-name','su-owner-name','su-mobile','su-passkey'];
 function clearFieldErrors(ids){ ids.forEach(id => document.getElementById(id)?.classList.remove('field-error')); }
 function markFieldError(id, clearValue){
   const el = document.getElementById(id);
@@ -9249,22 +9426,23 @@ async function submitSignup(){
   const btn = document.getElementById('su-submit-btn');
   clearFieldErrors(SIGNUP_FIELD_IDS);
 
+  const extras = state.signupExtras || defaultSignupExtras();
   const body = {
     boatName: val('su-boat-name'),
     ownerName: val('su-owner-name'),
-    contactNumber: val('su-contact'),
+    contactNumber: extras.contactNumber,
     mobile: val('su-mobile'),
-    gmail: val('su-gmail'),
-    bankAccountName: val('su-bank-name'),
-    bankAccountNumber: val('su-bank-number'),
-    routes: val('su-routes').split('\n').map(s=>s.trim()).filter(Boolean),
-    trackingLink: val('su-tracking'),
-    viberLink: val('su-viber'),
-    socialLinks: val('su-social').split('\n').map(s=>s.trim()).filter(Boolean),
+    gmail: extras.gmail,
+    bankAccountName: extras.bankAccountName,
+    bankAccountNumber: extras.bankAccountNumber,
+    routes: extras.routes.split('\n').map(s=>s.trim()).filter(Boolean),
+    trackingLink: extras.trackingLink,
+    viberLink: extras.viberLink,
+    socialLinks: extras.socialLinks.split('\n').map(s=>s.trim()).filter(Boolean),
     passkey: val('su-passkey'),
   };
 
-  const requiredMap = { boatName:'su-boat-name', ownerName:'su-owner-name', contactNumber:'su-contact', mobile:'su-mobile', passkey:'su-passkey' };
+  const requiredMap = { boatName:'su-boat-name', ownerName:'su-owner-name', mobile:'su-mobile', passkey:'su-passkey' };
   const missing = Object.keys(requiredMap).filter(k => !body[k]);
   if(missing.length){
     missing.forEach(k => markFieldError(requiredMap[k], false));
@@ -9279,6 +9457,12 @@ async function submitSignup(){
   if(!isValidMaldivesMobile(body.mobile)){
     markFieldError('su-mobile', false);
     errorEl.textContent = 'Invalid mobile number \u2014 must start with 7 or 9 and have 7 digits.';
+    return;
+  }
+  if(state.signupOtpVerifiedMobile !== body.mobile){
+    markFieldError('su-mobile', false);
+    errorEl.textContent = 'Please verify your mobile number first.';
+    document.getElementById('su-mobile-verify-area')?.scrollIntoView({ behavior:'smooth', block:'center' });
     return;
   }
 
@@ -9296,7 +9480,7 @@ async function submitSignup(){
       state.orgPasskey = body.passkey;
       state.orgData = {
         id: data.organizationId, boatName: body.boatName, ownerName: body.ownerName,
-        contactNumber: body.contactNumber, gmail: body.gmail, mobile: body.mobile,
+        contactNumber: body.contactNumber || body.mobile, gmail: body.gmail, mobile: body.mobile,
         bankAccountName: body.bankAccountName, bankAccountNumber: body.bankAccountNumber,
         trackingLink: body.trackingLink, viberLink: body.viberLink,
         socialLinks: body.socialLinks, routes: body.routes,
@@ -9310,7 +9494,7 @@ async function submitSignup(){
       const msg = (data && data.error) || 'Could not create your account.';
       errorEl.textContent = msg;
       if(/boat name/i.test(msg)) markFieldError('su-boat-name', true);
-      if(/mobile number is already in use/i.test(msg)){ markFieldError('su-mobile', false); markFieldError('su-contact', false); }
+      if(/mobile number is already in use/i.test(msg)) markFieldError('su-mobile', false);
     }
   }catch(e){
     console.error('signup failed', e);
