@@ -571,7 +571,32 @@
     font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.05em;
     font-size:10px;font-weight:700;color:var(--ink-soft);background:rgba(11,40,64,0.05);
     padding:6px 12px;position:sticky;top:0;z-index:1;
+    display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;
   }
+  .rates-section-label .rsl-chevron{transition:transform 0.15s ease;font-size:9px;}
+  .rates-section-label.is-collapsed .rsl-chevron{transform:rotate(-90deg);}
+  .photo-lightbox-wrap{
+    position:fixed;inset:0;background:rgba(6,30,50,0.6);
+    display:flex;align-items:center;justify-content:center;
+    padding:20px;z-index:10000;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .photo-lightbox-card{
+    position:relative;background:#fff;border-radius:12px;padding:10px;
+    max-width:240px;width:100%;box-shadow:0 14px 32px rgba(0,0,0,0.35);
+  }
+  .photo-lightbox-card img{
+    display:block;width:100%;max-height:38vh;object-fit:contain;border-radius:6px;
+  }
+  .photo-lightbox-close{
+    position:absolute;top:-14px;right:-14px;
+    width:32px;height:32px;border-radius:50%;
+    background:var(--navy-deep);border:2px solid #fff;color:#fff;
+    font-size:16px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 2px 8px rgba(0,0,0,0.25);
+  }
+  .photo-lightbox-close:hover{background:var(--navy);}
   .search-row{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;}
   .search-row input{margin-bottom:0;flex:1;min-width:180px;}
   .filter-chip{
@@ -2381,6 +2406,7 @@ function renderInvoicePopupContent(s){
         `).join('')}
       </div>
     ` : ''}
+    ${photoLinkHtml(s)}
     <div class="total-line" style="margin-top:10px;"><span>Total</span><span class="amt">${fmtMoney(s.total)}</span></div>
     <div style="margin-top:6px;font-weight:700;color:${s.paid ? '#22A366' : '#E5473B'};">${s.paid ? 'Paid \u2014 ' + (s.paymentMethod||'').toUpperCase() : 'Unpaid'}</div>
     ${(s.paid && state.role === 'owner') ? `
@@ -6854,20 +6880,47 @@ function photoFilename(s){
   const receiverPart = `${safeFilenamePart(s.receiverName)}-${safeFilenamePart(s.receiverMobile)}`;
   return `${senderPart}_${receiverPart}.jpg`;
 }
-// Shows the photo as a tappable filename link rather than an inline image --
-// nobody has to scroll past a photo they didn't ask to see; tapping expands
-// it right here on the page instead of navigating away to a new tab.
+// Shows the photo as a tappable filename link. Tapping it pops the photo
+// up in a full-screen lightbox (see openPhotoLightbox/the global click
+// handler below) instead of expanding it in place in the card -- nobody
+// has to scroll past a photo they didn't ask to see, and once they do ask,
+// they get an unobstructed full view rather than a cramped inline thumbnail.
 function photoLinkHtml(s){
   if(!s.photo) return '';
+  const filename = photoFilename(s);
   return `
-    <details class="items-details" style="margin-top:8px;">
-      <summary>\ud83d\udcf7 ${escapeHtml(photoFilename(s))}</summary>
-      <div class="items-body">
-        <img src="${s.photo}" alt="Loading photo" style="max-width:100%;border-radius:8px;margin-top:8px;display:block;">
-      </div>
-    </details>
+    <div class="items-details" style="margin-top:8px;">
+      <a href="#" class="photo-open-link" data-photo-src="${escapeHtml(s.photo)}" data-photo-name="${escapeHtml(filename)}" style="display:block;">\ud83d\udcf7 ${escapeHtml(filename)}</a>
+    </div>
   `;
 }
+function openPhotoLightbox(src, filename){
+  const wrap = document.createElement('div');
+  wrap.className = 'photo-lightbox-wrap';
+  wrap.innerHTML = `
+    <div class="photo-lightbox-card">
+      <button type="button" class="photo-lightbox-close" aria-label="${t('Close')}">&times;</button>
+      <img src="${src}" alt="${escapeHtml(filename || 'Photo')}">
+    </div>
+  `;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  // Only a tap that lands on the backdrop itself (outside the card) closes
+  // the popup -- e.target === wrap is true for the space around the card,
+  // since the card is a separate child element a tap on it wouldn't match.
+  wrap.addEventListener('click', (e) => { if(e.target === wrap) close(); });
+  wrap.querySelector('.photo-lightbox-close').addEventListener('click', close);
+}
+// Delegated globally (not re-attached per render) since photoLinkHtml's
+// output gets inserted via innerHTML in many different card templates --
+// this one listener catches every .photo-open-link regardless of which
+// screen rendered it.
+document.addEventListener('click', (e) => {
+  const link = e.target.closest && e.target.closest('.photo-open-link');
+  if(!link) return;
+  e.preventDefault();
+  openPhotoLightbox(link.dataset.photoSrc, link.dataset.photoName);
+});
 function downloadPhoto(s){
   if(!s.photo) return;
   const a = document.createElement('a');
@@ -7002,10 +7055,18 @@ function renderReportsSettingsSection(){
     const now = new Date();
     const fromEl = document.getElementById('report-gen-from');
     const toEl = document.getElementById('report-gen-to');
-    toEl.value = toInputDate(now);
-    if(b.dataset.reportPreset === 'today') fromEl.value = toInputDate(now);
-    else if(b.dataset.reportPreset === 'week') fromEl.value = toInputDate(startOfWeek());
-    else if(b.dataset.reportPreset === 'month') fromEl.value = toInputDate(new Date(now.getFullYear(), now.getMonth(), 1));
+    if(b.dataset.reportPreset === 'today'){
+      fromEl.value = toInputDate(now);
+      toEl.value = toInputDate(now);
+    } else if(b.dataset.reportPreset === 'week'){
+      fromEl.value = toInputDate(startOfWeek());
+      toEl.value = toInputDate(now);
+    } else if(b.dataset.reportPreset === 'month'){
+      // Full calendar month, not just "1st through today" -- the last day
+      // of the month is day 0 of the *next* month.
+      fromEl.value = toInputDate(new Date(now.getFullYear(), now.getMonth(), 1));
+      toEl.value = toInputDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+    }
   }));
   document.getElementById('report-generate-btn').addEventListener('click', () => {
     const fromVal = document.getElementById('report-gen-from').value;
@@ -8004,12 +8065,18 @@ function renderRatesSetup(){
     </div>
   `;
 
-  // Tracks how many items at the FRONT of state.rates are from the most
-  // recent upload, so the list can show a "New Items Added" divider above
-  // the boundary where the previously-existing items resume. Reset every
-  // time this screen is opened fresh; adjusted on delete so the boundary
-  // stays accurate if a newly-uploaded item gets removed again.
-  let newlyAddedCount = 0;
+  // Items uploaded together carry an `uploadedAt` timestamp (set below,
+  // persisted as part of the rate object itself -- not just local UI
+  // state) so the "New Items Uploaded" grouping survives reloads and
+  // naturally dissolves on its own: an item only counts as "new" while
+  // Date.now() - uploadedAt is under a week. Nothing has to actively move
+  // it back into the main list -- once a week has passed, the next render
+  // just no longer sees it as new. Manually-added single items (via the
+  // Add button below) never get this field, so they've always gone
+  // straight into the regular list, same as before.
+  const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const isRecentlyUploaded = (r) => r.uploadedAt && (Date.now() - r.uploadedAt) < ONE_WEEK_MS;
+  let newSectionCollapsed = false; // UI-only, resets each time this screen opens
 
   const renderRatesList = () => {
     const container = document.getElementById('rates-list');
@@ -8017,24 +8084,48 @@ function renderRatesSetup(){
       container.innerHTML = `<div class="empty" style="padding:16px 0;">${t("No items yet — add one above.")}</div>`;
       return;
     }
-    const hasBoundary = newlyAddedCount > 0 && newlyAddedCount < state.rates.length;
-    container.innerHTML = `<div class="rates-list-card">${state.rates.map((r,idx) => `
-      ${idx === newlyAddedCount && hasBoundary ? `<div class="rates-section-label">${t('New Items Added')}</div>` : ''}
+    const newItems = state.rates.filter(isRecentlyUploaded);
+    const olderItems = state.rates.filter(r => !isRecentlyUploaded(r));
+    const rowHtml = (r) => `
       <div class="rate-edit-row">
-        <input type="text" data-rate-name="${idx}" value="${escapeHtml(r.name)}" style="flex:1;">
-        <input type="text" class="price-input" data-rate-price="${idx}" value="${r.price}">
-        <button class="btn btn-danger" data-rate-del="${idx}" title="${t("Remove")}">\u00d7</button>
+        <input type="text" data-rate-name="${r.id}" value="${escapeHtml(r.name)}" style="flex:1;">
+        <input type="text" class="price-input" data-rate-price="${r.id}" value="${r.price}">
+        <button class="btn btn-danger" data-rate-del="${r.id}" title="${t("Remove")}">\u00d7</button>
       </div>
-    `).join('')}</div>`;
-    document.querySelectorAll('[data-rate-name]').forEach(inp => inp.addEventListener('change', async () => { state.rates[inp.dataset.rateName].name = inp.value; await saveRates(state.rates); }));
-    document.querySelectorAll('[data-rate-price]').forEach(inp => inp.addEventListener('change', async () => { state.rates[inp.dataset.ratePrice].price = parseFloat(inp.value) || 0; await saveRates(state.rates); }));
+    `;
+    container.innerHTML = `
+      <div class="rates-list-card">
+        ${newItems.length ? `
+          <div class="rates-section-label${newSectionCollapsed ? ' is-collapsed' : ''}" id="new-items-toggle">
+            <span>${t('New Items Uploaded')} (${newItems.length})</span>
+            <span class="rsl-chevron">\u25be</span>
+          </div>
+          ${newSectionCollapsed ? '' : newItems.map(rowHtml).join('')}
+        ` : ''}
+        ${olderItems.map(rowHtml).join('')}
+      </div>
+    `;
+    if(newItems.length){
+      document.getElementById('new-items-toggle').addEventListener('click', () => {
+        newSectionCollapsed = !newSectionCollapsed;
+        renderRatesList();
+      });
+    }
+    const findIdx = (id) => state.rates.findIndex(r => r.id === id);
+    document.querySelectorAll('[data-rate-name]').forEach(inp => inp.addEventListener('change', async () => {
+      const idx = findIdx(inp.dataset.rateName);
+      if(idx > -1){ state.rates[idx].name = inp.value; await saveRates(state.rates); }
+    }));
+    document.querySelectorAll('[data-rate-price]').forEach(inp => inp.addEventListener('change', async () => {
+      const idx = findIdx(inp.dataset.ratePrice);
+      if(idx > -1){ state.rates[idx].price = parseFloat(inp.value) || 0; await saveRates(state.rates); }
+    }));
     document.querySelectorAll('[data-rate-del]').forEach(b => b.addEventListener('click', async () => {
-      const idx = Number(b.dataset.rateDel);
+      const idx = findIdx(b.dataset.rateDel);
       const item = state.rates[idx];
       if(!item) return;
       if(!confirm(`Remove "${item.name}" from the item list? This can't be undone.`)) return;
       state.rates.splice(idx,1);
-      if(idx < newlyAddedCount) newlyAddedCount--;
       await saveRates(state.rates);
       renderRatesList();
     }));
@@ -8080,10 +8171,9 @@ function renderRatesSetup(){
       // here, so ids are always regenerated even if the file has its own.
       const cleaned = incoming
         .filter(r => r && typeof r.name === 'string' && r.name.trim())
-        .map((r, i) => ({ id: `rate-${Date.now()}-${i}`, name: String(r.name).trim(), price: Number(r.price) || 0 }));
+        .map((r, i) => ({ id: `rate-${Date.now()}-${i}`, name: String(r.name).trim(), price: Number(r.price) || 0, uploadedAt: Date.now() }));
       if(!cleaned.length) throw new Error('empty list');
       state.rates = [...cleaned, ...state.rates];
-      newlyAddedCount = cleaned.length;
       await saveRates(state.rates);
       renderRatesList();
       noteEl.style.display = 'block';
