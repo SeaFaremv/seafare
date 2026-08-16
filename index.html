@@ -7809,11 +7809,18 @@ function renderRatesSetup(){
   body.innerHTML = `
     <div class="settings-block">
       <h3>${t("Item Rates")}</h3>
+      <p class="sub" style="margin-top:-6px;">${t("This list belongs to this boat only \u2014 other boats in your organization keep their own separate list and prices, even after you download/upload between them.")}</p>
       <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:16px;">
         <div style="flex:1;"><label>${t("New item name")}</label><input type="text" id="new-rate-name" style="margin-bottom:0;"></div>
         <div style="width:100px;"><label>${t("Price")}</label><input type="text" id="new-rate-price" style="margin-bottom:0;"></div>
         <button class="btn btn-ghost" id="add-rate-btn" style="height:44px;">${t("Add")}</button>
       </div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button class="btn btn-ghost" id="download-rates-btn" style="flex:1;">${t("Download List")}</button>
+        <button class="btn btn-ghost" id="upload-rates-btn" style="flex:1;">${t("Upload List")}</button>
+        <input type="file" id="upload-rates-input" accept="application/json,.json" style="display:none;">
+      </div>
+      <div class="note" id="rates-transfer-note" style="display:none;"></div>
       <div id="rates-list"></div>
     </div>
 
@@ -7847,6 +7854,44 @@ function renderRatesSetup(){
     }));
   };
   renderRatesList();
+
+  document.getElementById('download-rates-btn').addEventListener('click', async () => {
+    const boatName = _boatNameCache[CURRENT_BOAT_ID] || await getCurrentBoatName();
+    const payload = JSON.stringify({ seafareRatesExport: true, boatName, exportedAt: new Date().toISOString(), rates: state.rates }, null, 2);
+    const dataUrl = 'data:application/json;charset=utf-8,' + encodeURIComponent(payload);
+    const filename = `seafare-rates-${(boatName||'boat').replace(/[^a-z0-9]+/gi,'-').toLowerCase()}.json`;
+    downloadDataUrl(dataUrl, filename);
+  });
+
+  document.getElementById('upload-rates-btn').addEventListener('click', () => {
+    document.getElementById('upload-rates-input').click();
+  });
+  document.getElementById('upload-rates-input').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if(!file) return;
+    const noteEl = document.getElementById('rates-transfer-note');
+    try{
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const incoming = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.rates) ? parsed.rates : null);
+      if(!incoming) throw new Error('not a rates list');
+      const cleaned = incoming
+        .filter(r => r && typeof r.name === 'string' && r.name.trim())
+        .map((r, i) => ({ id: r.id || `rate-${Date.now()}-${i}`, name: String(r.name).trim(), price: Number(r.price) || 0 }));
+      if(!cleaned.length) throw new Error('empty list');
+      if(!confirm(`Replace this boat's ${state.rates.length} item(s) with the ${cleaned.length} item(s) from this file? This only affects this boat -- you can still edit prices separately afterward.`)) return;
+      state.rates = cleaned;
+      await saveRates(state.rates);
+      renderRatesList();
+      noteEl.style.display = 'block';
+      noteEl.textContent = t(`Loaded ${cleaned.length} item(s) into this boat's list. Edit freely -- it won't affect any other boat.`);
+    }catch(err){
+      console.error('rates upload failed', err);
+      noteEl.style.display = 'block';
+      noteEl.textContent = t("Could not read that file -- make sure it's a rates list downloaded from SeaFare.");
+    }
+  });
 
   document.getElementById('add-rate-btn').addEventListener('click', async () => {
     const name = document.getElementById('new-rate-name').value.trim();
