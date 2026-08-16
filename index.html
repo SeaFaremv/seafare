@@ -598,6 +598,49 @@
     box-shadow:0 2px 8px rgba(0,0,0,0.25);
   }
   .photo-lightbox-close:hover{background:var(--navy);}
+  /* ---- Choose a Plan screen ---- */
+  .plan-panel{padding:0;overflow:hidden;}
+  .plan-hero{
+    position:relative;height:92px;overflow:hidden;
+    background:var(--navy-deep);
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(255,255,255,0.06), transparent 45%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0,35 Q35,10 70,35 T140,35' stroke='rgba(255,255,255,0.06)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,55 Q35,30 70,55 T140,55' stroke='rgba(255,255,255,0.07)' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+    background-repeat:no-repeat,repeat;
+    background-position:0 0,0 0;
+    background-size:auto,140px 70px;
+  }
+  .plan-hero-waves{position:absolute;bottom:14px;left:0;width:200%;height:12px;background:repeating-linear-gradient(90deg, rgba(63,199,154,0.4) 0 22px, transparent 22px 44px);border-radius:8px;animation:landing-wave-scroll 3.2s linear infinite;}
+  .plan-hero-boat{position:absolute;bottom:18px;left:-50px;width:46px;height:auto;color:var(--amber);animation:landing-boat-move 6s ease-in-out infinite;}
+  .plan-body{padding:22px 20px 26px;}
+  .plan-heading{font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.04em;font-size:22px;color:var(--navy-deep);margin-bottom:4px;}
+  .plan-cards{display:flex;gap:16px;flex-wrap:wrap;margin-top:18px;align-items:stretch;}
+  .plan-card{
+    flex:1;min-width:230px;background:#fff;border:1.5px solid var(--line);border-radius:14px;
+    padding:20px;display:flex;flex-direction:column;position:relative;
+    animation:invoice-pop-in 0.22s ease-out;
+  }
+  .plan-card.pro{
+    border:1.5px solid var(--amber);
+    box-shadow:0 0 0 3px rgba(255,178,44,0.14), 0 10px 24px rgba(15,45,74,0.1);
+  }
+  .plan-ribbon{
+    position:absolute;top:-11px;right:16px;background:var(--amber);color:var(--navy-deep);
+    font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.05em;font-size:10px;font-weight:700;
+    padding:4px 10px;border-radius:20px;box-shadow:0 3px 8px rgba(0,0,0,0.15);
+  }
+  .plan-tier-icon{
+    width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:10px;
+  }
+  .plan-tier-icon.free{background:rgba(0,191,165,0.12);}
+  .plan-tier-icon.pro{background:rgba(255,178,44,0.16);}
+  .plan-tier-icon svg{width:20px;height:20px;}
+  .plan-tier-name{font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.04em;font-size:17px;color:var(--navy-deep);}
+  .plan-tier-price{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--ink-soft);margin-top:2px;margin-bottom:14px;}
+  .plan-tier-price strong{color:var(--navy-deep);font-size:15px;}
+  .plan-check-list{flex:1;display:flex;flex-direction:column;gap:9px;margin-bottom:18px;}
+  .plan-check-row{display:flex;align-items:flex-start;gap:9px;font-size:13px;color:var(--ink);line-height:1.4;}
+  .plan-check-row svg{flex-shrink:0;margin-top:1px;}
   .search-row{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;}
   .search-row input{margin-bottom:0;flex:1;min-width:180px;}
   .filter-chip{
@@ -9717,44 +9760,73 @@ function renderOrgArea(){
 // choose-plan-free-btn/choose-plan-pro-btn handlers below, both of which
 // clear state.showPlanChoice), and never shown at all for org logins --
 // only immediately after POST /api/signup succeeds sets this flag.
+//
+// The dark navy hero strip reuses the exact sailing-boat/wave motif from
+// the very first screen a new owner sees (renderLandingPage) -- this is
+// the other "first moment" in the same signup journey, so bringing that
+// same visual back here ties the two together rather than introducing a
+// new decoration. Below it, feature rows use a small filled check badge
+// (teal for Free, amber for Pro) instead of plain bullets, so "included"
+// is something you see, not just read.
+function planCheckIcon(colorVar){
+  return `
+    <svg viewBox="0 0 20 20" width="18" height="18" fill="none">
+      <circle cx="10" cy="10" r="10" fill="${colorVar}"/>
+      <path d="M6 10.2l2.5 2.5L14 7.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  `;
+}
 function renderChoosePlanScreen(){
   const area = document.getElementById('gate-area');
   const planCard = (opts) => `
-    <div class="settings-block" style="flex:1;min-width:230px;${opts.highlight ? 'border:2px solid var(--amber);' : ''}">
-      <h3 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${escapeHtml(opts.title)}${opts.priceLabel ? `<span class="status-pill status-delivered" style="font-size:10px;">${escapeHtml(opts.priceLabel)}</span>` : ''}</h3>
-      <ul style="margin:10px 0 16px;padding-left:18px;font-size:13px;line-height:1.85;color:var(--ink-soft);">
-        ${opts.points.map(p => `<li>${escapeHtml(p)}</li>`).join('')}
-      </ul>
+    <div class="plan-card${opts.highlight ? ' pro' : ''}">
+      ${opts.highlight ? `<div class="plan-ribbon">${t('Most Popular')}</div>` : ''}
+      <div class="plan-tier-icon ${opts.highlight ? 'pro' : 'free'}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="${opts.highlight ? 'var(--amber)' : 'var(--teal)'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[opts.icon]}</svg>
+      </div>
+      <div class="plan-tier-name">${escapeHtml(opts.title)}</div>
+      <div class="plan-tier-price">${opts.priceHtml}</div>
+      <div class="plan-check-list">
+        ${opts.points.map(p => `<div class="plan-check-row">${planCheckIcon(opts.highlight ? 'var(--amber)' : 'var(--teal)')}<span>${escapeHtml(p)}</span></div>`).join('')}
+      </div>
       <button class="btn ${opts.highlight ? 'btn-amber' : 'btn-ghost'}" id="${opts.btnId}" style="width:100%;">${escapeHtml(opts.btnLabel)}</button>
     </div>
   `;
   area.innerHTML = `
-    <div style="max-width:660px;margin:0 auto;padding:20px 16px 60px;">
-      <div class="panel">
-        <h2 style="margin-bottom:4px;">${t('Choose a Plan')}</h2>
-        <p class="sub" style="margin-bottom:18px;">${t('You can upgrade to Pro anytime later from Settings.')}</p>
-        <div style="display:flex;gap:14px;flex-wrap:wrap;">
-          ${planCard({
-            title: t('Free'), priceLabel: '', highlight: false,
-            points: [
-              t('1 boat'),
-              t('Up to 500 shipments total'),
-              t('Up to 2 staff'),
-              t('No managers'),
-            ],
-            btnId: 'choose-plan-free-btn', btnLabel: t('Continue with Free'),
-          })}
-          ${planCard({
-            title: t('Pro'), priceLabel: `\u0783500/${t('mo')}`, highlight: true,
-            points: [
-              t('Add and manage up to 15 boats'),
-              t('Make unlimited shipments'),
-              t('Add up to 10 staff per boat'),
-              t('Add up to 2 managers per boat'),
-              t('Dhivehi language switch'),
-            ],
-            btnId: 'choose-plan-pro-btn', btnLabel: t('Continue with Pro'),
-          })}
+    <div style="max-width:680px;margin:0 auto;padding:20px 16px 60px;">
+      <div class="panel plan-panel">
+        <div class="plan-hero">
+          <div class="plan-hero-waves"></div>
+          <svg class="plan-hero-boat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 17l1.5-6h15L21 17"/><path d="M5 17v2a1 1 0 001 1h12a1 1 0 001-1v-2"/><path d="M12 3v8"/><path d="M8 6l4-3 4 3"/>
+          </svg>
+        </div>
+        <div class="plan-body">
+          <div class="plan-heading">${t('Choose a Plan')}</div>
+          <p class="sub">${t('You can upgrade to Pro anytime later from Settings.')}</p>
+          <div class="plan-cards">
+            ${planCard({
+              title: t('Free'), priceHtml: t('Free'), icon: 'box', highlight: false,
+              points: [
+                t('1 boat'),
+                t('Up to 500 shipments total'),
+                t('Up to 2 staff'),
+                t('No managers'),
+              ],
+              btnId: 'choose-plan-free-btn', btnLabel: t('Continue with Free'),
+            })}
+            ${planCard({
+              title: t('Pro'), priceHtml: `<strong>\u0783500</strong> / ${t('mo')}`, icon: 'crown', highlight: true,
+              points: [
+                t('Add and manage up to 15 boats'),
+                t('Make unlimited shipments'),
+                t('Add up to 10 staff per boat'),
+                t('Add up to 2 managers per boat'),
+                t('Dhivehi language switch'),
+              ],
+              btnId: 'choose-plan-pro-btn', btnLabel: t('Continue with Pro'),
+            })}
+          </div>
         </div>
       </div>
     </div>
