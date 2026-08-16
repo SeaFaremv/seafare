@@ -815,7 +815,7 @@
    .admin-shell) so none of this reaches the boat/owner/customer UI.
    ========================================================================= */
 :root{
-  --adm-bg:#EEF2F7;
+  --adm-bg:#15324D;
   --adm-grid:rgba(15,23,42,0.05);
   --adm-panel:#FFFFFF;
   --adm-panel-raised:#F8FAFC;
@@ -853,17 +853,24 @@
   min-height:100vh;
   color:var(--adm-text);
 }
-/* Page background behind the Super Admin console -- overrides the
-   ordinary app's dark navy wave background (see body{} above) with a
-   plain light one while in admin mode, matching the light --adm-* panel
-   theme. Higher specificity than the plain body{} rule (class beats
-   element), so no !important needed for the color itself; the wave
-   image/animation are explicitly cleared since they were tuned for a
-   dark backdrop. */
+/* Page background behind the Super Admin console -- a darker blue than
+   the ordinary app's --navy-deep wave (see body{} above), keeping the
+   same wave art/motion so the console still reads as part of the app
+   rather than a different background entirely, just moving faster
+   (35s vs the app-wide 100s cycle) to feel more "live"/control-room. */
 body.admin-mode{
   background:var(--adm-bg);
-  background-image:none;
-  animation:none;
+  background-image:
+    radial-gradient(circle at 10% 0%, rgba(255,255,255,0.05), transparent 40%),
+    radial-gradient(circle at 90% 100%, rgba(255,255,255,0.04), transparent 40%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0,35 Q35,10 70,35 T140,35' stroke='rgba(255,255,255,0.06)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,55 Q35,30 70,55 T140,55' stroke='rgba(64,217,192,0.07)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,15 Q35,-10 70,15 T140,15' stroke='rgba(255,255,255,0.035)' stroke-width='1' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat, repeat;
+  background-position: 0 0, 0 0, 0 0;
+  background-size: auto, auto, 140px 70px;
+  animation: wave-drift 35s linear infinite;
+}
+@media (prefers-reduced-motion: reduce){
+  body.admin-mode{ animation:none; }
 }
 .admin-shell .panel{
   background:var(--adm-panel);
@@ -1007,10 +1014,13 @@ body.admin-mode{
 
 /* Popup panels (org detail, settings) -- appended to <body>, not nested
    inside .admin-shell, so they get their own explicit background. */
+/* Popups (org detail, blocked-list, settings) now use the exact same
+   look every other popup in the app uses -- .panel's own soft shadow,
+   no border -- instead of the console theme's heavier bordered/glowing
+   look, so switching between an app popup and an admin popup doesn't
+   feel like two different products. */
 .admin-popup-panel{
   background:var(--adm-panel) !important;
-  border:1px solid var(--adm-border-strong) !important;
-  box-shadow:0 0 0 1px rgba(15,23,42,0.06), 0 24px 60px -20px rgba(15,23,42,0.2) !important;
 }
 
 .admin-shell .pin-box{
@@ -2511,6 +2521,7 @@ let state = {
   adminRevealedTotp: null,
   adminOrgDetailId: null,
   adminHighlightRequestId: null,
+  adminPushSubscribed: null,
   adminBoatProInfo: {},
   orgScreen: 'login', // 'signup' | 'login' | 'dashboard'
   orgAuthed: false,
@@ -8480,6 +8491,46 @@ async function subscribeAdminToPush(){
   }
 }
 
+// Whether THIS device already has an active push subscription -- checked
+// (not assumed) on every visit to the Notifications tab, so the button
+// reflects reality rather than reverting to "Enable" after a reload even
+// though push is still on, or staying "Enabled" after the browser/OS
+// revoked permission behind the app's back.
+async function checkAdminPushSubscribed(){
+  try{
+    if(!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+    const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+    if(!reg) return false;
+    const sub = await reg.pushManager.getSubscription();
+    return !!sub;
+  }catch(e){ return false; }
+}
+
+// Counterpart to subscribeAdminToPush -- unsubscribes this device's
+// browser-level subscription AND tells the server to drop the stored row,
+// so it actually stops receiving pushes rather than just looking "off" in
+// this tab while the server keeps sending to it.
+async function unsubscribeAdminFromPush(){
+  try{
+    const reg = await navigator.serviceWorker.getRegistration('/sw.js');
+    const sub = reg && await reg.pushManager.getSubscription();
+    if(sub){
+      const endpoint = sub.endpoint;
+      await sub.unsubscribe();
+      await fetch(`${API_BASE}/api/admin/push-unsubscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: state.adminUsername, passkey: state.adminPasskey, endpoint })
+      });
+    }
+    return true;
+  }catch(e){
+    console.error('unsubscribeAdminFromPush failed', e);
+    return false;
+  }
+}
+
+
 // Every suspend/unsuspend/delete action in the admin dashboard routes
 // through here first -- re-typing the password is a deliberate extra
 // confirmation step on top of the fact that every admin API call already
@@ -8988,7 +9039,7 @@ function renderAdminDashboard(){
     openAdminSettingsPopup();
   });
   document.getElementById('admin-logout-btn').addEventListener('click', () => {
-    state.adminAuthed = false; state.adminUsername=''; state.adminPasskey=''; state.adminOrgs=null; state.adminRequests=null; state.adminOrgDetailId=null; state.adminBlockedNumbers=null;
+    state.adminAuthed = false; state.adminUsername=''; state.adminPasskey=''; state.adminOrgs=null; state.adminRequests=null; state.adminOrgDetailId=null; state.adminBlockedNumbers=null; state.adminPushSubscribed=null;
     clearAdminSession();
     stopAdminNotificationPolling();
     renderAdmin();
@@ -9194,12 +9245,13 @@ function renderAdminTabBody(){
   } else if(state.adminTab === 'notifications'){
     (async () => {
       if(state.adminNotifications === null || state.adminNotifications === undefined) await loadAdminNotifications();
+      if(state.adminPushSubscribed === null || state.adminPushSubscribed === undefined) state.adminPushSubscribed = await checkAdminPushSubscribed();
       if(!document.getElementById('admin-body')) return;
       const notes = state.adminNotifications || [];
       const unreadCount = notes.filter(n => !n.read).length;
       const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: '\u2705 Paid via Swipe' };
       body.innerHTML = `
-        <button type="button" class="btn btn-ghost" id="admin-enable-push-btn" style="width:100%;margin-bottom:12px;">${t('\ud83d\udd14 Enable Push Notifications on This Device')}</button>
+        <button type="button" class="btn btn-ghost" id="admin-enable-push-btn" style="width:100%;margin-bottom:12px;">${state.adminPushSubscribed ? t('\u2713 Push Notifications Enabled \u2014 tap to disable') : t('\ud83d\udd14 Enable Push Notifications on This Device')}</button>
         ${unreadCount ? `<button type="button" class="btn btn-ghost" id="admin-notif-mark-all-btn" style="width:100%;margin-bottom:12px;">Mark all ${unreadCount} as read</button>` : ''}
         ${notes.length === 0 ? `<div class="empty">${t("No notifications yet.")}</div>` : notes.map(n => `
           <button type="button" class="settings-block" data-notif-id="${n.id}" style="display:block;width:100%;text-align:left;cursor:pointer;${n.read ? 'opacity:0.6;' : 'border-color:var(--teal);'}">
@@ -9214,10 +9266,18 @@ function renderAdminTabBody(){
       `;
       document.getElementById('admin-enable-push-btn').addEventListener('click', async () => {
         const btn = document.getElementById('admin-enable-push-btn');
-        btn.disabled = true; btn.textContent = t('Enabling\u2026');
-        const ok = await subscribeAdminToPush();
+        btn.disabled = true;
+        if(state.adminPushSubscribed){
+          btn.textContent = t('Disabling\u2026');
+          const ok = await unsubscribeAdminFromPush();
+          state.adminPushSubscribed = ok ? false : state.adminPushSubscribed;
+        } else {
+          btn.textContent = t('Enabling\u2026');
+          const ok = await subscribeAdminToPush();
+          state.adminPushSubscribed = ok ? true : state.adminPushSubscribed;
+        }
         btn.disabled = false;
-        btn.textContent = ok ? t('\u2713 Push Notifications Enabled') : t('\ud83d\udd14 Enable Push Notifications on This Device');
+        btn.textContent = state.adminPushSubscribed ? t('\u2713 Push Notifications Enabled \u2014 tap to disable') : t('\ud83d\udd14 Enable Push Notifications on This Device');
       });
       document.getElementById('admin-notif-mark-all-btn')?.addEventListener('click', async () => {
         state.adminNotifications.forEach(n => n.read = true);
