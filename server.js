@@ -1388,7 +1388,7 @@ async function blockOrgNumbers(organizationId, reason){
     await sql`
       INSERT INTO blocked_numbers (id, mobile, organization_id, boat_id, boat_name, owner_name, source_label, reason, status)
       VALUES (${'blk-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${s.mobile}, ${organizationId}, NULL, ${org.boat_name}, ${org.owner_name}, ${s.sourceLabel}, ${reason}, 'blocked')
-      ON CONFLICT (mobile, organization_id, boat_id, reason) WHERE status = 'blocked' DO NOTHING
+      ON CONFLICT (mobile, organization_id, reason) WHERE status = 'blocked' DO NOTHING
     `;
   }
 }
@@ -1399,7 +1399,7 @@ async function blockBoatNumbers(boatId, organizationId, reason){
     await sql`
       INSERT INTO blocked_numbers (id, mobile, organization_id, boat_id, boat_name, owner_name, source_label, reason, status)
       VALUES (${'blk-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${s.mobile}, ${organizationId || info.organizationId || null}, ${boatId}, ${info.orgBoatName}, ${info.ownerName}, ${s.sourceLabel}, ${reason}, 'blocked')
-      ON CONFLICT (mobile, organization_id, boat_id, reason) WHERE status = 'blocked' DO NOTHING
+      ON CONFLICT (mobile, organization_id, reason) WHERE status = 'blocked' DO NOTHING
     `;
   }
 }
@@ -1582,6 +1582,85 @@ app.post('/api/signup/verify-code', async (req, res) => {
   }
 });
 
+// --- Signup email verification (email OTP via Gmail SMTP) -------------------
+// Same idea as the SMS flow above, but sent via the existing Gmail SMTP
+// transport (`mailer`, configured near the top of this file for PIN-reset
+// emails) rather than Twilio -- chosen because it's free (Gmail's own
+// sending limits are generous for this volume) and needs no separate
+// approval process, unlike SMS or WhatsApp. This is now what POST
+// /api/signup actually requires; the mobile SMS OTP endpoints above are
+// left in place but unused by the front-end for now.
+app.post('/api/signup/send-email-code', async (req, res) => {
+  try{
+    const email = (req.body && req.body.email || '').trim().toLowerCase();
+    if(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+      return res.status(400).json({ ok:false, error:'Enter a valid email address.' });
+    }
+    if(!mailer){
+      return res.status(503).json({ ok:false, error:'Email verification is not configured on this server yet.' });
+    }
+
+    const existing = await sql`SELECT last_sent_at FROM signup_email_otps WHERE email = ${email}`;
+    if(existing.length){
+      const elapsedMs = Date.now() - new Date(existing[0].last_sent_at).getTime();
+      if(elapsedMs < SIGNUP_OTP_RESEND_COOLDOWN_MS){
+        const waitSeconds = Math.ceil((SIGNUP_OTP_RESEND_COOLDOWN_MS - elapsedMs) / 1000);
+        return res.status(429).json({ ok:false, error:`Please wait ${waitSeconds}s before requesting another code.` });
+      }
+    }
+
+    const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    const codeHash = hashPasskey(code);
+    const expiresAt = new Date(Date.now() + SIGNUP_OTP_TTL_MS).toISOString();
+
+    await sql`
+      INSERT INTO signup_email_otps (email, code_hash, attempts, verified, last_sent_at, expires_at)
+      VALUES (${email}, ${codeHash}, 0, false, now(), ${expiresAt})
+      ON CONFLICT (email) DO UPDATE SET code_hash = ${codeHash}, attempts = 0, verified = false, last_sent_at = now(), expires_at = ${expiresAt}
+    `;
+
+    await mailer.sendMail({
+      from: GMAIL_USER,
+      to: email,
+      subject: 'Your SeaFare verification code',
+      text: `Your SeaFare verification code is ${code}. It expires in 10 minutes.`,
+      html: `<p>Your SeaFare verification code is <strong>${code}</strong>.</p><p>It expires in 10 minutes.</p>`,
+    });
+
+    res.json({ ok:true, expiresInSeconds: SIGNUP_OTP_TTL_MS / 1000 });
+  }catch(e){
+    console.error('send-email-code failed', e);
+    res.status(502).json({ ok:false, error:'Could not send a verification code right now. Try again in a moment.' });
+  }
+});
+
+app.post('/api/signup/verify-email-code', async (req, res) => {
+  try{
+    const email = (req.body && req.body.email || '').trim().toLowerCase();
+    const code = (req.body && req.body.code || '').trim();
+    if(!email || !code) return res.status(400).json({ ok:false, error:'Enter the code sent to your email.' });
+    const rows = await sql`SELECT * FROM signup_email_otps WHERE email = ${email}`;
+    if(!rows.length) return res.status(400).json({ ok:false, error:'Request a verification code first.' });
+    const record = rows[0];
+    if(new Date(record.expires_at).getTime() < Date.now()){
+      return res.status(400).json({ ok:false, error:'This code has expired. Request a new one.' });
+    }
+    if(record.attempts >= SIGNUP_OTP_MAX_ATTEMPTS){
+      return res.status(400).json({ ok:false, error:'Too many incorrect attempts. Request a new code.' });
+    }
+    if(!verifyPasskey(code, record.code_hash)){
+      await sql`UPDATE signup_email_otps SET attempts = attempts + 1 WHERE email = ${email}`;
+      const remaining = SIGNUP_OTP_MAX_ATTEMPTS - (record.attempts + 1);
+      return res.status(400).json({ ok:false, error: remaining > 0 ? `Incorrect code. ${remaining} attempt(s) left.` : 'Incorrect code. Request a new one.' });
+    }
+    await sql`UPDATE signup_email_otps SET verified = true WHERE email = ${email}`;
+    res.json({ ok:true, verified:true });
+  }catch(e){
+    console.error('verify-email-code failed', e);
+    res.status(500).json({ ok:false, error:'Could not verify that code. Try again.' });
+  }
+});
+
 // Create a new owner + their one free boat. Returns the TOTP secret once,
 // in the response, so the front-end can show it to the owner for adding to
 // an authenticator app -- it is never returned again after this call.
@@ -1671,20 +1750,26 @@ async function notifyAdmin(type, message, ref){
 app.post('/api/signup', async (req, res) => {
   try{
     const b = req.body || {};
-    const required = ['boatName','ownerName','mobile','passkey'];
+    const required = ['boatName','ownerName','mobile','gmail','passkey'];
     for(const f of required){
       if(!b[f] || !String(b[f]).trim()) return res.status(400).json({ ok:false, error:`Missing ${f}.` });
     }
     if(String(b.passkey).length < 6) return res.status(400).json({ ok:false, error:'PIN must be at least 6 characters.' });
 
-    // The owner must have verified this mobile number via SMS OTP (see
-    // POST /api/signup/send-code + verify-code) before an organization can
-    // be created with it -- confirms they actually control the number,
-    // not just that no one else does.
+    // The owner must have verified their email via a code sent to it (see
+    // POST /api/signup/send-email-code + verify-email-code) before an
+    // organization can be created -- confirms they actually control that
+    // address, not just that no one else does. Only enforced when email
+    // sending is actually configured (GMAIL_USER/GMAIL_APP_PASSWORD set)
+    // -- if it isn't, signup falls back to working unverified rather than
+    // locking everyone out because an optional feature isn't set up yet.
+    const emailLower = String(b.gmail || '').trim().toLowerCase();
     const mobileDigits = parseNumbers(b.mobile)[0];
-    const otpRows = mobileDigits ? await sql`SELECT verified FROM signup_otps WHERE mobile = ${mobileDigits}` : [];
-    if(!otpRows.length || !otpRows[0].verified){
-      return res.status(400).json({ ok:false, error:'Please verify your mobile number first.' });
+    if(mailer){
+      const otpRows = emailLower ? await sql`SELECT verified FROM signup_email_otps WHERE email = ${emailLower}` : [];
+      if(!otpRows.length || !otpRows[0].verified){
+        return res.status(400).json({ ok:false, error:'Please verify your email address first.' });
+      }
     }
 
     // The first boat's name doubles as the owner's login username, so it
@@ -1766,6 +1851,7 @@ app.post('/api/signup', async (req, res) => {
       VALUES (${boatId}, ${orgId}, ${b.boatName}, true, 'active')
     `;
     await sql`DELETE FROM signup_otps WHERE mobile = ${mobileDigits}`;
+    await sql`DELETE FROM signup_email_otps WHERE email = ${emailLower}`;
 
     if(priorDeletion.length > 0){
       await notifyAdmin('resignup_after_deletion', `${b.ownerName} (${b.mobile}) signed up again as "${b.boatName}" -- was previously deleted ("${priorDeletion[0].boat_name}", removed ${priorDeletion[0].deleted_at.toISOString().slice(0,10)}).`, { type:'organization', id: orgId });
