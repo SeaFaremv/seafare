@@ -582,11 +582,12 @@
     -webkit-tap-highlight-color:transparent;
   }
   .photo-lightbox-card{
-    position:relative;background:#fff;border-radius:12px;padding:10px;
-    max-width:240px;width:100%;box-shadow:0 14px 32px rgba(0,0,0,0.35);
+    position:relative;background:transparent;border-radius:12px;padding:0;
+    max-width:520px;width:100%;
   }
   .photo-lightbox-card img{
-    display:block;width:100%;max-height:38vh;object-fit:contain;border-radius:6px;
+    display:block;width:100%;max-height:80vh;object-fit:contain;border-radius:10px;
+    box-shadow:0 14px 32px rgba(0,0,0,0.4);
   }
   .photo-lightbox-close{
     position:absolute;top:-14px;right:-14px;
@@ -4112,23 +4113,43 @@ function renderInvoiceListPopupContent(title, invoiceList){
   // Group by origin -> destination route so a long list is scannable at a
   // glance, rather than one flat scroll -- each route starts collapsed,
   // since most of the time you're looking for a specific island's
-  // invoices, not browsing everything.
+  // invoices, not browsing everything. Also tracks which trip(s) fed into
+  // each group, so the group header can show when that trip ended.
   const groups = {};
   const groupOrder = [];
   invoiceList.forEach(s => {
     const trip = state.trips.find(t => t.id === s.tripId);
     const routeKey = trip ? `${trip.origin} \u2192 ${s.island}` : `To ${s.island}`;
-    if(!groups[routeKey]){ groups[routeKey] = []; groupOrder.push(routeKey); }
-    groups[routeKey].push(s);
+    if(!groups[routeKey]){ groups[routeKey] = { rows: [], tripIds: new Set() }; groupOrder.push(routeKey); }
+    groups[routeKey].rows.push(s);
+    if(trip) groups[routeKey].tripIds.add(trip.id);
   });
+  // A route can in principle be fed by more than one trip (the same
+  // origin/destination run on different days) -- so this collects every
+  // distinct finished date among that group's trips rather than assuming
+  // just one. Trips still in progress (not yet finished) contribute
+  // nothing here, since they don't have an end date yet.
+  const tripEndedLabel = (tripIds) => {
+    const dates = [...tripIds]
+      .map(id => state.trips.find(t => t.id === id))
+      .filter(trip => trip && trip.finished && trip.finishedAt)
+      .map(trip => fmtDate(trip.finishedAt));
+    return [...new Set(dates)].join(', ');
+  };
 
   const rowHtml = (s) => `
     <button type="button" class="item-result-row" data-invoice-list-row="${s.id}" style="align-items:flex-start;flex-direction:column;height:auto;">
-      <div style="display:flex;justify-content:space-between;width:100%;">
+      <div style="display:flex;justify-content:space-between;width:100%;align-items:flex-start;">
         <span style="font-weight:700;">${escapeHtml(s.invoiceId)}</span>
         <span class="rprice">${fmtMoney(s.total)}</span>
       </div>
       <span class="tag-meta" style="margin-top:2px;">${escapeHtml(s.name)} \u2192 ${escapeHtml(s.receiverName||'\u2014')}</span>
+      ${(s.status !== 'delivered' && s.photo) ? `
+        <span class="photo-open-link" data-photo-src="${escapeHtml(s.photo)}" data-photo-name="${escapeHtml(photoFilename(s))}" style="display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:11px;color:var(--navy);">
+          <img src="${s.photo}" alt="" style="width:26px;height:26px;object-fit:cover;border-radius:5px;border:1px solid var(--line);">
+          ${t("View photo")}
+        </span>
+      ` : ''}
     </button>
   `;
 
@@ -4140,12 +4161,17 @@ function renderInvoiceListPopupContent(title, invoiceList){
     <p class="sub" style="margin-bottom:14px;">${invoiceList.length} ${noun}${invoiceList.length===1?'':'s'} \u00b7 ${fmtMoney(total)} ${summaryLabel}</p>
     <div style="display:flex;flex-direction:column;gap:10px;">
       ${groupOrder.map(routeKey => {
-        const rows = groups[routeKey];
+        const group = groups[routeKey];
+        const rows = group.rows;
         const groupTotal = rows.reduce((sum,s) => sum + (s.total||0), 0);
+        const endedLabel = tripEndedLabel(group.tripIds);
         return `
           <details class="items-details" style="border-top:none;padding-top:0;">
-            <summary style="display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:8px 0;">
-              <span>${escapeHtml(routeKey)} <span class="tag-meta" style="font-weight:400;">(${rows.length})</span></span>
+            <summary style="display:flex;justify-content:space-between;align-items:flex-start;font-size:13px;padding:8px 0;">
+              <span>
+                <span style="display:block;">${escapeHtml(routeKey)} <span class="tag-meta" style="font-weight:400;">(${rows.length})</span></span>
+                ${endedLabel ? `<span class="tag-meta" style="display:block;font-weight:400;margin-top:2px;">${t('Trip ended')} ${endedLabel}</span>` : ''}
+              </span>
               <span class="rprice">${fmtMoney(groupTotal)}</span>
             </summary>
             <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
@@ -5516,12 +5542,15 @@ function isTripFinished(tripId){
 // Proof-of-delivery photos are only useful for a short window after
 // delivery -- long enough to catch and correct a wrong "delivered" tap,
 // not indefinitely. Clears the photo (keeping everything else about the
-// shipment intact) once 3 hours have passed since deliveredAt. If the
+// shipment intact) once 6 days have passed since deliveredAt. If the
 // owner undoes the delivery within that window (Mark as Undelivered),
 // deliveredAt gets cleared too, which cancels this entirely -- the photo
 // only ever gets cleared for something that's genuinely still marked
-// delivered 3+ hours later.
-const DELIVERY_PHOTO_RETENTION_MS = 3 * 60 * 60 * 1000;
+// delivered 6+ days later. The photo itself stays encrypted at rest (see
+// server.js) for the full 6 days regardless of whether it's currently
+// being shown anywhere -- see photoLinkHtml, which hides it from view
+// the moment a shipment is marked delivered, well before this deletes it.
+const DELIVERY_PHOTO_RETENTION_MS = 6 * 24 * 60 * 60 * 1000;
 async function cleanupExpiredDeliveryPhotos(){
   const now = Date.now();
   const expiredIds = new Set(
@@ -6886,7 +6915,14 @@ function photoFilename(s){
 // has to scroll past a photo they didn't ask to see, and once they do ask,
 // they get an unobstructed full view rather than a cramped inline thumbnail.
 function photoLinkHtml(s){
-  if(!s.photo) return '';
+  // Once marked delivered, the photo is deliberately hidden from view --
+  // its only remaining purpose is to let an accidental "delivered" tap be
+  // corrected (see cleanupExpiredDeliveryPhotos above), not to stay
+  // browsable after the fact. It's still sitting in the database
+  // (encrypted) for up to 6 days in case that correction happens; if the
+  // shipment gets marked back to undelivered, s.status is no longer
+  // 'delivered' and this check passes again, showing the same photo.
+  if(!s.photo || s.status === 'delivered') return '';
   const filename = photoFilename(s);
   return `
     <div class="items-details" style="margin-top:8px;">
@@ -6919,6 +6955,7 @@ document.addEventListener('click', (e) => {
   const link = e.target.closest && e.target.closest('.photo-open-link');
   if(!link) return;
   e.preventDefault();
+  e.stopPropagation();
   openPhotoLightbox(link.dataset.photoSrc, link.dataset.photoName);
 });
 function downloadPhoto(s){
