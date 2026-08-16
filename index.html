@@ -540,23 +540,37 @@
   .rate-edit-row input.price-input{width:90px;}
   /* Item Rates list -- one shared card with divider lines between rows,
      rather than each row being two separate boxed inputs side by side,
-     and narrower than the full panel width to read more like a list. */
+     and narrower than the full panel width to read more like a list.
+     Capped to roughly 10 rows tall and scrollable beyond that, with a
+     slightly smaller font than the rest of the form -- this list can run
+     to 100+ items, so it needs to read like a compact scrollable list,
+     not a stack of full-size form rows. */
   .rates-list-card{
     max-width:90%;margin:0 auto;background:var(--paper-dark);
-    border-radius:10px;overflow:hidden;
+    border-radius:10px;overflow-y:auto;max-height:460px;
+    border:1px solid rgba(11,40,64,0.08);
   }
   .rates-list-card .rate-edit-row{
-    margin-bottom:0;padding:10px 12px;border-bottom:1px solid rgba(11,40,64,0.09);
+    margin-bottom:0;padding:7px 12px;border-bottom:1px solid rgba(11,40,64,0.09);
+    font-size:12.5px;
   }
   .rates-list-card .rate-edit-row:last-child{border-bottom:none;}
   .rates-list-card .rate-edit-row input[type=text]{
-    background:transparent;border:none;padding:6px 4px;color:var(--ink);
+    background:transparent;border:none;padding:5px 4px;color:var(--ink);font-size:inherit;
   }
   .rates-list-card .rate-edit-row input[type=text]:focus{
     outline:none;background:rgba(255,255,255,0.7);border-radius:5px;
   }
   .rates-list-card .rate-edit-row input.price-input{
-    width:60px;flex-shrink:0;text-align:right;font-family:'JetBrains Mono',monospace;
+    width:52px;flex-shrink:0;text-align:right;font-family:'JetBrains Mono',monospace;font-size:inherit;
+  }
+  .rates-list-card .rate-edit-row button.btn-danger{
+    width:30px;height:30px;font-size:12px;
+  }
+  .rates-section-label{
+    font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.05em;
+    font-size:10px;font-weight:700;color:var(--ink-soft);background:rgba(11,40,64,0.05);
+    padding:6px 12px;position:sticky;top:0;z-index:1;
   }
   .search-row{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;}
   .search-row input{margin-bottom:0;flex:1;min-width:180px;}
@@ -7808,17 +7822,17 @@ function renderRatesSetup(){
   const body = document.getElementById('settings-body');
   body.innerHTML = `
     <div class="settings-block">
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <button class="btn btn-ghost" id="download-rates-btn" style="flex:1;">${t("Download List")}</button>
+        <button class="btn btn-ghost" id="upload-rates-btn" style="flex:1;">${t("Upload List")}</button>
+        <input type="file" id="upload-rates-input" accept="application/json,.json" style="display:none;">
+      </div>
       <h3>${t("Item Rates")}</h3>
       <p class="sub" style="margin-top:-6px;">${t("This list belongs to this boat only \u2014 other boats in your organization keep their own separate list and prices, even after you download/upload between them.")}</p>
       <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:16px;">
         <div style="flex:1;"><label>${t("New item name")}</label><input type="text" id="new-rate-name" style="margin-bottom:0;"></div>
         <div style="width:100px;"><label>${t("Price")}</label><input type="text" id="new-rate-price" style="margin-bottom:0;"></div>
         <button class="btn btn-ghost" id="add-rate-btn" style="height:44px;">${t("Add")}</button>
-      </div>
-      <div style="display:flex;gap:8px;margin-bottom:16px;">
-        <button class="btn btn-ghost" id="download-rates-btn" style="flex:1;">${t("Download List")}</button>
-        <button class="btn btn-ghost" id="upload-rates-btn" style="flex:1;">${t("Upload List")}</button>
-        <input type="file" id="upload-rates-input" accept="application/json,.json" style="display:none;">
       </div>
       <div class="note" id="rates-transfer-note" style="display:none;"></div>
       <div id="rates-list"></div>
@@ -7833,22 +7847,37 @@ function renderRatesSetup(){
     </div>
   `;
 
+  // Tracks how many items at the FRONT of state.rates are from the most
+  // recent upload, so the list can show a "New Items Added" divider above
+  // the boundary where the previously-existing items resume. Reset every
+  // time this screen is opened fresh; adjusted on delete so the boundary
+  // stays accurate if a newly-uploaded item gets removed again.
+  let newlyAddedCount = 0;
+
   const renderRatesList = () => {
-    document.getElementById('rates-list').innerHTML = state.rates.length ? `<div class="rates-list-card">${state.rates.map((r,idx) => `
+    const container = document.getElementById('rates-list');
+    if(!state.rates.length){
+      container.innerHTML = `<div class="empty" style="padding:16px 0;">${t("No items yet — add one above.")}</div>`;
+      return;
+    }
+    const hasBoundary = newlyAddedCount > 0 && newlyAddedCount < state.rates.length;
+    container.innerHTML = `<div class="rates-list-card">${state.rates.map((r,idx) => `
+      ${idx === newlyAddedCount && hasBoundary ? `<div class="rates-section-label">${t('New Items Added')}</div>` : ''}
       <div class="rate-edit-row">
         <input type="text" data-rate-name="${idx}" value="${escapeHtml(r.name)}" style="flex:1;">
         <input type="text" class="price-input" data-rate-price="${idx}" value="${r.price}">
-        <button class="btn btn-danger" data-rate-del="${idx}" title="${t("Remove")}" style="width:38px;height:38px;padding:0;flex-shrink:0;">\u00d7</button>
+        <button class="btn btn-danger" data-rate-del="${idx}" title="${t("Remove")}">\u00d7</button>
       </div>
-    `).join('')}</div>` : `<div class="empty" style="padding:16px 0;">${t("No items yet — add one above.")}</div>`;
+    `).join('')}</div>`;
     document.querySelectorAll('[data-rate-name]').forEach(inp => inp.addEventListener('change', async () => { state.rates[inp.dataset.rateName].name = inp.value; await saveRates(state.rates); }));
     document.querySelectorAll('[data-rate-price]').forEach(inp => inp.addEventListener('change', async () => { state.rates[inp.dataset.ratePrice].price = parseFloat(inp.value) || 0; await saveRates(state.rates); }));
     document.querySelectorAll('[data-rate-del]').forEach(b => b.addEventListener('click', async () => {
-      const idx = b.dataset.rateDel;
+      const idx = Number(b.dataset.rateDel);
       const item = state.rates[idx];
       if(!item) return;
       if(!confirm(`Remove "${item.name}" from the item list? This can't be undone.`)) return;
       state.rates.splice(idx,1);
+      if(idx < newlyAddedCount) newlyAddedCount--;
       await saveRates(state.rates);
       renderRatesList();
     }));
@@ -7876,16 +7905,19 @@ function renderRatesSetup(){
       const parsed = JSON.parse(text);
       const incoming = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.rates) ? parsed.rates : null);
       if(!incoming) throw new Error('not a rates list');
+      // Existing items are kept as-is -- uploaded items are added as new
+      // entries on top, never replacing or overwriting what's already
+      // here, so ids are always regenerated even if the file has its own.
       const cleaned = incoming
         .filter(r => r && typeof r.name === 'string' && r.name.trim())
-        .map((r, i) => ({ id: r.id || `rate-${Date.now()}-${i}`, name: String(r.name).trim(), price: Number(r.price) || 0 }));
+        .map((r, i) => ({ id: `rate-${Date.now()}-${i}`, name: String(r.name).trim(), price: Number(r.price) || 0 }));
       if(!cleaned.length) throw new Error('empty list');
-      if(!confirm(`Replace this boat's ${state.rates.length} item(s) with the ${cleaned.length} item(s) from this file? This only affects this boat -- you can still edit prices separately afterward.`)) return;
-      state.rates = cleaned;
+      state.rates = [...cleaned, ...state.rates];
+      newlyAddedCount = cleaned.length;
       await saveRates(state.rates);
       renderRatesList();
       noteEl.style.display = 'block';
-      noteEl.textContent = t(`Loaded ${cleaned.length} item(s) into this boat's list. Edit freely -- it won't affect any other boat.`);
+      noteEl.textContent = t(`Added ${cleaned.length} new item(s) to this boat's list \u2014 your existing items were kept. Edit freely, it won't affect any other boat.`);
     }catch(err){
       console.error('rates upload failed', err);
       noteEl.style.display = 'block';
