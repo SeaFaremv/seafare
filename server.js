@@ -157,7 +157,7 @@ app.get('/api/data/:boatId/:key', async (req, res) => {
     let value = rows.length ? rows[0].value : null;
     if (key === 'settings') {
       const orgRows = await sql`
-        SELECT o.is_pro, o.pro_started_at, o.pro_expires_at FROM boats b
+        SELECT o.is_pro, o.pro_started_at, o.pro_expires_at, o.plan_limits_enabled FROM boats b
         JOIN organizations o ON o.id = b.organization_id
         WHERE b.id = ${boatId}
       `;
@@ -166,6 +166,7 @@ app.get('/api/data/:boatId/:key', async (req, res) => {
         value.isPro = orgRows[0].is_pro;
         value.proStartedAt = orgRows[0].pro_started_at;
         value.proExpiresAt = orgRows[0].pro_expires_at;
+        value.planLimitsEnabled = orgRows[0].plan_limits_enabled;
       }
       value = sanitizeSettingsForClient(value, boatId);
     }
@@ -190,6 +191,32 @@ app.put('/api/data/:boatId/:key', async (req, res) => {
     if (boatRows[0].status === 'suspended') return res.status(403).json({ error: 'This boat has been suspended.', note: boatRows[0].suspension_note || null });
     let storedValue = value;
     if (key === 'settings' && storedValue && typeof storedValue === 'object') {
+      // Free/Pro plan caps (staff and manager counts per boat) -- only
+      // for organizations created after this feature shipped
+      // (plan_limits_enabled); every organization that existed before
+      // that stays grandfathered in as unlimited, same as everywhere
+      // else this feature touches. Checked here rather than in a
+      // dedicated "invite staff" endpoint because staff/manager lists
+      // are edited as part of the whole settings object, not through
+      // their own endpoint.
+      const staffCount = Array.isArray(storedValue.staffUsers) ? storedValue.staffUsers.length : 0;
+      const managerCount = Array.isArray(storedValue.managerUsers) ? storedValue.managerUsers.length : 0;
+      if(staffCount > 0 || managerCount > 0){
+        const planRows = await sql`
+          SELECT o.plan_limits_enabled, o.is_pro FROM boats b JOIN organizations o ON o.id = b.organization_id WHERE b.id = ${boatId}
+        `;
+        const plan = planRows[0];
+        if(plan && plan.plan_limits_enabled){
+          const staffCap = plan.is_pro ? 10 : 2;
+          const managerCap = plan.is_pro ? 2 : 0;
+          if(staffCount > staffCap){
+            return res.status(400).json({ error: `Your plan allows up to ${staffCap} staff per boat.` });
+          }
+          if(managerCount > managerCap){
+            return res.status(400).json({ error: managerCap === 0 ? 'Managers require the Pro plan.' : `Your plan allows up to ${managerCap} managers per boat.` });
+          }
+        }
+      }
       storedValue = hashRawPinsInSettings({ ...storedValue });
       if (storedValue.bankAccountName) storedValue.bankAccountName = encryptField(storedValue.bankAccountName, boatId);
       if (storedValue.bankAccountNumber) storedValue.bankAccountNumber = encryptField(storedValue.bankAccountNumber, boatId);
@@ -996,6 +1023,8 @@ app.get('/api/admin/settings', requireAdmin, async (req, res) => {
       username: row.username || ADMIN_USERNAME || '',
       bankAccountName: row.bank_account_name || '',
       bankAccountNumber: row.bank_account_number || '',
+      mibAccountName: row.mib_account_name || '',
+      mibAccountNumber: row.mib_account_number || '',
       notifyNewSignups: row.notify_new_signups,
       notifyBoatRequests: row.notify_boat_requests,
       notifyNewBoats: row.notify_new_boats,
@@ -1025,16 +1054,35 @@ app.post('/api/admin/settings/credentials', requireAdmin, async (req, res) => {
 });
 app.post('/api/admin/settings/bank', requireAdmin, async (req, res) => {
   try{
-    const { bankAccountName, bankAccountNumber } = req.body || {};
+    const { bankAccountName, bankAccountNumber, mibAccountName, mibAccountNumber } = req.body || {};
     await ensureAdminSettingsRow();
     await sql`
-      UPDATE admin_settings SET bank_account_name = ${bankAccountName || ''}, bank_account_number = ${bankAccountNumber || ''}, updated_at = now()
+      UPDATE admin_settings SET
+        bank_account_name = ${bankAccountName || ''}, bank_account_number = ${bankAccountNumber || ''},
+        mib_account_name = ${mibAccountName || ''}, mib_account_number = ${mibAccountNumber || ''},
+        updated_at = now()
       WHERE id = 'admin'
     `;
     res.json({ ok:true });
   }catch(e){
     console.error(e);
     res.status(500).json({ ok:false, error:'Could not update bank details.' });
+  }
+});
+// Public (no admin auth) -- every owner's Upgrade to Pro popup needs these
+// account details, and owners aren't authenticated as the Super Admin.
+// Only ever returns the two account name/number pairs, nothing else off
+// the admin_settings row (no credentials, no notification toggles).
+app.get('/api/pro-bank-accounts', async (req, res) => {
+  try{
+    const row = await ensureAdminSettingsRow();
+    res.json({ ok:true, accounts: {
+      bml: { name: row.bank_account_name || '', number: row.bank_account_number || '' },
+      mib: { name: row.mib_account_name || '', number: row.mib_account_number || '' },
+    }});
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not load payment account details.' });
   }
 });
 app.post('/api/admin/settings/notifications', requireAdmin, async (req, res) => {
@@ -1429,6 +1477,22 @@ app.get('/api/admin/pro-payments', requireAdmin, async (req, res) => {
   }
 });
 
+// Pro plan cap: up to 15 boats per organization -- only applied to
+// organizations created after the Free/Pro plan-limits feature shipped
+// (plan_limits_enabled); every organization that existed before that is
+// grandfathered in as unlimited, matching how nothing else about this
+// feature retroactively restricts existing accounts. Free-tier orgs never
+// need this check here -- they can't reach this function at all without a
+// Super Admin manually approving their (paid, reviewed) request in the
+// first place, which is its own natural gate.
+async function boatCapReached(organizationId){
+  const orgRows = await sql`SELECT plan_limits_enabled, is_pro FROM organizations WHERE id = ${organizationId}`;
+  const org = orgRows[0];
+  if(!org || !org.plan_limits_enabled || !org.is_pro) return false;
+  const countRows = await sql`SELECT COUNT(*)::int AS n FROM boats WHERE organization_id = ${organizationId}`;
+  return (countRows[0]?.n || 0) >= 15;
+}
+
 // Approve a pending boat request: creates the new boat row and marks the
 // request approved. This is the step you take after confirming the
 // transfer landed in your account.
@@ -1468,6 +1532,9 @@ app.post('/api/admin/boat-requests/:id/approve', requireAdmin, async (req, res) 
     const request = rows[0];
     if(!request) return res.status(404).json({ ok:false, error:'Request not found.' });
     if(request.status !== 'pending') return res.status(400).json({ ok:false, error:'This request was already reviewed.' });
+    if(await boatCapReached(request.organization_id)){
+      return res.status(400).json({ ok:false, error:'This organization has reached its 15-boat Pro plan limit.' });
+    }
 
     const boatId = await createBoatForOrganization(request.organization_id, request.requested_boat_name);
 
@@ -2030,11 +2097,11 @@ app.post('/api/signup', async (req, res) => {
       INSERT INTO organizations (
         id, boat_name, owner_name, contact_number, gmail, mobile, passkey_hash,
         bank_account_name, bank_account_number, tracking_link, viber_link,
-        social_links, routes, totp_secret
+        social_links, routes, totp_secret, plan_limits_enabled
       ) VALUES (
         ${orgId}, ${b.boatName}, ${b.ownerName}, ${effectiveContactNumber}, ${b.gmail || null}, ${b.mobile}, ${passkeyHash},
         ${b.bankAccountName ? encryptField(b.bankAccountName, orgId) : null}, ${b.bankAccountNumber ? encryptField(b.bankAccountNumber, orgId) : null}, ${b.trackingLink || null}, ${b.viberLink || null},
-        ${JSON.stringify(b.socialLinks || [])}::jsonb, ${JSON.stringify(b.routes || [])}::jsonb, ${totpSecret}
+        ${JSON.stringify(b.socialLinks || [])}::jsonb, ${JSON.stringify(b.routes || [])}::jsonb, ${totpSecret}, true
       )
     `;
 
@@ -2183,6 +2250,9 @@ app.post('/api/boat-requests', async (req, res) => {
     }
 
     if(org.is_pro){
+      if(await boatCapReached(organizationId)){
+        return res.status(400).json({ ok:false, error:'You\u2019ve reached the 15-boat limit for your plan. Contact support if you need more.' });
+      }
       const boatId = await createBoatForOrganization(organizationId, requestedBoatName);
       // Informational only -- nothing for the admin to act on, so this
       // goes through the same notify type as any other new boat, not
