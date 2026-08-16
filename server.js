@@ -1750,27 +1750,19 @@ async function notifyAdmin(type, message, ref){
 app.post('/api/signup', async (req, res) => {
   try{
     const b = req.body || {};
-    const required = ['boatName','ownerName','mobile','gmail','passkey'];
+    const required = ['boatName','ownerName','mobile','passkey'];
     for(const f of required){
       if(!b[f] || !String(b[f]).trim()) return res.status(400).json({ ok:false, error:`Missing ${f}.` });
     }
     if(String(b.passkey).length < 6) return res.status(400).json({ ok:false, error:'PIN must be at least 6 characters.' });
 
-    // The owner must have verified their email via a code sent to it (see
-    // POST /api/signup/send-email-code + verify-email-code) before an
-    // organization can be created -- confirms they actually control that
-    // address, not just that no one else does. Only enforced when email
-    // sending is actually configured (GMAIL_USER/GMAIL_APP_PASSWORD set)
-    // -- if it isn't, signup falls back to working unverified rather than
-    // locking everyone out because an optional feature isn't set up yet.
+    // No verification step required for mobile or email right now --
+    // both are collected as plain fields (email is optional, under
+    // Additional Setup Information). The send-code/verify-code endpoints
+    // for each (SMS and email OTP) are still in place above if this is
+    // turned back on later.
     const emailLower = String(b.gmail || '').trim().toLowerCase();
     const mobileDigits = parseNumbers(b.mobile)[0];
-    if(mailer){
-      const otpRows = emailLower ? await sql`SELECT verified FROM signup_email_otps WHERE email = ${emailLower}` : [];
-      if(!otpRows.length || !otpRows[0].verified){
-        return res.status(400).json({ ok:false, error:'Please verify your email address first.' });
-      }
-    }
 
     // The first boat's name doubles as the owner's login username, so it
     // has to be unique across every organization -- otherwise two owners
