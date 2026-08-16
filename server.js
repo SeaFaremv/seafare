@@ -167,6 +167,10 @@ app.get('/api/data/:boatId/:key', async (req, res) => {
         value.proStartedAt = orgRows[0].pro_started_at;
         value.proExpiresAt = orgRows[0].pro_expires_at;
       }
+      value = sanitizeSettingsForClient(value, boatId);
+    }
+    if (key === 'shipments' && Array.isArray(value)) {
+      value = value.map(s => (s && s.photo) ? { ...s, photo: decryptField(s.photo, boatId) } : s);
     }
     res.json({ value });
   } catch (e) {
@@ -184,15 +188,102 @@ app.put('/api/data/:boatId/:key', async (req, res) => {
     const boatRows = await sql`SELECT id, status, suspension_note FROM boats WHERE id = ${boatId}`;
     if (boatRows.length === 0) return res.status(404).json({ error: 'unknown boat' });
     if (boatRows[0].status === 'suspended') return res.status(403).json({ error: 'This boat has been suspended.', note: boatRows[0].suspension_note || null });
+    let storedValue = value;
+    if (key === 'settings' && storedValue && typeof storedValue === 'object') {
+      storedValue = hashRawPinsInSettings({ ...storedValue });
+      if (storedValue.bankAccountName) storedValue.bankAccountName = encryptField(storedValue.bankAccountName, boatId);
+      if (storedValue.bankAccountNumber) storedValue.bankAccountNumber = encryptField(storedValue.bankAccountNumber, boatId);
+    }
+    if (key === 'shipments' && Array.isArray(storedValue)) {
+      storedValue = storedValue.map(s => (s && s.photo) ? { ...s, photo: encryptField(s.photo, boatId) } : s);
+    }
     await sql`
       INSERT INTO app_data (boat_id, key, value, updated_at)
-      VALUES (${boatId}, ${key}, ${JSON.stringify(value)}::jsonb, now())
-      ON CONFLICT (boat_id, key) DO UPDATE SET value = ${JSON.stringify(value)}::jsonb, updated_at = now()
+      VALUES (${boatId}, ${key}, ${JSON.stringify(storedValue)}::jsonb, now())
+      ON CONFLICT (boat_id, key) DO UPDATE SET value = ${JSON.stringify(storedValue)}::jsonb, updated_at = now()
     `;
+    // Respond with what the client actually sent (pre-hash/pre-encrypt) --
+    // it already has the plaintext it just submitted, no need to make it
+    // wait for a round trip through sanitizeSettingsForClient just to get
+    // back the same thing it already has in memory.
     res.json({ value });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'db error' });
+  }
+});
+
+// Staff/Manager PIN sign-in -- PINs are hashed at rest (see
+// hashRawPinsInSettings above) and never sent to the client, so matching
+// an entered PIN against a boat's staff/manager list has to happen here
+// instead of in the browser. Returns just enough for the client to start a
+// session (name/username) -- never the PIN or its hash.
+app.post('/api/staff-login/:boatId', async (req, res) => {
+  const { boatId } = req.params;
+  const entered = (req.body && req.body.pin) || '';
+  if (!entered) return res.status(400).json({ ok: false, error: 'PIN is required.' });
+  try {
+    const boatRows = await sql`SELECT status, suspension_note FROM boats WHERE id = ${boatId}`;
+    if (!boatRows.length) return res.status(404).json({ ok: false, error: 'Unknown boat.' });
+    if (boatRows[0].status === 'suspended') return res.status(403).json({ ok: false, error: 'This boat has been suspended.', note: boatRows[0].suspension_note || null });
+    const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boatId} AND key = 'settings'`;
+    const settings = rows.length ? rows[0].value : {};
+    const users = settings.staffUsers || [];
+    const match = users.find(u => u.pin && verifySecret(entered, u.pin));
+    if (match) return res.json({ ok: true, name: match.name || null, username: match.username || null });
+    // Legacy fallback: a single shared staff PIN, only while no named staff
+    // accounts exist yet -- same rule the old client-side check used.
+    if (users.length === 0 && settings.staffPin && verifySecret(entered, settings.staffPin)) {
+      return res.json({ ok: true, name: null, username: null });
+    }
+    res.status(401).json({ ok: false, error: 'Incorrect PIN. Try again.' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: 'db error' });
+  }
+});
+
+// Owner PIN sign-in for a specific boat (#owner/<boatId> direct links) --
+// distinct from /api/org-login, which uses the organization-wide
+// boatName+passkey. Same hashed-at-rest, verified-server-side pattern as
+// staff/manager above.
+app.post('/api/owner-pin-login/:boatId', async (req, res) => {
+  const { boatId } = req.params;
+  const entered = (req.body && req.body.pin) || '';
+  if (!entered) return res.status(400).json({ ok: false, error: 'PIN is required.' });
+  try {
+    const boatRows = await sql`SELECT status, suspension_note FROM boats WHERE id = ${boatId}`;
+    if (!boatRows.length) return res.status(404).json({ ok: false, error: 'Unknown boat.' });
+    if (boatRows[0].status === 'suspended') return res.status(403).json({ ok: false, error: 'This boat has been suspended.', note: boatRows[0].suspension_note || null });
+    const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boatId} AND key = 'settings'`;
+    const settings = rows.length ? rows[0].value : {};
+    if (settings.ownerPin && verifySecret(entered, settings.ownerPin)) {
+      return res.json({ ok: true });
+    }
+    res.status(401).json({ ok: false, error: 'Incorrect PIN. Try again.' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: 'db error' });
+  }
+});
+
+app.post('/api/manager-login/:boatId', async (req, res) => {
+  const { boatId } = req.params;
+  const entered = (req.body && req.body.pin) || '';
+  if (!entered) return res.status(400).json({ ok: false, error: 'PIN is required.' });
+  try {
+    const boatRows = await sql`SELECT status, suspension_note FROM boats WHERE id = ${boatId}`;
+    if (!boatRows.length) return res.status(404).json({ ok: false, error: 'Unknown boat.' });
+    if (boatRows[0].status === 'suspended') return res.status(403).json({ ok: false, error: 'This boat has been suspended.', note: boatRows[0].suspension_note || null });
+    const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boatId} AND key = 'settings'`;
+    const settings = rows.length ? rows[0].value : {};
+    const users = settings.managerUsers || [];
+    const match = users.find(u => u.pin && verifySecret(entered, u.pin));
+    if (match) return res.json({ ok: true, name: match.name || null, username: match.username || null });
+    res.status(401).json({ ok: false, error: 'Incorrect PIN. Try again.' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: 'db error' });
   }
 });
 
@@ -683,7 +774,7 @@ app.post('/api/reset-pin/confirm', async (req, res) => {
 
     const settingsRows = await sql`SELECT value FROM app_data WHERE boat_id = ${record.boat_id} AND key = 'settings'`;
     const settings = settingsRows.length ? settingsRows[0].value : {};
-    settings.ownerPin = String(newPin);
+    settings.ownerPin = hashSecret(String(newPin));
 
     await sql`
       INSERT INTO app_data (boat_id, key, value, updated_at)
@@ -723,6 +814,115 @@ function verifySecret(secret, stored){
   const check = crypto.scryptSync(String(secret), salt, 64).toString('hex');
   try{ return crypto.timingSafeEqual(Buffer.from(hash,'hex'), Buffer.from(check,'hex')); }
   catch(e){ return false; }
+}
+
+// ---------------------------------------------------------------------------
+// Field-level encryption for sensitive-but-must-be-readable data (shipment
+// photos, bank account details) -- separate from hashSecret/verifySecret
+// above, which is for one-way secrets like PINs that only ever need
+// comparing, never reading back.
+//
+// Each boat (or organization) gets its own AES-256-GCM key, derived via
+// HKDF from a single master key (APP_DATA_ENCRYPTION_KEY, set in Render's
+// env) using that boat's/org's own id as the HKDF "info" parameter. This
+// means:
+//   - No per-entity keys are stored anywhere -- they're derived on the fly
+//     from the id already sitting right next to the data, so there's
+//     nothing extra to manage, rotate, or lose.
+//   - Data encrypted for one boat is mathematically tied to that boat's id;
+//     you can't decrypt boat A's data using boat B's id as the derivation
+//     input, even with the master key.
+//   - Deleting a boat's rows (already done on org/boat delete elsewhere in
+//     this file) is sufficient cleanup -- there's no separate per-boat key
+//     record to also delete.
+// This protects data that leaks out via the database alone (a stolen
+// backup, a misconfigured read replica, etc). It does NOT protect against
+// someone who has both DB access and this server's environment variables --
+// nothing purely software-based can, since the running server always needs
+// the master key to do its job. Access control (which boat's session can
+// read which boat_id) is still enforced the same way it always was, in the
+// route handlers below -- encryption adds confidentiality at rest, it
+// doesn't replace authorization.
+const ENC_MASTER_KEY = process.env.APP_DATA_ENCRYPTION_KEY || '';
+if(!ENC_MASTER_KEY){
+  console.warn('APP_DATA_ENCRYPTION_KEY is not set -- shipment photos and bank details will be stored unencrypted. Set a long random value for this in production.');
+}
+function deriveFieldKey(scopeId){
+  if(!ENC_MASTER_KEY) return null;
+  return crypto.hkdfSync('sha256', ENC_MASTER_KEY, scopeId || '', 'seafare-field-enc', 32);
+}
+// Returns a self-contained string "iv:authTag:ciphertext" (all hex) so
+// nothing extra needs to be stored alongside it. Falls back to returning
+// the plaintext unchanged if no master key is configured, so the app
+// keeps working (unencrypted) rather than breaking outright.
+function encryptField(plaintext, scopeId){
+  if(plaintext === null || plaintext === undefined || plaintext === '') return plaintext;
+  const key = deriveFieldKey(scopeId);
+  if(!key) return plaintext;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(String(plaintext), 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `enc:${iv.toString('hex')}:${authTag.toString('hex')}:${ciphertext.toString('hex')}`;
+}
+// Recognizes our own "enc:..." format and decrypts it; anything else
+// (plaintext from before encryption was turned on, or values written while
+// no master key was configured) is returned as-is rather than erroring, so
+// old data doesn't become unreadable.
+function decryptField(stored, scopeId){
+  if(typeof stored !== 'string' || !stored.startsWith('enc:')) return stored;
+  const key = deriveFieldKey(scopeId);
+  if(!key) return stored;
+  const [, ivHex, tagHex, dataHex] = stored.split(':');
+  try{
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    const plaintext = Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]);
+    return plaintext.toString('utf8');
+  }catch(e){
+    console.error('decryptField failed', e);
+    return null;
+  }
+}
+
+// PINs (staffUsers[].pin, managerUsers[].pin, legacy staffPin/ownerPin) are
+// generated client-side and arrive here as plain 3-6 digit strings. This
+// hashes any that aren't already hashed (hashSecret's output always
+// contains a ':', which a plain numeric PIN never does) before the
+// settings blob is persisted -- so a raw PIN is never written to the
+// database, and by extension never sent back out to any client either.
+// Idempotent: safe to run on every settings save even if some PINs in the
+// object are already hashed from a previous save.
+function hashRawPinsInSettings(settings){
+  if(!settings || typeof settings !== 'object') return settings;
+  const hashIfRaw = (v) => (typeof v === 'string' && v && !v.includes(':')) ? hashSecret(v) : v;
+  if(Array.isArray(settings.staffUsers)){
+    settings.staffUsers = settings.staffUsers.map(u => u && u.pin ? { ...u, pin: hashIfRaw(u.pin) } : u);
+  }
+  if(Array.isArray(settings.managerUsers)){
+    settings.managerUsers = settings.managerUsers.map(u => u && u.pin ? { ...u, pin: hashIfRaw(u.pin) } : u);
+  }
+  if(settings.staffPin) settings.staffPin = hashIfRaw(settings.staffPin);
+  if(settings.ownerPin) settings.ownerPin = hashIfRaw(settings.ownerPin);
+  return settings;
+}
+
+// Strips PIN hashes out of a settings object entirely before it's sent to
+// any client -- the client only ever needs to know a PIN exists (to e.g.
+// show "PIN set" in the staff list), never its hash, since PIN checking
+// now happens server-side in /api/staff-login and /api/manager-login below.
+// Also decrypts bank account fields (encrypted at rest, but the Owner does
+// need to see them to view/edit them in Settings).
+function sanitizeSettingsForClient(settings, scopeId){
+  if(!settings || typeof settings !== 'object') return settings;
+  const out = { ...settings };
+  if(Array.isArray(out.staffUsers)) out.staffUsers = out.staffUsers.map(({ pin, ...rest }) => ({ ...rest, hasPin: !!pin }));
+  if(Array.isArray(out.managerUsers)) out.managerUsers = out.managerUsers.map(({ pin, ...rest }) => ({ ...rest, hasPin: !!pin }));
+  if(out.staffPin) out.staffPin = undefined;
+  if(out.ownerPin) out.ownerPin = undefined;
+  if(out.bankAccountName) out.bankAccountName = decryptField(out.bankAccountName, scopeId);
+  if(out.bankAccountNumber) out.bankAccountNumber = decryptField(out.bankAccountNumber, scopeId);
+  return out;
 }
 
 async function getAdminSettingsRow(){
@@ -1249,7 +1449,8 @@ async function createBoatForOrganization(organizationId, boatName){
   const org = orgRows[0];
   if(org && (org.bank_account_name || org.bank_account_number || org.contact_number)){
     const initialSettings = {
-      bankAccountName: org.bank_account_name || '', bankAccountNumber: org.bank_account_number || '',
+      bankAccountName: encryptField(decryptField(org.bank_account_name, organizationId) || '', boatId),
+      bankAccountNumber: encryptField(decryptField(org.bank_account_number, organizationId) || '', boatId),
       tripDefaults: { boatContacts: org.contact_number || '', trackingLink: '', viberLink: '' },
     };
     await sql`
@@ -1832,7 +2033,7 @@ app.post('/api/signup', async (req, res) => {
         social_links, routes, totp_secret
       ) VALUES (
         ${orgId}, ${b.boatName}, ${b.ownerName}, ${effectiveContactNumber}, ${b.gmail || null}, ${b.mobile}, ${passkeyHash},
-        ${b.bankAccountName || null}, ${b.bankAccountNumber || null}, ${b.trackingLink || null}, ${b.viberLink || null},
+        ${b.bankAccountName ? encryptField(b.bankAccountName, orgId) : null}, ${b.bankAccountNumber ? encryptField(b.bankAccountNumber, orgId) : null}, ${b.trackingLink || null}, ${b.viberLink || null},
         ${JSON.stringify(b.socialLinks || [])}::jsonb, ${JSON.stringify(b.routes || [])}::jsonb, ${totpSecret}
       )
     `;
@@ -1858,7 +2059,8 @@ app.post('/api/signup', async (req, res) => {
     // filled in.
     {
       const initialSettings = {
-        bankAccountName: b.bankAccountName || '', bankAccountNumber: b.bankAccountNumber || '',
+        bankAccountName: b.bankAccountName ? encryptField(b.bankAccountName, boatId) : '',
+        bankAccountNumber: b.bankAccountNumber ? encryptField(b.bankAccountNumber, boatId) : '',
         tripDefaults: { boatContacts: effectiveContactNumber, trackingLink: b.trackingLink || '', viberLink: b.viberLink || '' },
       };
       await sql`
@@ -1946,7 +2148,7 @@ app.post('/api/org-login', async (req, res) => {
       organization: {
         id: org.id, boatName: org.boat_name, ownerName: org.owner_name,
         contactNumber: org.contact_number, gmail: org.gmail, mobile: org.mobile,
-        bankAccountName: org.bank_account_name, bankAccountNumber: org.bank_account_number,
+        bankAccountName: decryptField(org.bank_account_name, org.id), bankAccountNumber: decryptField(org.bank_account_number, org.id),
         trackingLink: org.tracking_link, viberLink: org.viber_link,
         socialLinks: org.social_links, routes: org.routes,
         isPro: org.is_pro, proExpiresAt: org.pro_expires_at,
@@ -2052,7 +2254,8 @@ app.post('/api/boats/first-free', async (req, res) => {
     `;
     if(org.bank_account_name || org.bank_account_number || org.contact_number){
       const initialSettings = {
-        bankAccountName: org.bank_account_name || '', bankAccountNumber: org.bank_account_number || '',
+        bankAccountName: encryptField(decryptField(org.bank_account_name, organizationId) || '', boatId),
+        bankAccountNumber: encryptField(decryptField(org.bank_account_number, organizationId) || '', boatId),
         tripDefaults: { boatContacts: org.contact_number || '', trackingLink: '', viberLink: '' },
       };
       await sql`
