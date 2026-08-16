@@ -9195,9 +9195,6 @@ function renderSignupForm(){
         <input type="text" id="su-owner-name" placeholder="e.g. Ahmed Bassam" autocomplete="off">
         <label>${t("Owner's personal mobile number *")}</label>
         <input type="tel" id="su-mobile" autocomplete="off">
-        <label style="margin-top:6px;">${t("Email address *")}</label>
-        <input type="email" id="su-gmail" autocomplete="off">
-        <div id="su-email-verify-area" style="margin:6px 0 10px;"></div>
 
         <button type="button" class="btn btn-ghost" id="su-extras-btn" style="width:100%;margin:6px 0;">${t("Additional Setup Information (optional)")}</button>
         <div id="su-extras-summary" class="tag-meta" style="margin:0 0 14px;"></div>
@@ -9207,7 +9204,7 @@ function renderSignupForm(){
         <p class="sub" style="margin-top:-10px;">${t("You'll log in later with your boat name as your username and this PIN.")}</p>
 
         <div class="pin-error" id="su-error">${escapeHtml(state.orgError || '')}</div>
-        <button class="btn btn-primary" id="su-submit-btn" style="width:100%;margin:10px 0;">${t("Create My Boat")}</button>
+        <button class="btn btn-primary" id="su-submit-btn" style="width:100%;margin:10px 0;">${t("Sign Up")}</button>
         <button class="btn btn-ghost" id="su-login-instead-btn" style="width:100%;margin-bottom:8px;">${t("Already registered? Log in")}</button>
         <button class="btn btn-ghost" id="su-back-btn" style="width:100%;">${t("Back")}</button>
       </div>
@@ -9216,8 +9213,6 @@ function renderSignupForm(){
   document.getElementById('su-extras-btn').addEventListener('click', openSignupExtrasPopup);
   renderSuExtrasSummary();
   wireMobileValidation('su-mobile');
-  document.getElementById('su-gmail').addEventListener('input', renderSuEmailVerifyArea);
-  renderSuEmailVerifyArea();
   document.getElementById('su-submit-btn').addEventListener('click', submitSignup);
   document.getElementById('su-login-instead-btn').addEventListener('click', () => { state.orgScreen = 'login'; state.orgError=''; renderOrgArea(); });
   document.getElementById('su-back-btn').addEventListener('click', orgBackToStart);
@@ -9231,7 +9226,7 @@ function renderSignupForm(){
 // closes; submitSignup() reads from state.signupExtras rather than the
 // DOM for these fields.
 function defaultSignupExtras(){
-  return { contactNumber:'', bankAccountName:'', bankAccountNumber:'', routes:'', trackingLink:'', viberLink:'', socialLinks:'' };
+  return { contactNumber:'', gmail:'', bankAccountName:'', bankAccountNumber:'', routes:'', trackingLink:'', viberLink:'', socialLinks:'' };
 }
 function renderSuExtrasSummary(){
   const el = document.getElementById('su-extras-summary');
@@ -9259,6 +9254,9 @@ function openSignupExtrasPopup(){
       <input type="tel" id="su-contact" placeholder="${t("e.g. 7777777 / 9999999")}" autocomplete="off" value="${escapeHtml(x.contactNumber)}">
       <p class="sub" style="margin-top:-10px;">${t("Leave blank to use your mobile number as the boat's contact number for now \u2014 you can change it anytime in Settings.")}</p>
 
+      <label style="margin-top:6px;">${t("Email address (optional, for future PIN reset)")}</label>
+      <input type="email" id="su-gmail" autocomplete="off" value="${escapeHtml(x.gmail)}">
+
       <label style="margin-top:6px;">Bank account name (optional)</label>
       <input type="text" id="su-bank-name" autocomplete="off" value="${escapeHtml(x.bankAccountName)}">
       <label>${t("Bank account number (optional)")}</label>
@@ -9285,7 +9283,7 @@ function openSignupExtrasPopup(){
 function saveAndCloseSignupExtrasPopup(){
   const val = (id) => (document.getElementById(id)?.value || '').trim();
   state.signupExtras = {
-    contactNumber: val('su-contact'),
+    contactNumber: val('su-contact'), gmail: val('su-gmail'),
     bankAccountName: val('su-bank-name'), bankAccountNumber: val('su-bank-number'),
     routes: val('su-routes'), trackingLink: val('su-tracking'), viberLink: val('su-viber'),
     socialLinks: val('su-social'),
@@ -9557,7 +9555,7 @@ async function submitVerifySignupOtp(){
   }
 }
 
-const SIGNUP_FIELD_IDS = ['su-boat-name','su-owner-name','su-mobile','su-gmail','su-passkey'];
+const SIGNUP_FIELD_IDS = ['su-boat-name','su-owner-name','su-mobile','su-passkey'];
 function clearFieldErrors(ids){ ids.forEach(id => document.getElementById(id)?.classList.remove('field-error')); }
 function markFieldError(id, clearValue){
   const el = document.getElementById(id);
@@ -9578,7 +9576,7 @@ async function submitSignup(){
     ownerName: val('su-owner-name'),
     contactNumber: extras.contactNumber,
     mobile: val('su-mobile'),
-    gmail: val('su-gmail'),
+    gmail: extras.gmail,
     bankAccountName: extras.bankAccountName,
     bankAccountNumber: extras.bankAccountNumber,
     routes: extras.routes.split('\n').map(s=>s.trim()).filter(Boolean),
@@ -9588,7 +9586,7 @@ async function submitSignup(){
     passkey: val('su-passkey'),
   };
 
-  const requiredMap = { boatName:'su-boat-name', ownerName:'su-owner-name', mobile:'su-mobile', gmail:'su-gmail', passkey:'su-passkey' };
+  const requiredMap = { boatName:'su-boat-name', ownerName:'su-owner-name', mobile:'su-mobile', passkey:'su-passkey' };
   const missing = Object.keys(requiredMap).filter(k => !body[k]);
   if(missing.length){
     missing.forEach(k => markFieldError(requiredMap[k], false));
@@ -9605,15 +9603,8 @@ async function submitSignup(){
     errorEl.textContent = 'Invalid mobile number \u2014 must start with 7 or 9 and have 7 digits.';
     return;
   }
-  if(!isValidEmail(body.gmail)){
-    markFieldError('su-gmail', false);
+  if(body.gmail && !isValidEmail(body.gmail)){
     errorEl.textContent = 'Invalid email address.';
-    return;
-  }
-  if(!state.signupEmailOtpUnavailable && state.signupEmailOtpVerifiedEmail !== body.gmail.toLowerCase()){
-    markFieldError('su-gmail', false);
-    errorEl.textContent = 'Please verify your email address first.';
-    document.getElementById('su-email-verify-area')?.scrollIntoView({ behavior:'smooth', block:'center' });
     return;
   }
 
@@ -9624,7 +9615,7 @@ async function submitSignup(){
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
     });
     const data = await res.json().catch(() => ({}));
-    btn.disabled = false; btn.textContent = t('Create My Boat');
+    btn.disabled = false; btn.textContent = t('Sign Up');
     if(res.ok && data.ok){
       state.orgSignupTotpSecret = data.totpSecret;
       state.orgAuthed = true;
@@ -9649,7 +9640,7 @@ async function submitSignup(){
     }
   }catch(e){
     console.error('signup failed', e);
-    btn.disabled = false; btn.textContent = t('Create My Boat');
+    btn.disabled = false; btn.textContent = t('Sign Up');
     errorEl.textContent = 'Something went wrong. Try again.';
   }
 }
