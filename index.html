@@ -2509,7 +2509,12 @@ let state = {
   signupExtras: null,
   signupOtpSentTo: null,
   signupOtpVerifiedMobile: null,
+  signupOtpUnavailable: false,
   signupOtpCooldownUntil: 0,
+  signupEmailOtpSentTo: null,
+  signupEmailOtpVerifiedEmail: null,
+  signupEmailOtpUnavailable: false,
+  signupEmailOtpCooldownUntil: 0,
   orgForgotBoatName: '',
   orgResetToken: null,
   boatRequestOpen: false,
@@ -9170,7 +9175,8 @@ function renderOrgArea(){
 
 function orgBackToStart(){
   state.entryMode = 'customer'; state.role = null;
-  state.signupOtpSentTo = null; state.signupOtpVerifiedMobile = null; state.signupOtpCooldownUntil = 0;
+  state.signupOtpSentTo = null; state.signupOtpVerifiedMobile = null; state.signupOtpCooldownUntil = 0; state.signupOtpUnavailable = false;
+  state.signupEmailOtpSentTo = null; state.signupEmailOtpVerifiedEmail = null; state.signupEmailOtpCooldownUntil = 0; state.signupEmailOtpUnavailable = false;
   location.hash = '';
   handleHash();
 }
@@ -9189,7 +9195,9 @@ function renderSignupForm(){
         <input type="text" id="su-owner-name" placeholder="e.g. Ahmed Bassam" autocomplete="off">
         <label>${t("Owner's personal mobile number *")}</label>
         <input type="tel" id="su-mobile" autocomplete="off">
-        <div id="su-mobile-verify-area" style="margin:6px 0 10px;"></div>
+        <label style="margin-top:6px;">${t("Email address *")}</label>
+        <input type="email" id="su-gmail" autocomplete="off">
+        <div id="su-email-verify-area" style="margin:6px 0 10px;"></div>
 
         <button type="button" class="btn btn-ghost" id="su-extras-btn" style="width:100%;margin:6px 0;">${t("Additional Setup Information (optional)")}</button>
         <div id="su-extras-summary" class="tag-meta" style="margin:0 0 14px;"></div>
@@ -9208,8 +9216,8 @@ function renderSignupForm(){
   document.getElementById('su-extras-btn').addEventListener('click', openSignupExtrasPopup);
   renderSuExtrasSummary();
   wireMobileValidation('su-mobile');
-  document.getElementById('su-mobile').addEventListener('input', renderSuMobileVerifyArea);
-  renderSuMobileVerifyArea();
+  document.getElementById('su-gmail').addEventListener('input', renderSuEmailVerifyArea);
+  renderSuEmailVerifyArea();
   document.getElementById('su-submit-btn').addEventListener('click', submitSignup);
   document.getElementById('su-login-instead-btn').addEventListener('click', () => { state.orgScreen = 'login'; state.orgError=''; renderOrgArea(); });
   document.getElementById('su-back-btn').addEventListener('click', orgBackToStart);
@@ -9223,7 +9231,7 @@ function renderSignupForm(){
 // closes; submitSignup() reads from state.signupExtras rather than the
 // DOM for these fields.
 function defaultSignupExtras(){
-  return { contactNumber:'', gmail:'', bankAccountName:'', bankAccountNumber:'', routes:'', trackingLink:'', viberLink:'', socialLinks:'' };
+  return { contactNumber:'', bankAccountName:'', bankAccountNumber:'', routes:'', trackingLink:'', viberLink:'', socialLinks:'' };
 }
 function renderSuExtrasSummary(){
   const el = document.getElementById('su-extras-summary');
@@ -9251,9 +9259,6 @@ function openSignupExtrasPopup(){
       <input type="tel" id="su-contact" placeholder="${t("e.g. 7777777 / 9999999")}" autocomplete="off" value="${escapeHtml(x.contactNumber)}">
       <p class="sub" style="margin-top:-10px;">${t("Leave blank to use your mobile number as the boat's contact number for now \u2014 you can change it anytime in Settings.")}</p>
 
-      <label style="margin-top:6px;">${t("Gmail (optional, for future PIN reset)")}</label>
-      <input type="email" id="su-gmail" autocomplete="off" value="${escapeHtml(x.gmail)}">
-
       <label style="margin-top:6px;">Bank account name (optional)</label>
       <input type="text" id="su-bank-name" autocomplete="off" value="${escapeHtml(x.bankAccountName)}">
       <label>${t("Bank account number (optional)")}</label>
@@ -9280,7 +9285,7 @@ function openSignupExtrasPopup(){
 function saveAndCloseSignupExtrasPopup(){
   const val = (id) => (document.getElementById(id)?.value || '').trim();
   state.signupExtras = {
-    contactNumber: val('su-contact'), gmail: val('su-gmail'),
+    contactNumber: val('su-contact'),
     bankAccountName: val('su-bank-name'), bankAccountNumber: val('su-bank-number'),
     routes: val('su-routes'), trackingLink: val('su-tracking'), viberLink: val('su-viber'),
     socialLinks: val('su-social'),
@@ -9294,6 +9299,135 @@ function closeSignupExtrasPopup(){
   overlay?.remove();
 }
 
+
+// --- Signup email verification (email OTP) ----------------------------------
+// Redraws just the small area under the email field -- "Send Verification
+// Code" button, then a code-entry box once sent, then a checkmark once
+// verified -- without touching the rest of the form. Also re-runs on every
+// keystroke in the email field itself: editing the address after a
+// previous send/verify naturally falls back to the "Send Code" state,
+// since neither state.signupEmailOtpSentTo nor signupEmailOtpVerifiedEmail
+// match the new value anymore.
+// (The older mobile SMS OTP functions below this -- sendSignupOtp,
+// submitVerifySignupOtp, etc. -- are left in place but no longer wired
+// into the form; verification switched to email since it's free via the
+// Gmail SMTP already configured, while SMS/WhatsApp cost money per
+// message. They could be re-enabled later if wanted.)
+let _suEmailOtpCooldownTimer = null;
+function renderSuEmailVerifyArea(){
+  const area = document.getElementById('su-email-verify-area');
+  if(!area) return;
+  const emailVal = (document.getElementById('su-gmail')?.value || '').trim().toLowerCase();
+  if(state.signupEmailOtpUnavailable){
+    area.innerHTML = `<div class="tag-meta">${t('Email verification is currently unavailable \u2014 you can continue without it.')}</div>`;
+    return;
+  }
+  if(state.signupEmailOtpVerifiedEmail && state.signupEmailOtpVerifiedEmail === emailVal){
+    area.innerHTML = `<div class="tag-meta" style="color:var(--teal);">\u2713 ${t('Email address verified')}</div>`;
+    return;
+  }
+  if(state.signupEmailOtpSentTo && state.signupEmailOtpSentTo === emailVal && emailVal){
+    const cooldownRemaining = Math.max(0, Math.ceil((state.signupEmailOtpCooldownUntil - Date.now()) / 1000));
+    area.innerHTML = `
+      <div class="tag-meta" style="margin-bottom:6px;">${t('Code sent to')} ${escapeHtml(emailVal)}. ${t('Enter it below.')}</div>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="su-email-otp-code" inputmode="numeric" maxlength="6" placeholder="${t('6-digit code')}" style="flex:1;">
+        <button type="button" class="btn btn-primary" id="su-email-verify-code-btn" style="flex:none;">${t('Verify')}</button>
+      </div>
+      <div class="pin-error" id="su-email-otp-error"></div>
+      <button type="button" class="btn btn-ghost" id="su-email-resend-code-btn" style="width:100%;margin-top:6px;" ${cooldownRemaining>0?'disabled':''}>${cooldownRemaining>0 ? `${t('Resend code')} (${cooldownRemaining}s)` : t('Resend code')}</button>
+    `;
+    document.getElementById('su-email-verify-code-btn').addEventListener('click', submitVerifySignupEmailOtp);
+    document.getElementById('su-email-otp-code').addEventListener('keydown', e => { if(e.key === 'Enter') submitVerifySignupEmailOtp(); });
+    document.getElementById('su-email-otp-code').focus();
+    document.getElementById('su-email-resend-code-btn').addEventListener('click', sendSignupEmailOtp);
+    if(cooldownRemaining > 0) startSuEmailOtpCooldownTicker();
+  } else {
+    area.innerHTML = `<button type="button" class="btn btn-ghost" id="su-email-send-code-btn" style="width:100%;">${t('Send Verification Code')}</button><div class="pin-error" id="su-email-otp-error"></div>`;
+    document.getElementById('su-email-send-code-btn').addEventListener('click', sendSignupEmailOtp);
+  }
+}
+function startSuEmailOtpCooldownTicker(){
+  if(_suEmailOtpCooldownTimer) clearInterval(_suEmailOtpCooldownTimer);
+  _suEmailOtpCooldownTimer = setInterval(() => {
+    const btn = document.getElementById('su-email-resend-code-btn');
+    if(!btn){ clearInterval(_suEmailOtpCooldownTimer); _suEmailOtpCooldownTimer = null; return; }
+    const remaining = Math.max(0, Math.ceil((state.signupEmailOtpCooldownUntil - Date.now()) / 1000));
+    if(remaining <= 0){
+      btn.disabled = false; btn.textContent = t('Resend code');
+      clearInterval(_suEmailOtpCooldownTimer); _suEmailOtpCooldownTimer = null;
+    } else {
+      btn.textContent = `${t('Resend code')} (${remaining}s)`;
+    }
+  }, 1000);
+}
+function isValidEmail(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v||'').trim()); }
+async function sendSignupEmailOtp(){
+  const emailEl = document.getElementById('su-gmail');
+  const email = (emailEl.value || '').trim();
+  if(!isValidEmail(email)){
+    clearFieldErrors(['su-gmail']);
+    markFieldError('su-gmail', false);
+    const mainError = document.getElementById('su-error');
+    if(mainError) mainError.textContent = 'Invalid email address.';
+    return;
+  }
+  const btn = document.getElementById('su-email-send-code-btn') || document.getElementById('su-email-resend-code-btn');
+  const errorEl = document.getElementById('su-email-otp-error');
+  if(btn){ btn.disabled = true; btn.textContent = t('Sending\u2026'); }
+  try{
+    const res = await fetch(`${API_BASE}/api/signup/send-email-code`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.ok){
+      if(res.status === 503){
+        // Email sending isn't configured on this deployment -- fall back
+        // to letting signup proceed unverified rather than blocking
+        // everyone on an optional feature that isn't set up yet.
+        state.signupEmailOtpUnavailable = true;
+        renderSuEmailVerifyArea();
+        return;
+      }
+      if(errorEl) errorEl.textContent = (data && data.error) || 'Could not send a code. Try again.';
+      if(btn){ btn.disabled = false; btn.textContent = t(btn.id === 'su-email-resend-code-btn' ? 'Resend code' : 'Send Verification Code'); }
+      return;
+    }
+    state.signupEmailOtpSentTo = email.trim().toLowerCase();
+    state.signupEmailOtpVerifiedEmail = null;
+    state.signupEmailOtpCooldownUntil = Date.now() + 45000;
+    renderSuEmailVerifyArea();
+  }catch(e){
+    console.error('sendSignupEmailOtp failed', e);
+    if(errorEl) errorEl.textContent = 'Something went wrong. Try again.';
+    if(btn){ btn.disabled = false; btn.textContent = t('Send Verification Code'); }
+  }
+}
+async function submitVerifySignupEmailOtp(){
+  const email = (document.getElementById('su-gmail').value || '').trim();
+  const code = (document.getElementById('su-email-otp-code').value || '').trim();
+  const errorEl = document.getElementById('su-email-otp-error');
+  const btn = document.getElementById('su-email-verify-code-btn');
+  if(!code){ if(errorEl) errorEl.textContent = t('Enter the code sent to your email.'); return; }
+  if(btn){ btn.disabled = true; btn.textContent = t('Verifying\u2026'); }
+  try{
+    const res = await fetch(`${API_BASE}/api/signup/verify-email-code`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.ok){
+      if(errorEl) errorEl.textContent = (data && data.error) || t('Incorrect code.');
+      if(btn){ btn.disabled = false; btn.textContent = t('Verify'); }
+      return;
+    }
+    state.signupEmailOtpVerifiedEmail = email.trim().toLowerCase();
+    renderSuEmailVerifyArea();
+  }catch(e){
+    console.error('submitVerifySignupEmailOtp failed', e);
+    if(errorEl) errorEl.textContent = 'Something went wrong. Try again.';
+    if(btn){ btn.disabled = false; btn.textContent = t('Verify'); }
+  }
+}
 
 // --- Signup mobile verification (SMS OTP) -----------------------------------
 // Redraws just the small area under the mobile field -- "Send Verification
@@ -9309,6 +9443,10 @@ function renderSuMobileVerifyArea(){
   const area = document.getElementById('su-mobile-verify-area');
   if(!area) return;
   const mobileVal = (document.getElementById('su-mobile')?.value || '').trim();
+  if(state.signupOtpUnavailable){
+    area.innerHTML = `<div class="tag-meta">${t('Mobile verification is currently unavailable \u2014 you can continue without it.')}</div>`;
+    return;
+  }
   if(state.signupOtpVerifiedMobile && state.signupOtpVerifiedMobile === mobileVal){
     area.innerHTML = `<div class="tag-meta" style="color:var(--teal);">\u2713 ${t('Mobile number verified')}</div>`;
     return;
@@ -9367,6 +9505,14 @@ async function sendSignupOtp(){
     });
     const data = await res.json().catch(() => ({}));
     if(!res.ok || !data.ok){
+      if(res.status === 503){
+        // SMS isn't configured on this deployment -- fall back to
+        // letting signup proceed unverified rather than blocking
+        // everyone on an optional feature that isn't set up yet.
+        state.signupOtpUnavailable = true;
+        renderSuMobileVerifyArea();
+        return;
+      }
       if(data && data.blocked){
         openBlockedNumberPopup(data);
       } else if(errorEl){
@@ -9411,7 +9557,7 @@ async function submitVerifySignupOtp(){
   }
 }
 
-const SIGNUP_FIELD_IDS = ['su-boat-name','su-owner-name','su-mobile','su-passkey'];
+const SIGNUP_FIELD_IDS = ['su-boat-name','su-owner-name','su-mobile','su-gmail','su-passkey'];
 function clearFieldErrors(ids){ ids.forEach(id => document.getElementById(id)?.classList.remove('field-error')); }
 function markFieldError(id, clearValue){
   const el = document.getElementById(id);
@@ -9432,7 +9578,7 @@ async function submitSignup(){
     ownerName: val('su-owner-name'),
     contactNumber: extras.contactNumber,
     mobile: val('su-mobile'),
-    gmail: extras.gmail,
+    gmail: val('su-gmail'),
     bankAccountName: extras.bankAccountName,
     bankAccountNumber: extras.bankAccountNumber,
     routes: extras.routes.split('\n').map(s=>s.trim()).filter(Boolean),
@@ -9442,7 +9588,7 @@ async function submitSignup(){
     passkey: val('su-passkey'),
   };
 
-  const requiredMap = { boatName:'su-boat-name', ownerName:'su-owner-name', mobile:'su-mobile', passkey:'su-passkey' };
+  const requiredMap = { boatName:'su-boat-name', ownerName:'su-owner-name', mobile:'su-mobile', gmail:'su-gmail', passkey:'su-passkey' };
   const missing = Object.keys(requiredMap).filter(k => !body[k]);
   if(missing.length){
     missing.forEach(k => markFieldError(requiredMap[k], false));
@@ -9459,10 +9605,15 @@ async function submitSignup(){
     errorEl.textContent = 'Invalid mobile number \u2014 must start with 7 or 9 and have 7 digits.';
     return;
   }
-  if(state.signupOtpVerifiedMobile !== body.mobile){
-    markFieldError('su-mobile', false);
-    errorEl.textContent = 'Please verify your mobile number first.';
-    document.getElementById('su-mobile-verify-area')?.scrollIntoView({ behavior:'smooth', block:'center' });
+  if(!isValidEmail(body.gmail)){
+    markFieldError('su-gmail', false);
+    errorEl.textContent = 'Invalid email address.';
+    return;
+  }
+  if(!state.signupEmailOtpUnavailable && state.signupEmailOtpVerifiedEmail !== body.gmail.toLowerCase()){
+    markFieldError('su-gmail', false);
+    errorEl.textContent = 'Please verify your email address first.';
+    document.getElementById('su-email-verify-area')?.scrollIntoView({ behavior:'smooth', block:'center' });
     return;
   }
 
