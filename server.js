@@ -1461,6 +1461,127 @@ async function resolveDuePayment(record, choice){
   }
 }
 
+// Shared by the signup-verification endpoints below AND by POST /api/signup
+// itself (defense in depth, in case someone calls /api/signup directly
+// without going through send-code/verify-code first): is this one mobile
+// number blocked, or already actively used by another organization/boat?
+// Returns null when it's free to use.
+async function checkMobileAvailability(mobile){
+  const numbers = parseNumbers(mobile);
+  if(!numbers.length) return { ok:false, error:'Enter a valid mobile number.' };
+  const blockedRows = await sql`
+    SELECT * FROM blocked_numbers
+    WHERE status = 'blocked' AND mobile = ANY(${numbers}::text[])
+    ORDER BY created_at DESC LIMIT 1
+  `;
+  if(blockedRows.length){
+    const rec = blockedRows[0];
+    let organizationId = null, dueAmount = 0, dueCurrency = 'MVR';
+    if(rec.organization_id){
+      const orgRows = await sql`SELECT id, due_amount, due_currency FROM organizations WHERE id = ${rec.organization_id}`;
+      if(orgRows.length){
+        organizationId = rec.organization_id;
+        dueAmount = Number(orgRows[0].due_amount) || 0;
+        dueCurrency = orgRows[0].due_currency || 'MVR';
+      }
+    }
+    return {
+      ok:false, blocked:true, mobile: rec.mobile,
+      boatName: rec.boat_name, ownerName: rec.owner_name, reason: rec.reason,
+      organizationId, dueAmount, dueCurrency,
+    };
+  }
+  const conflict = await findActiveNumberConflict(numbers);
+  if(conflict){
+    return { ok:false, error: 'This mobile number is already in use. Please use another mobile number.' };
+  }
+  return null;
+}
+
+// --- Signup mobile verification (SMS OTP via Twilio) ------------------------
+// Verifies the owner actually controls the mobile number they're signing up
+// with, before an organization is created. Reuses the same
+// TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_PHONE_NUMBER already
+// configured for PIN-reset texts (see near the top of this file) -- no
+// extra setup needed. WhatsApp delivery isn't available here since it
+// needs a separately-approved WhatsApp Business sender and message
+// template; SMS works immediately with what's already configured.
+const SIGNUP_OTP_TTL_MS = 10 * 60 * 1000;      // code valid for 10 minutes
+const SIGNUP_OTP_RESEND_COOLDOWN_MS = 45 * 1000; // 45s between sends to the same number
+const SIGNUP_OTP_MAX_ATTEMPTS = 5;
+
+app.post('/api/signup/send-code', async (req, res) => {
+  try{
+    const mobile = (req.body && req.body.mobile || '').trim();
+    if(!mobile) return res.status(400).json({ ok:false, error:'Enter a mobile number.' });
+    if(!smsClient || !TWILIO_PHONE_NUMBER){
+      return res.status(503).json({ ok:false, error:'SMS verification is not configured on this server yet.' });
+    }
+
+    const availability = await checkMobileAvailability(mobile);
+    if(availability) return res.status(409).json(availability);
+
+    const digitsOnly = parseNumbers(mobile)[0]; // the single number this OTP is scoped to
+    const existing = await sql`SELECT last_sent_at FROM signup_otps WHERE mobile = ${digitsOnly}`;
+    if(existing.length){
+      const elapsedMs = Date.now() - new Date(existing[0].last_sent_at).getTime();
+      if(elapsedMs < SIGNUP_OTP_RESEND_COOLDOWN_MS){
+        const waitSeconds = Math.ceil((SIGNUP_OTP_RESEND_COOLDOWN_MS - elapsedMs) / 1000);
+        return res.status(429).json({ ok:false, error:`Please wait ${waitSeconds}s before requesting another code.` });
+      }
+    }
+
+    const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    const codeHash = hashPasskey(code); // reuses the same scrypt hashing as PINs/passkeys
+    const expiresAt = new Date(Date.now() + SIGNUP_OTP_TTL_MS).toISOString();
+
+    await sql`
+      INSERT INTO signup_otps (mobile, code_hash, attempts, verified, last_sent_at, expires_at)
+      VALUES (${digitsOnly}, ${codeHash}, 0, false, now(), ${expiresAt})
+      ON CONFLICT (mobile) DO UPDATE SET code_hash = ${codeHash}, attempts = 0, verified = false, last_sent_at = now(), expires_at = ${expiresAt}
+    `;
+
+    await smsClient.messages.create({
+      to: `+960${digitsOnly}`, // Maldivian numbers -- matches isValidMaldivesMobile on the front-end
+      from: TWILIO_PHONE_NUMBER,
+      body: `Your SeaFare verification code is ${code}. It expires in 10 minutes.`,
+    });
+
+    res.json({ ok:true, expiresInSeconds: SIGNUP_OTP_TTL_MS / 1000 });
+  }catch(e){
+    console.error('send-code failed', e);
+    res.status(502).json({ ok:false, error:'Could not send a verification code right now. Try again in a moment.' });
+  }
+});
+
+app.post('/api/signup/verify-code', async (req, res) => {
+  try{
+    const mobile = (req.body && req.body.mobile || '').trim();
+    const code = (req.body && req.body.code || '').trim();
+    if(!mobile || !code) return res.status(400).json({ ok:false, error:'Enter the code sent to your mobile number.' });
+    const digitsOnly = parseNumbers(mobile)[0];
+    const rows = await sql`SELECT * FROM signup_otps WHERE mobile = ${digitsOnly}`;
+    if(!rows.length) return res.status(400).json({ ok:false, error:'Request a verification code first.' });
+    const record = rows[0];
+    if(new Date(record.expires_at).getTime() < Date.now()){
+      return res.status(400).json({ ok:false, error:'This code has expired. Request a new one.' });
+    }
+    if(record.attempts >= SIGNUP_OTP_MAX_ATTEMPTS){
+      return res.status(400).json({ ok:false, error:'Too many incorrect attempts. Request a new code.' });
+    }
+    if(!verifyPasskey(code, record.code_hash)){
+      await sql`UPDATE signup_otps SET attempts = attempts + 1 WHERE mobile = ${digitsOnly}`;
+      const remaining = SIGNUP_OTP_MAX_ATTEMPTS - (record.attempts + 1);
+      return res.status(400).json({ ok:false, error: remaining > 0 ? `Incorrect code. ${remaining} attempt(s) left.` : 'Incorrect code. Request a new one.' });
+    }
+    await sql`UPDATE signup_otps SET verified = true WHERE mobile = ${digitsOnly}`;
+    res.json({ ok:true, verified:true });
+  }catch(e){
+    console.error('verify-code failed', e);
+    res.status(500).json({ ok:false, error:'Could not verify that code. Try again.' });
+  }
+});
+
 // Create a new owner + their one free boat. Returns the TOTP secret once,
 // in the response, so the front-end can show it to the owner for adding to
 // an authenticator app -- it is never returned again after this call.
@@ -1550,11 +1671,21 @@ async function notifyAdmin(type, message, ref){
 app.post('/api/signup', async (req, res) => {
   try{
     const b = req.body || {};
-    const required = ['boatName','ownerName','contactNumber','mobile','passkey'];
+    const required = ['boatName','ownerName','mobile','passkey'];
     for(const f of required){
       if(!b[f] || !String(b[f]).trim()) return res.status(400).json({ ok:false, error:`Missing ${f}.` });
     }
     if(String(b.passkey).length < 6) return res.status(400).json({ ok:false, error:'PIN must be at least 6 characters.' });
+
+    // The owner must have verified this mobile number via SMS OTP (see
+    // POST /api/signup/send-code + verify-code) before an organization can
+    // be created with it -- confirms they actually control the number,
+    // not just that no one else does.
+    const mobileDigits = parseNumbers(b.mobile)[0];
+    const otpRows = mobileDigits ? await sql`SELECT verified FROM signup_otps WHERE mobile = ${mobileDigits}` : [];
+    if(!otpRows.length || !otpRows[0].verified){
+      return res.status(400).json({ ok:false, error:'Please verify your mobile number first.' });
+    }
 
     // The first boat's name doubles as the owner's login username, so it
     // has to be unique across every organization -- otherwise two owners
@@ -1611,6 +1742,11 @@ app.post('/api/signup', async (req, res) => {
     const orgId = crypto.randomBytes(8).toString('hex');
     const totpSecret = authenticator.generateSecret();
     const passkeyHash = hashPasskey(b.passkey);
+    // Boat contact number is optional at signup now (moved to Additional
+    // Setup Information) -- when left blank, the owner's own mobile
+    // number doubles as the organization's and first boat's contact
+    // number until they change it later in Settings.
+    const effectiveContactNumber = (b.contactNumber && String(b.contactNumber).trim()) || b.mobile;
 
     await sql`
       INSERT INTO organizations (
@@ -1618,7 +1754,7 @@ app.post('/api/signup', async (req, res) => {
         bank_account_name, bank_account_number, tracking_link, viber_link,
         social_links, routes, totp_secret
       ) VALUES (
-        ${orgId}, ${b.boatName}, ${b.ownerName}, ${b.contactNumber}, ${b.gmail || null}, ${b.mobile}, ${passkeyHash},
+        ${orgId}, ${b.boatName}, ${b.ownerName}, ${effectiveContactNumber}, ${b.gmail || null}, ${b.mobile}, ${passkeyHash},
         ${b.bankAccountName || null}, ${b.bankAccountNumber || null}, ${b.trackingLink || null}, ${b.viberLink || null},
         ${JSON.stringify(b.socialLinks || [])}::jsonb, ${JSON.stringify(b.routes || [])}::jsonb, ${totpSecret}
       )
@@ -1629,6 +1765,7 @@ app.post('/api/signup', async (req, res) => {
       INSERT INTO boats (id, organization_id, name, is_primary, status)
       VALUES (${boatId}, ${orgId}, ${b.boatName}, true, 'active')
     `;
+    await sql`DELETE FROM signup_otps WHERE mobile = ${mobileDigits}`;
 
     if(priorDeletion.length > 0){
       await notifyAdmin('resignup_after_deletion', `${b.ownerName} (${b.mobile}) signed up again as "${b.boatName}" -- was previously deleted ("${priorDeletion[0].boat_name}", removed ${priorDeletion[0].deleted_at.toISOString().slice(0,10)}).`, { type:'organization', id: orgId });
@@ -1637,12 +1774,14 @@ app.post('/api/signup', async (req, res) => {
     }
 
     // Pre-fill this boat's own Payment Details and Trip Defaults contact
-    // number from what was entered at signup -- stays editable separately
-    // per boat from here on, this just saves re-typing it the first time.
-    if(b.bankAccountName || b.bankAccountNumber || b.contactNumber){
+    // number -- boatContacts always gets a value now (the owner's mobile,
+    // if they didn't fill in a separate boat contact number), so this
+    // always runs rather than only when contactNumber/bank fields were
+    // filled in.
+    {
       const initialSettings = {
         bankAccountName: b.bankAccountName || '', bankAccountNumber: b.bankAccountNumber || '',
-        tripDefaults: { boatContacts: b.contactNumber || '', trackingLink: b.trackingLink || '', viberLink: b.viberLink || '' },
+        tripDefaults: { boatContacts: effectiveContactNumber, trackingLink: b.trackingLink || '', viberLink: b.viberLink || '' },
       };
       await sql`
         INSERT INTO app_data (boat_id, key, value, updated_at)
