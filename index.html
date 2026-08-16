@@ -4187,6 +4187,15 @@ function renderInvoiceListPopupContent(title, invoiceList){
   panelEl.querySelectorAll('[data-invoice-list-row]').forEach(b => b.addEventListener('click', () => {
     openInvoicePopup(b.dataset.invoiceListRow);
   }));
+  // Accordion behavior: opening one route group collapses whichever other
+  // one was already open, so only one is ever expanded at a time. The
+  // native <details> "toggle" event fires for both opening and closing --
+  // only react when this particular one just opened.
+  const routeDetailsEls = panelEl.querySelectorAll('.items-details');
+  routeDetailsEls.forEach(el => el.addEventListener('toggle', () => {
+    if(!el.open) return;
+    routeDetailsEls.forEach(other => { if(other !== el) other.open = false; });
+  }));
 }
 
 // Re-runs whichever regenerator function was supplied when this popup was
@@ -6926,7 +6935,7 @@ function photoLinkHtml(s){
   const filename = photoFilename(s);
   return `
     <div class="items-details" style="margin-top:8px;">
-      <a href="#" class="photo-open-link" data-photo-src="${escapeHtml(s.photo)}" data-photo-name="${escapeHtml(filename)}" style="display:block;">\ud83d\udcf7 ${escapeHtml(filename)}</a>
+      <a href="#" class="photo-open-link" data-photo-src="${escapeHtml(s.photo)}" data-photo-name="${escapeHtml(filename)}" style="display:block;font-size:12px;color:var(--green);text-decoration:underline;">\ud83d\udcf7 ${escapeHtml(filename)}</a>
     </div>
   `;
 }
