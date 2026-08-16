@@ -2905,7 +2905,7 @@ function renderStaffGate(){
   const body = document.getElementById('staff-gate-body');
   if(mode === 'signin'){
     body.innerHTML = `
-      <div class="pin-box" style="margin:0;">
+      <div class="pin-box">
         <div class="rname">${t("Enter your PIN")}</div>
         <input type="password" inputmode="numeric" id="staffgate-pin" maxlength="6" placeholder="&bull;&bull;&bull;&bull;">
         <div class="pin-error" id="staffgate-error"></div>
@@ -2970,7 +2970,7 @@ function renderManagerGate(){
           <h1>${t("Manager")}</h1>
           <p>${t("Enter the PIN your owner shared with you")}</p>
         </div>
-        <div class="pin-box" style="margin:0;">
+        <div class="pin-box">
           <div class="rname">${t("Enter your PIN")}</div>
           <input type="password" inputmode="numeric" id="managergate-pin" maxlength="6" placeholder="&bull;&bull;&bull;&bull;">
           <div class="pin-error" id="managergate-error"></div>
