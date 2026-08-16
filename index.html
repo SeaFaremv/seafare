@@ -7829,16 +7829,69 @@ function renderCustomerDirectory(){
   });
 }
 
+function closeRatesDownloadFormatPopup(){
+  const overlay = document.getElementById('rates-download-format-overlay');
+  if(overlay) unlockBodyScroll();
+  overlay?.remove();
+}
+function openRatesDownloadFormatPopup(){
+  closeRatesDownloadFormatPopup();
+  lockBodyScroll();
+  const overlay = document.createElement('div');
+  overlay.id = 'rates-download-format-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2100;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:360px;margin:0;animation:invoice-pop-in 0.18s ease-out;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+        <h3 style="margin-bottom:2px;">${t("Download Item List")}</h3>
+        <button type="button" class="btn btn-ghost" id="rates-download-format-close-btn" style="padding:8px 14px;">\u2715</button>
+      </div>
+      <p class="sub" style="margin-top:-6px;">${t("Choose a file format.")}</p>
+      <button class="btn btn-primary" id="rates-download-json-btn" style="width:100%;margin-bottom:10px;">${t("Download as JSON")}</button>
+      <button class="btn btn-primary" id="rates-download-xlsx-btn" style="width:100%;">${t("Download as Excel")}</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) closeRatesDownloadFormatPopup(); });
+  document.getElementById('rates-download-format-close-btn').addEventListener('click', closeRatesDownloadFormatPopup);
+  document.getElementById('rates-download-json-btn').addEventListener('click', async () => {
+    const boatName = _boatNameCache[CURRENT_BOAT_ID] || await getCurrentBoatName();
+    const payload = JSON.stringify({ seafareRatesExport: true, boatName, exportedAt: new Date().toISOString(), rates: state.rates }, null, 2);
+    const dataUrl = 'data:application/json;charset=utf-8,' + encodeURIComponent(payload);
+    const filename = `seafare-rates-${(boatName||'boat').replace(/[^a-z0-9]+/gi,'-').toLowerCase()}.json`;
+    downloadDataUrl(dataUrl, filename);
+    closeRatesDownloadFormatPopup();
+  });
+  document.getElementById('rates-download-xlsx-btn').addEventListener('click', async () => {
+    const btn = document.getElementById('rates-download-xlsx-btn');
+    const boatName = _boatNameCache[CURRENT_BOAT_ID] || await getCurrentBoatName();
+    btn.disabled = true; const originalLabel = btn.textContent; btn.textContent = t('Preparing\u2026');
+    try{
+      await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+      const ws = XLSX.utils.json_to_sheet(state.rates.map(r => ({ Name: r.name, Price: r.price })));
+      ws['!cols'] = [{ wch: 36 }, { wch: 12 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Rates');
+      const filename = `seafare-rates-${(boatName||'boat').replace(/[^a-z0-9]+/gi,'-').toLowerCase()}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      closeRatesDownloadFormatPopup();
+    }catch(e){
+      console.error('rates xlsx export failed', e);
+      alert(t("Could not create the Excel file. Check your connection and try again."));
+      btn.disabled = false; btn.textContent = originalLabel;
+    }
+  });
+}
+
 function renderRatesSetup(){
   const body = document.getElementById('settings-body');
   body.innerHTML = `
     <div class="settings-block">
       <div style="margin-bottom:14px;">
-        <div style="display:flex;gap:6px;margin-bottom:6px;">
-          <button class="btn btn-ghost" id="download-rates-json-btn" style="flex:1;padding:8px 10px;font-size:11.5px;">${t("Download (JSON)")}</button>
-          <button class="btn btn-ghost" id="download-rates-xlsx-btn" style="flex:1;padding:8px 10px;font-size:11.5px;">${t("Download (Excel)")}</button>
+        <div style="display:flex;gap:8px;margin-bottom:6px;">
+          <button class="btn btn-ghost" id="download-rates-btn" style="flex:0 0 auto;padding:6px 12px;font-size:11px;">${t("Download")}</button>
+          <button class="btn btn-ghost" id="upload-rates-btn" style="flex:0 0 auto;padding:6px 12px;font-size:11px;">${t("Upload List")}</button>
         </div>
-        <button class="btn btn-ghost" id="upload-rates-btn" style="width:100%;padding:8px 10px;font-size:11.5px;">${t("Upload List (JSON or Excel)")}</button>
         <input type="file" id="upload-rates-input" accept="application/json,.json,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none;">
       </div>
       <h3>${t("Item Rates")}</h3>
@@ -7898,32 +7951,8 @@ function renderRatesSetup(){
   };
   renderRatesList();
 
-  document.getElementById('download-rates-json-btn').addEventListener('click', async () => {
-    const boatName = _boatNameCache[CURRENT_BOAT_ID] || await getCurrentBoatName();
-    const payload = JSON.stringify({ seafareRatesExport: true, boatName, exportedAt: new Date().toISOString(), rates: state.rates }, null, 2);
-    const dataUrl = 'data:application/json;charset=utf-8,' + encodeURIComponent(payload);
-    const filename = `seafare-rates-${(boatName||'boat').replace(/[^a-z0-9]+/gi,'-').toLowerCase()}.json`;
-    downloadDataUrl(dataUrl, filename);
-  });
-
-  document.getElementById('download-rates-xlsx-btn').addEventListener('click', async () => {
-    const btn = document.getElementById('download-rates-xlsx-btn');
-    const boatName = _boatNameCache[CURRENT_BOAT_ID] || await getCurrentBoatName();
-    btn.disabled = true; const originalLabel = btn.textContent; btn.textContent = t('Preparing\u2026');
-    try{
-      await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
-      const ws = XLSX.utils.json_to_sheet(state.rates.map(r => ({ Name: r.name, Price: r.price })));
-      ws['!cols'] = [{ wch: 36 }, { wch: 12 }];
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'Rates');
-      const filename = `seafare-rates-${(boatName||'boat').replace(/[^a-z0-9]+/gi,'-').toLowerCase()}.xlsx`;
-      XLSX.writeFile(wb, filename);
-    }catch(e){
-      console.error('rates xlsx export failed', e);
-      alert(t("Could not create the Excel file. Check your connection and try again."));
-    }finally{
-      btn.disabled = false; btn.textContent = originalLabel;
-    }
+  document.getElementById('download-rates-btn').addEventListener('click', () => {
+    openRatesDownloadFormatPopup();
   });
 
   document.getElementById('upload-rates-btn').addEventListener('click', () => {
