@@ -1028,10 +1028,13 @@ body.admin-mode{
 .admin-shell label,
 .admin-popup-panel label{ color:var(--adm-text-soft); }
 
-/* view-field (authenticator secret show/hide) */
+/* view-field (authenticator secret show/hide) -- uses the app's own light
+   paper background rather than the console's dark --adm-bg, since this
+   sits inside a light popup panel and the dark bar looked like a stray
+   console-theme element bolted onto an otherwise light screen. */
 .admin-shell .view-field,
 .admin-popup-panel .view-field{
-  background:var(--adm-bg);border:1px solid var(--adm-border);border-radius:8px;
+  background:var(--paper);border:1px solid var(--adm-border);border-radius:8px;
 }
 .admin-shell .vf-value,
 .admin-popup-panel .vf-value{ color:var(--adm-text); }
@@ -5103,10 +5106,21 @@ function proDaysLeft(){
   return (new Date(s.proExpiresAt).getTime() - Date.now()) / 86400000;
 }
 
-const PRO_UPGRADE_ACCOUNTS = {
-  bml: { tabLabel: 'BML Account', name: 'AHMED BASSAM', number: '7715526560001' },
-  mib: { tabLabel: 'MIB Account', name: 'AHMED BASSAM', number: '90101100821351000' }
-};
+// Fetched fresh from the server every time the Upgrade to Pro popup opens
+// (see openUpgradeToProPopup) rather than hardcoded, so a Super Admin
+// editing these in Admin Settings takes effect for every owner immediately
+// -- no separate deploy needed to change a bank account number.
+let _proBankAccounts = null;
+async function fetchProBankAccounts(){
+  try{
+    const res = await fetch(`${API_BASE}/api/pro-bank-accounts`);
+    const data = await res.json();
+    if(data.ok && data.accounts) return data.accounts;
+  }catch(e){
+    console.error('fetchProBankAccounts failed', e);
+  }
+  return { bml:{name:'',number:''}, mib:{name:'',number:''} };
+}
 // Display-only -- must match SWIPE_PRO_AMOUNT on the server (defaults to
 // 500 there too if unset). Only affects the wording shown before the link
 // is created; the actual amount charged always comes from the server.
@@ -5199,7 +5213,7 @@ function openUpgradeToProPopup(){
         <button data-pro-account-tab="mib">${t('MIB Account')}</button>
         <button data-pro-account-tab="swipe">${t('Pay by Swipe')}</button>
       </div>
-      <div id="upgrade-pro-account-body"></div>
+      <div id="upgrade-pro-account-body"><div class="empty" style="padding:16px 0;">${t('Loading\u2026')}</div></div>
       <div id="upgrade-pro-request-area" style="margin-top:14px;"></div>
     </div>
   `;
@@ -5207,8 +5221,18 @@ function openUpgradeToProPopup(){
   document.body.appendChild(overlay);
   document.getElementById('upgrade-pro-popup-close-btn').addEventListener('click', closeUpgradeToProPopup);
   wireUpgradeToProAccountTabs();
-  renderUpgradeToProAccountBody('bml');
   renderUpgradeToProRequestArea(alreadyRequested);
+  fetchProBankAccounts().then(accounts => {
+    _proBankAccounts = accounts;
+    // The popup may have been closed (or a different tab picked) while
+    // this was in flight -- only render if it's still open and still on
+    // the default bml tab.
+    if(!document.getElementById('upgrade-pro-account-body')) return;
+    const activeTab = document.querySelector('#upgrade-pro-account-tabs .active');
+    if(activeTab && activeTab.dataset.proAccountTab !== 'swipe'){
+      renderUpgradeToProAccountBody(activeTab.dataset.proAccountTab);
+    }
+  });
 }
 
 function closeUpgradeToProPopup(){
@@ -5236,9 +5260,13 @@ function wireUpgradeToProAccountTabs(){
 function renderUpgradeToProAccountBody(which){
   if(which === 'swipe'){ renderSwipeAccountBody(); return; }
   stopSwipePaymentPolling();
-  const a = PRO_UPGRADE_ACCOUNTS[which] || PRO_UPGRADE_ACCOUNTS.bml;
   const body = document.getElementById('upgrade-pro-account-body');
   if(!body) return;
+  if(!_proBankAccounts){
+    body.innerHTML = `<div class="empty" style="padding:16px 0;">${t('Loading\u2026')}</div>`;
+    return;
+  }
+  const a = _proBankAccounts[which] || _proBankAccounts.bml || { name:'', number:'' };
   body.innerHTML = `
     <div class="item-result-row" style="flex-direction:column;align-items:flex-start;gap:6px;">
       <div class="tag-meta">${t('Account Name')}: <strong>${escapeHtml(a.name)}</strong></div>
@@ -6485,10 +6513,22 @@ function renderShipmentsTab(){
   const all = state.shipments.filter(s => s.status !== 'pending');
   const delivered = all.filter(s => s.status === 'delivered');
   const undelivered = all.filter(s => s.status !== 'delivered');
+  // Free plan soft cap: 500 shipments total, warning only -- logging still
+  // works past this, it's just a nudge to upgrade. Only shown for
+  // organizations actually subject to the plan limits (plan_limits_enabled,
+  // set at signup) that are also not already Pro; existing/grandfathered
+  // organizations never see this regardless of their shipment count.
+  const nearFreeCap = state.settings.planLimitsEnabled && !state.settings.isPro && state.shipments.length >= 500;
 
   panel.innerHTML = `
     <h2>${t("Shipments")}</h2>
     <p class="sub">${t("Every shipment that's been loaded, whether or not it's been delivered or paid yet.")}</p>
+    ${nearFreeCap ? `
+      <div class="note" style="margin-bottom:16px;">
+        ${t("You've reached the 500-shipment limit on the Free plan. You can keep logging shipments, but upgrading to Pro removes this limit entirely.")}
+        <button class="btn btn-amber" id="shipments-cap-upgrade-btn" style="width:100%;margin-top:10px;">${t('Upgrade to Pro')}</button>
+      </div>
+    ` : ''}
     <div class="stat-grid">
       <button type="button" class="stat-card" id="delivered-stat-card" style="text-align:left;cursor:${delivered.length ? 'pointer' : 'default'};font:inherit;border:1.5px solid var(--line);">
         <div class="slabel">Delivered</div>
@@ -6500,6 +6540,7 @@ function renderShipmentsTab(){
       </button>
     </div>
   `;
+  document.getElementById('shipments-cap-upgrade-btn')?.addEventListener('click', openUpgradeToProPopup);
   if(delivered.length){
     document.getElementById('delivered-stat-card').addEventListener('click', () => openInvoiceListPopup(
       'Delivered Shipments', delivered,
@@ -7360,7 +7401,12 @@ function renderStaffManagement(){
       <h3>${t("Staff Management")}</h3>
       <p class="sub" style="margin-bottom:14px;">${t("You can also add a staff member directly here without waiting for a request. No email is actually sent — a sign-in PIN is generated instantly for you to share with them.")}</p>
       <div id="staff-list"></div>
-      <button class="btn btn-primary" id="open-invite-btn" style="margin-top:10px;">${t("+ Invite Staff Member")}</button>
+      ${(state.settings.planLimitsEnabled && (state.settings.staffUsers||[]).length >= (state.settings.isPro ? 10 : 2)) ? `
+        <div class="note" style="margin-top:10px;">${state.settings.isPro ? t('You\u2019ve reached the 10-staff limit for this boat on the Pro plan.') : t('You\u2019ve reached the 2-staff limit on the Free plan. Upgrade to Pro for up to 10 per boat.')}</div>
+        ${!state.settings.isPro ? `<button class="btn btn-amber" id="staff-section-upgrade-btn" style="width:100%;margin-top:8px;">${t('Upgrade to Pro')}</button>` : ''}
+      ` : `
+        <button class="btn btn-primary" id="open-invite-btn" style="margin-top:10px;">${t("+ Invite Staff Member")}</button>
+      `}
       <div id="invite-modal-wrap"></div>
     </div>
 
@@ -7376,7 +7422,12 @@ function renderStaffManagement(){
       <h3>${t("Manager Access")}</h3>
       <p class="sub" style="margin-bottom:14px;">${t("Give someone full run of this boat \u2014 Dashboard, Trips, Invoices, Reports, and Settings (Staff & Trip Settings only) \u2014 without letting them see or edit your account details or item prices. Only you can add or remove managers.")}</p>
       <div id="manager-list"></div>
-      <button class="btn btn-primary" id="open-manager-invite-btn" style="margin-top:10px;">${t("+ Manager")}</button>
+      ${(state.settings.planLimitsEnabled && !state.settings.isPro) ? `
+        <div class="note" style="margin-top:10px;">${t('Managers require the Pro plan.')}</div>
+        <button class="btn btn-amber" id="manager-section-upgrade-btn" style="width:100%;margin-top:8px;">${t('Upgrade to Pro')}</button>
+      ` : `
+        <button class="btn btn-primary" id="open-manager-invite-btn" style="margin-top:10px;">${t("+ Manager")}</button>
+      `}
       <div id="manager-invite-modal-wrap"></div>
     </div>
 
@@ -7424,24 +7475,31 @@ function renderStaffManagement(){
       let newPin = '';
       let approvedName = '';
       let newUsername = '';
-      await withFreshSettings(async fresh => {
-        const pending = fresh.pendingStaff || [];
-        const target = (state.settings.pendingStaff||[])[idx];
-        if(!target) return;
-        const pos = pending.findIndex(r => r.id === target.id);
-        if(pos > -1) pending.splice(pos,1);
-        const users = fresh.staffUsers || (fresh.staffUsers = []);
-        // Existing users[].pin values are hashed at this point, so they no
-        // longer help avoid collisions -- only PINs generated earlier in
-        // this same screen-open (justSetPins) can be usefully checked here.
-        const usedPins = new Set(Object.values(justSetPins));
-        do { newPin = String(Math.floor(1000 + Math.random()*9000)); } while(usedPins.has(newPin));
-        newUsername = await generateStaffUsername(target.name, users.map(u => u.username).filter(Boolean));
-        const newId = 'staff-'+Date.now();
-        users.push({id:newId, name:target.name, email:target.email, mobile:target.mobile, pin:newPin, username:newUsername, status:'approved'});
-        justSetPins[newId] = newPin;
-        approvedName = target.name;
-      });
+      try{
+        await withFreshSettings(async fresh => {
+          const pending = fresh.pendingStaff || [];
+          const target = (state.settings.pendingStaff||[])[idx];
+          if(!target) return;
+          const pos = pending.findIndex(r => r.id === target.id);
+          if(pos > -1) pending.splice(pos,1);
+          const users = fresh.staffUsers || (fresh.staffUsers = []);
+          // Existing users[].pin values are hashed at this point, so they no
+          // longer help avoid collisions -- only PINs generated earlier in
+          // this same screen-open (justSetPins) can be usefully checked here.
+          const usedPins = new Set(Object.values(justSetPins));
+          do { newPin = String(Math.floor(1000 + Math.random()*9000)); } while(usedPins.has(newPin));
+          newUsername = await generateStaffUsername(target.name, users.map(u => u.username).filter(Boolean));
+          const newId = 'staff-'+Date.now();
+          users.push({id:newId, name:target.name, email:target.email, mobile:target.mobile, pin:newPin, username:newUsername, status:'approved'});
+          justSetPins[newId] = newPin;
+          approvedName = target.name;
+        });
+      }catch(e){
+        console.error('approve staff failed', e);
+        alert(e.message || t('Could not approve this staff member. Try again.'));
+        b.disabled = false;
+        return;
+      }
       renderPendingList();
       renderStaffList();
       if(newPin) openStaffSharePanel(approvedName, newPin, staffUrl, newUsername);
@@ -7519,7 +7577,8 @@ function renderStaffManagement(){
 
   function closeInviteModal(){ document.getElementById('invite-modal-wrap').innerHTML = ''; }
 
-  document.getElementById('open-invite-btn').addEventListener('click', () => {
+  document.getElementById('staff-section-upgrade-btn')?.addEventListener('click', openUpgradeToProPopup);
+  document.getElementById('open-invite-btn')?.addEventListener('click', () => {
     document.getElementById('invite-modal-wrap').innerHTML = `
       <div class="settings-block" style="border:1.5px solid var(--line);border-radius:10px;padding:16px;margin-top:12px;background:#fff;">
         <h3 style="margin-bottom:12px;">${t("Invite Staff Member")}</h3>
@@ -7539,15 +7598,24 @@ function renderStaffManagement(){
       const email = document.getElementById('invite-email').value.trim();
       if(!name || !email){ alert(t('Enter both a name and an email address.')); return; }
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ alert(t('Enter a valid email address.')); return; }
-      let blocked = false, newPin = '', newUsername = '', newId = '';
-      await withFreshSettings(async fresh => {
-        const users = fresh.staffUsers || (fresh.staffUsers = []);
-        const usedPins = new Set(Object.values(justSetPins));
-        do { newPin = String(Math.floor(1000 + Math.random()*9000)); } while(usedPins.has(newPin));
-        newUsername = await generateStaffUsername(name, users.map(u => u.username).filter(Boolean));
-        newId = 'staff-'+Date.now();
-        users.push({id:newId, name, email, pin:newPin, username:newUsername, status:'approved'});
-      });
+      const createBtn = document.getElementById('invite-create-btn');
+      createBtn.disabled = true;
+      let newPin = '', newUsername = '', newId = '';
+      try{
+        await withFreshSettings(async fresh => {
+          const users = fresh.staffUsers || (fresh.staffUsers = []);
+          const usedPins = new Set(Object.values(justSetPins));
+          do { newPin = String(Math.floor(1000 + Math.random()*9000)); } while(usedPins.has(newPin));
+          newUsername = await generateStaffUsername(name, users.map(u => u.username).filter(Boolean));
+          newId = 'staff-'+Date.now();
+          users.push({id:newId, name, email, pin:newPin, username:newUsername, status:'approved'});
+        });
+      }catch(e){
+        console.error('invite staff failed', e);
+        alert(e.message || t('Could not add this staff member. Try again.'));
+        createBtn.disabled = false;
+        return;
+      }
       justSetPins[newId] = newPin;
       closeInviteModal();
       renderStaffList();
@@ -7619,7 +7687,8 @@ function renderStaffManagement(){
 
     function closeManagerInviteModal(){ document.getElementById('manager-invite-modal-wrap').innerHTML = ''; }
 
-    document.getElementById('open-manager-invite-btn').addEventListener('click', () => {
+    document.getElementById('manager-section-upgrade-btn')?.addEventListener('click', openUpgradeToProPopup);
+    document.getElementById('open-manager-invite-btn')?.addEventListener('click', () => {
       document.getElementById('manager-invite-modal-wrap').innerHTML = `
         <div class="settings-block" style="border:1.5px solid var(--line);border-radius:10px;padding:16px;margin-top:12px;background:#fff;">
           <h3 style="margin-bottom:12px;">${t("Add Manager")}</h3>
@@ -7640,16 +7709,25 @@ function renderStaffManagement(){
         const mobile = document.getElementById('manager-invite-mobile').value.trim();
         if(!name){ alert('Enter the manager\u2019s name.'); return; }
         if(!checkManagerMobile()) return;
+        const createBtn = document.getElementById('manager-invite-create-btn');
+        createBtn.disabled = true;
         let newPin = '', newUsername = '', newId = '';
-        await withFreshSettings(async fresh => {
-          const managers = fresh.managerUsers || (fresh.managerUsers = []);
-          const usedPins = new Set(Object.values(justSetPins));
-          do { newPin = String(Math.floor(1000 + Math.random()*9000)); } while(usedPins.has(newPin));
-          const allUsernames = managers.map(u => u.username).concat((fresh.staffUsers||[]).map(u => u.username)).filter(Boolean);
-          newUsername = await generateStaffUsername(name, allUsernames);
-          newId = 'manager-'+Date.now();
-          managers.push({id:newId, name, mobile, pin:newPin, username:newUsername});
-        });
+        try{
+          await withFreshSettings(async fresh => {
+            const managers = fresh.managerUsers || (fresh.managerUsers = []);
+            const usedPins = new Set(Object.values(justSetPins));
+            do { newPin = String(Math.floor(1000 + Math.random()*9000)); } while(usedPins.has(newPin));
+            const allUsernames = managers.map(u => u.username).concat((fresh.staffUsers||[]).map(u => u.username)).filter(Boolean);
+            newUsername = await generateStaffUsername(name, allUsernames);
+            newId = 'manager-'+Date.now();
+            managers.push({id:newId, name, mobile, pin:newPin, username:newUsername});
+          });
+        }catch(e){
+          console.error('add manager failed', e);
+          alert(e.message || t('Could not add this manager. Try again.'));
+          createBtn.disabled = false;
+          return;
+        }
         justSetPins[newId] = newPin;
         closeManagerInviteModal();
         renderManagerList();
@@ -9223,12 +9301,16 @@ async function renderAdminSettingsPopupBody(){
     <button class="btn btn-primary" id="as-credentials-save-btn" style="width:100%;margin-top:8px;">Save Credentials</button>
     <div id="as-credentials-status" class="tag-meta" style="margin-top:6px;"></div>
 
-    <div class="tag-label" style="margin:16px 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">Bank Account (shown to owners in the Pro payment popup)</div>
-    <label>Account Name</label>
+    <div class="tag-label" style="margin:16px 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">Bank Accounts (shown to owners in the Pro payment popup)</div>
+    <label>BML Account Name</label>
     <input type="text" id="as-bank-name" value="${escapeHtml(settings.bankAccountName || '')}">
-    <label style="margin-top:6px;">Account Number</label>
+    <label style="margin-top:6px;">BML Account Number</label>
     <input type="text" id="as-bank-number" value="${escapeHtml(settings.bankAccountNumber || '')}">
-    <button class="btn btn-primary" id="as-bank-save-btn" style="width:100%;margin-top:8px;">Save Bank Account</button>
+    <label style="margin-top:10px;">MIB Account Name</label>
+    <input type="text" id="as-mib-name" value="${escapeHtml(settings.mibAccountName || '')}">
+    <label style="margin-top:6px;">MIB Account Number</label>
+    <input type="text" id="as-mib-number" value="${escapeHtml(settings.mibAccountNumber || '')}">
+    <button class="btn btn-primary" id="as-bank-save-btn" style="width:100%;margin-top:8px;">Save Bank Accounts</button>
     <div id="as-bank-status" class="tag-meta" style="margin-top:6px;"></div>
 
     <div class="tag-label" style="margin:16px 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;">Notify Me About</div>
@@ -9270,9 +9352,11 @@ async function renderAdminSettingsPopupBody(){
     const statusEl = document.getElementById('as-bank-status');
     const bankAccountName = document.getElementById('as-bank-name').value.trim();
     const bankAccountNumber = document.getElementById('as-bank-number').value.trim();
+    const mibAccountName = document.getElementById('as-mib-name').value.trim();
+    const mibAccountNumber = document.getElementById('as-mib-number').value.trim();
     statusEl.textContent = 'Saving\u2026';
     try{
-      const data = await adminFetch('/api/admin/settings/bank', { method:'POST', body:{ bankAccountName, bankAccountNumber } });
+      const data = await adminFetch('/api/admin/settings/bank', { method:'POST', body:{ bankAccountName, bankAccountNumber, mibAccountName, mibAccountNumber } });
       if(!data.ok) throw new Error(data.error || 'Could not save.');
       statusEl.textContent = 'Saved.';
     }catch(e){
@@ -9384,7 +9468,11 @@ function renderAdminTabBody(){
       // Compact list -- tap an organization to open its details in a
       // popup (contact info, authenticator secret, Pro status, boats,
       // suspend/delete), rather than swapping this list out in place.
-      body.innerHTML = orgs.length === 0 ? `<div class="empty">${t("No organizations yet. This phase only manages data — owner self-signup comes in a later phase.")}</div>` : orgs.map(o => `
+      // Split into Pro / Free sections so the admin can see at a glance
+      // which organizations are actually paying, rather than scanning a
+      // single mixed list for the Pro badge on each card.
+      const isCurrentlyPro = (o) => o.is_pro && (!o.pro_expires_at || new Date(o.pro_expires_at).getTime() > Date.now());
+      const orgCardHtml = (o) => `
         <button type="button" class="settings-block" data-open-org="${o.id}" style="display:block;width:100%;text-align:left;cursor:pointer;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
             <div>
@@ -9394,11 +9482,23 @@ function renderAdminTabBody(){
             <span class="status-pill ${o.status==='suspended'?'status-in_transit':'status-delivered'}">${escapeHtml(o.status)}</span>
           </div>
           ${o.priorDeletion ? `<div class="status-pill" style="background:var(--amber);color:#3a2600;margin-bottom:8px;display:inline-block;">\u26a0 Previously deleted \u2014 tap for details</div>` : ''}
-          ${o.is_pro && (!o.pro_expires_at || new Date(o.pro_expires_at).getTime() > Date.now()) ? `<div class="status-pill status-delivered" style="margin-bottom:8px;display:inline-block;">Pro until ${escapeHtml(fmtDMY((o.pro_expires_at||'').slice(0,10)))}</div>` : ''}
+          ${isCurrentlyPro(o) ? `<div class="status-pill status-delivered" style="margin-bottom:8px;display:inline-block;">Pro until ${escapeHtml(fmtDMY((o.pro_expires_at||'').slice(0,10)))}</div>` : ''}
           <div class="tag-label" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;margin-bottom:4px;">Boats (${(o.boats||[]).length})</div>
           ${(o.boats||[]).length ? (o.boats||[]).map(b => `<div class="tag-meta" style="margin-bottom:2px;">\u2022 ${escapeHtml(b.name)}${b.is_primary?' (primary)':''} \u2014 ${escapeHtml(b.status)}</div>`).join('') : '<div class="tag-meta">${t("No boats yet.")}</div>'}
         </button>
-      `).join('');
+      `;
+      const sectionHtml = (label, list) => list.length ? `
+        <div class="tag-label" style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;margin:14px 0 6px;">${escapeHtml(label)} (${list.length})</div>
+        ${list.map(orgCardHtml).join('')}
+      ` : '';
+
+      if(orgs.length === 0){
+        body.innerHTML = `<div class="empty">${t("No organizations yet. This phase only manages data — owner self-signup comes in a later phase.")}</div>`;
+      } else {
+        const proOrgs = orgs.filter(isCurrentlyPro);
+        const freeOrgs = orgs.filter(o => !isCurrentlyPro(o));
+        body.innerHTML = sectionHtml('Pro', proOrgs) + sectionHtml('Free', freeOrgs);
+      }
 
       body.querySelectorAll('[data-open-org]').forEach(btn => btn.addEventListener('click', () => {
         openAdminOrgPopup(btn.dataset.openOrg);
@@ -9600,9 +9700,74 @@ function renderAdminTabBody(){
 /* ---------------- Owner signup / org login (Phase 2) ---------------- */
 function renderOrgArea(){
   hideNormalShell();
-  if(state.orgAuthed){ renderOrgDashboard(); return; }
+  if(state.orgAuthed){
+    if(state.showPlanChoice){ renderChoosePlanScreen(); return; }
+    renderOrgDashboard();
+    return;
+  }
   if(state.orgScreen === 'signup') renderSignupForm();
   else renderOrgLogin();
+}
+
+// Shown exactly once, right after a brand-new signup completes and before
+// the org dashboard -- lets the owner see the Free vs Pro tiers side by
+// side and either continue on Free (no action needed, the account is
+// already created that way) or go straight into the existing Upgrade to
+// Pro payment flow. Never shown again after this first pass (see the
+// choose-plan-free-btn/choose-plan-pro-btn handlers below, both of which
+// clear state.showPlanChoice), and never shown at all for org logins --
+// only immediately after POST /api/signup succeeds sets this flag.
+function renderChoosePlanScreen(){
+  const area = document.getElementById('gate-area');
+  const planCard = (opts) => `
+    <div class="settings-block" style="flex:1;min-width:230px;${opts.highlight ? 'border:2px solid var(--amber);' : ''}">
+      <h3 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${escapeHtml(opts.title)}${opts.priceLabel ? `<span class="status-pill status-delivered" style="font-size:10px;">${escapeHtml(opts.priceLabel)}</span>` : ''}</h3>
+      <ul style="margin:10px 0 16px;padding-left:18px;font-size:13px;line-height:1.85;color:var(--ink-soft);">
+        ${opts.points.map(p => `<li>${escapeHtml(p)}</li>`).join('')}
+      </ul>
+      <button class="btn ${opts.highlight ? 'btn-amber' : 'btn-ghost'}" id="${opts.btnId}" style="width:100%;">${escapeHtml(opts.btnLabel)}</button>
+    </div>
+  `;
+  area.innerHTML = `
+    <div style="max-width:660px;margin:0 auto;padding:20px 16px 60px;">
+      <div class="panel">
+        <h2 style="margin-bottom:4px;">${t('Choose a Plan')}</h2>
+        <p class="sub" style="margin-bottom:18px;">${t('You can upgrade to Pro anytime later from Settings.')}</p>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;">
+          ${planCard({
+            title: t('Free'), priceLabel: '', highlight: false,
+            points: [
+              t('1 boat'),
+              t('Up to 500 shipments total'),
+              t('Up to 2 staff'),
+              t('No managers'),
+            ],
+            btnId: 'choose-plan-free-btn', btnLabel: t('Continue with Free'),
+          })}
+          ${planCard({
+            title: t('Pro'), priceLabel: `\u0783500/${t('mo')}`, highlight: true,
+            points: [
+              t('Add and manage up to 15 boats'),
+              t('Make unlimited shipments'),
+              t('Add up to 10 staff per boat'),
+              t('Add up to 2 managers per boat'),
+              t('Dhivehi language switch'),
+            ],
+            btnId: 'choose-plan-pro-btn', btnLabel: t('Continue with Pro'),
+          })}
+        </div>
+      </div>
+    </div>
+  `;
+  document.getElementById('choose-plan-free-btn').addEventListener('click', () => {
+    state.showPlanChoice = false;
+    renderOrgArea();
+  });
+  document.getElementById('choose-plan-pro-btn').addEventListener('click', () => {
+    state.showPlanChoice = false;
+    renderOrgArea();
+    openUpgradeToProPopup();
+  });
 }
 
 function orgBackToStart(){
@@ -10051,6 +10216,7 @@ async function submitSignup(){
     if(res.ok && data.ok){
       state.orgSignupTotpSecret = data.totpSecret;
       state.orgAuthed = true;
+      state.showPlanChoice = true;
       state.orgPasskey = body.passkey;
       state.orgData = {
         id: data.organizationId, boatName: body.boatName, ownerName: body.ownerName,
@@ -10482,7 +10648,7 @@ function renderOrgDashboard(){
   wireTruncatableLinks(['acct-tracking-link', 'acct-viber-link']);
   document.getElementById('org-logout-btn').addEventListener('click', () => {
     state.orgAuthed = false; state.orgData = null; state.orgBoats = null; state.orgPasskey = '';
-    state.orgSignupTotpSecret = null; state.boatRequestOpen = false; state.orgScreen = 'login';
+    state.orgSignupTotpSecret = null; state.boatRequestOpen = false; state.orgScreen = 'login'; state.showPlanChoice = false;
     state.lang = 'en';
     applyLangDirection();
     applyStaticTranslations();
