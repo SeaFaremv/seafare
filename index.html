@@ -5375,20 +5375,17 @@ function openUpgradeToProPopup(){
   const overlay = document.createElement('div');
   overlay.id = 'upgrade-pro-popup-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2200;display:flex;align-items:center;justify-content:center;padding:20px;';
-  // Reuses the same plan-card visual (crown icon, ribbon, amber border,
-  // checklist) as the Choose-a-Plan screen -- see planCard()/PRO_PLAN_FEATURES
-  // -- just with no button on the card itself, since the actual "how do I
-  // pay" UI (account tabs, Swipe link, etc.) lives right below it in the
-  // same card instead.
-  const card = planCard({
-    title: t('Pro'), priceHtml: `<strong>\u0783500</strong> / ${t('mo')}`, icon: 'crown', highlight: true,
-    points: PRO_PLAN_FEATURES.map(p => t(p)),
-  });
+  // Single card, not the separate plan-summary card from the Choose-a-Plan
+  // screen (see planCard()) -- just this one payment card, reusing its
+  // ".pro" amber-outline treatment and adding the small crown badge on top,
+  // per the actual ask: restyle this card, don't stack a second one above it.
   overlay.innerHTML = `
     <div id="upgrade-pro-popup-panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:420px;margin:0;animation:invoice-pop-in 0.18s ease-out;position:relative;">
-      ${card}
-      <button type="button" class="btn btn-ghost" id="upgrade-pro-popup-close-btn" style="position:absolute;top:22px;right:14px;padding:6px 11px;">\u2715</button>
-      <div class="plan-card" style="margin-top:12px;">
+      <div class="plan-card pro">
+        <button type="button" class="btn btn-ghost" id="upgrade-pro-popup-close-btn" style="position:absolute;top:14px;right:14px;padding:6px 11px;">\u2715</button>
+        <div class="plan-tier-icon pro" style="margin-bottom:14px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS.crown}</svg>
+        </div>
         <p class="sub" style="margin-bottom:16px;">${t('To Upgrade to pro version pay \u0783500 by transfer.')}</p>
         <div class="sub-tabs" id="upgrade-pro-account-tabs">
           <button class="active" data-pro-account-tab="bml">${t('BML Account')}</button>
