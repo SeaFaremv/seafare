@@ -5437,10 +5437,10 @@ async function fetchProBankAccounts(){
 // 500 there too if unset). Only affects the wording shown before the link
 // is created; the actual amount charged always comes from the server.
 const SWIPE_PRO_DISPLAY_AMOUNT = 500;
-// Same idea for the RedotPay "Pay by Card" tab -- must match
+// Same idea for the RedotPay "Pay by Crypto" tab -- must match
 // REDOTPAY_PRO_AMOUNT / REDOTPAY_PRO_CURRENCY on the server (defaults to
-// 5 USD there too if unset).
-const REDOTPAY_PRO_DISPLAY_AMOUNT = 5;
+// 35 USD there too if unset).
+const REDOTPAY_PRO_DISPLAY_AMOUNT = 35;
 const REDOTPAY_PRO_DISPLAY_CURRENCY = 'USD';
 
 // Records that this boat has paid and is waiting on Super Admin to flip
@@ -5530,12 +5530,12 @@ function openUpgradeToProPopup(){
         <div class="plan-tier-icon pro" style="margin-bottom:14px;">
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS.crown}</svg>
         </div>
-        <p class="sub" style="margin-bottom:16px;">${t('To Upgrade to pro version pay \u0783500 by transfer or Swipe, or pay by card.')}</p>
+        <p class="sub" style="margin-bottom:16px;">${t('To Upgrade to pro version pay \u0783500 by transfer or Swipe, or pay by crypto.')}</p>
         <div class="sub-tabs" id="upgrade-pro-account-tabs">
           <button class="active" data-pro-account-tab="bml">${t('BML Account')}</button>
           <button data-pro-account-tab="mib">${t('MIB Account')}</button>
           <button data-pro-account-tab="swipe">${t('Pay by Swipe')}</button>
-          <button data-pro-account-tab="redotpay">${t('Pay by Card')}</button>
+          <button data-pro-account-tab="redotpay">${t('Pay by Crypto')}</button>
         </div>
         <div id="upgrade-pro-account-body"><div class="empty" style="padding:16px 0;">${t('Loading\u2026')}</div></div>
         <div id="upgrade-pro-request-area" style="margin-top:14px;"></div>
@@ -5742,7 +5742,7 @@ async function checkSwipeProPaymentStatus(isAutoPoll){
   }
 }
 
-// "Pay by Card" tab -- same shape as the Swipe tab above (creates a real
+// "Pay by Crypto" tab -- same shape as the Swipe tab above (creates a real
 // payment link server-side, shows it with an Open + status line, and
 // checks status when the person comes back to this tab rather than on a
 // timer), just talking to the RedotPay endpoints instead of Swipe's.
@@ -5774,7 +5774,7 @@ async function renderRedotPayAccountBody(){
     _redotpayProPaymentRef = data.orderSn;
     markProAckPending();
     body.innerHTML = `
-      <div class="note">${t('Tap below to pay')} ${REDOTPAY_PRO_DISPLAY_CURRENCY} ${REDOTPAY_PRO_DISPLAY_AMOUNT} ${t('by card. Pro activates automatically once payment is confirmed \u2014 no need to notify the Super Admin for this option.')}</div>
+      <div class="note">${t('Tap below to pay')} ${REDOTPAY_PRO_DISPLAY_AMOUNT} ${REDOTPAY_PRO_DISPLAY_CURRENCY} ${t('by crypto. Pro activates automatically once payment is confirmed \u2014 no need to notify the Super Admin for this option.')}</div>
       <a href="${escapeHtml(data.paymentUrl)}" target="_blank" rel="noopener" class="btn btn-primary" style="width:100%;margin-top:10px;display:block;text-align:center;text-decoration:none;">${t('Open Payment Link')}</a>
       <button type="button" class="btn btn-ghost" id="redotpay-payment-check-btn" style="width:100%;margin-top:8px;">${t('Check Now')}</button>
       <div id="redotpay-payment-status" class="tag-meta" style="margin-top:8px;">${t('Status')}: ${escapeHtml(data.status || 'PENDING')}</div>
@@ -9273,7 +9273,7 @@ function createAdminBannerStack(){
   return stack;
 }
 function showAdminNotificationBanner(n){
-  const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: '\u2705 Paid via Swipe', pro_paid_via_redotpay: '\u2705 Paid via Card (RedotPay)' };
+  const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: '\u2705 Paid via Swipe', pro_paid_via_redotpay: '\u2705 Paid via Crypto (RedotPay)' };
   const title = typeLabels[n.type] || n.type || 'New notification';
   if(typeof Notification !== 'undefined' && Notification.permission === 'granted'){
     try{
@@ -9859,7 +9859,7 @@ const ADMIN_NOTIFY_TOGGLES = [
   { key: 'notifyBoatRequests', label: 'Additional-boat requests' },
   { key: 'notifyNewBoats', label: 'New boats created' },
   { key: 'notifyProRequests', label: 'Pro upgrade requests (bank transfer)' },
-  { key: 'notifyProPayments', label: 'Pro paid via Card/Swipe' },
+  { key: 'notifyProPayments', label: 'Pro paid via Crypto/Swipe' },
 ];
 function openAdminSettingsPopup(){
   closeAdminSettingsPopup();
@@ -10012,7 +10012,7 @@ function renderAdminDashboard(){
           <button class="${state.adminTab==='requests'?'active':''}" data-admintab="requests">${t("Boat Requests")}</button>
           <button class="${state.adminTab==='blocked'?'active':''}" data-admintab="blocked">${t("Blocked Users")}</button>
           <button class="${state.adminTab==='proRequests'?'active':''}" data-admintab="proRequests">Pro Requests${(state.adminProRequests||[]).length ? ` (${(state.adminProRequests||[]).length})` : ''}</button>
-          <button class="${state.adminTab==='proPayments'?'active':''}" data-admintab="proPayments">Paid via Card/Swipe${(state.adminProPayments||[]).length ? ` (${(state.adminProPayments||[]).length})` : ''}</button>
+          <button class="${state.adminTab==='proPayments'?'active':''}" data-admintab="proPayments">Paid via Crypto/Swipe${(state.adminProPayments||[]).length ? ` (${(state.adminProPayments||[]).length})` : ''}</button>
           <button class="${state.adminTab==='notifications'?'active':''}" data-admintab="notifications">Notifications${(state.adminNotifications||[]).filter(n=>!n.read).length ? ` (${(state.adminNotifications||[]).filter(n=>!n.read).length})` : ''}</button>
         </div>
         ${state.adminTab !== 'notifications' ? `
@@ -10149,7 +10149,7 @@ function renderAdminTabBody(){
             <div>
               <h3 style="margin-bottom:4px;">${escapeHtml(p.owner_name)} \u2014 ${escapeHtml(p.org_boat_name)}</h3>
               <p class="sub" style="margin-bottom:2px;">Paid from boat: ${escapeHtml(p.boat_name)}</p>
-              <p class="tag-meta">${p.completed_at ? fmtDate(p.completed_at) : ''}${p.provider === 'redotpay' ? ' \u2014 via Card (RedotPay)' : ' \u2014 via Swipe'}</p>
+              <p class="tag-meta">${p.completed_at ? fmtDate(p.completed_at) : ''}${p.provider === 'redotpay' ? ' \u2014 via Crypto (RedotPay)' : ' \u2014 via Swipe'}</p>
             </div>
             <span class="status-pill status-delivered">${escapeHtml(p.currency)} ${escapeHtml(String(p.amount))}</span>
           </div>
@@ -10254,7 +10254,7 @@ function renderAdminTabBody(){
       if(!document.getElementById('admin-body')) return;
       const notes = state.adminNotifications || [];
       const unreadCount = notes.filter(n => !n.read).length;
-      const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: '\u2705 Paid via Swipe', pro_paid_via_redotpay: '\u2705 Paid via Card (RedotPay)' };
+      const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: '\u2705 Paid via Swipe', pro_paid_via_redotpay: '\u2705 Paid via Crypto (RedotPay)' };
       body.innerHTML = `
         <button type="button" class="btn btn-ghost" id="admin-enable-push-btn" style="width:100%;margin-bottom:12px;">${state.adminPushSubscribed ? t('\u2713 Push Notifications Enabled \u2014 tap to disable') : t('\ud83d\udd14 Enable Push Notifications on This Device')}</button>
         ${unreadCount ? `<button type="button" class="btn btn-ghost" id="admin-notif-mark-all-btn" style="width:100%;margin-bottom:12px;">Mark all ${unreadCount} as read</button>` : ''}
