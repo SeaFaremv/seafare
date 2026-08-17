@@ -215,17 +215,32 @@
     0%{ transform:translateY(0); opacity:1; }
     100%{ transform:translateY(-16px); opacity:0; }
   }
-  /* Generic auto-dismissing toast (see showToast()) -- centered, no dark
-     overlay behind it since it's a passing confirmation, not something
-     that needs the person's attention before they can do anything else.
-     Same light-blue/teal note styling already used for inline status
-     text elsewhere (e.g. the old persistent "waiting for Super Admin"
-     note), just floated as its own popup instead of living inside
-     another panel. */
+  /* Generic auto-dismissing toast (see showToast()) -- no dark overlay
+     behind it since it's a passing confirmation, not something that
+     needs the person's attention before they can do anything else.
+     Anchored to the BOTTOM of the screen rather than the top -- it used
+     to sit at top:16px, which put it directly on top of the header
+     (logo/brand/clock), fully covering it on phones where the header
+     and the toast occupied almost the same vertical space. Bottom
+     placement can't collide with the header on any screen, regardless
+     of how tall the header ends up being; the fixed clearance below
+     accounts for the mobile bottom tab bar (nav.tabs) so it doesn't
+     collide with THAT instead on screens where it's present, and is
+     just a bit of empty breathing room on screens without one (like the
+     Choose-a-Plan screen this was first reported from). Translucent
+     light-blue rather than a flat/solid fill -- previously used the same
+     solid var(--paper-dark) as the inline .note boxes elsewhere, which
+     reads as plain near-white once it's floating on its own over the
+     navy backdrop instead of sitting inside a white panel; the
+     backdrop-filter blur is what actually sells the "frosted glass
+     notification" look rather than just a flat translucent rectangle. */
   .app-toast{
-    position:fixed;left:50%;top:16px;transform:translate(-50%,-16px);
+    position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));
+    transform:translate(-50%,16px);
     z-index:2500;max-width:420px;width:calc(100% - 32px);
-    background:var(--paper-dark);color:var(--teal);font-weight:600;
+    background:rgba(225,238,251,0.92);
+    backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    color:var(--teal);font-weight:600;
     padding:14px 18px;border-radius:12px;text-align:center;
     box-shadow:0 10px 28px rgba(0,0,0,0.22);
     opacity:0;pointer-events:none;
@@ -590,7 +605,6 @@
   .staff-row-actions{display:flex;align-items:center;gap:8px;}
   .staff-row-actions .btn{flex:1;}
   .staff-row .sname{font-weight:600;color:var(--navy-deep);font-size:calc(14px * var(--en-scale));}
-  .staff-row .spin{font-family:'JetBrains Mono',monospace;font-size:calc(11px * var(--en-scale));color:var(--ink-soft);letter-spacing:0.1em;background:var(--paper);padding:4px 9px;border-radius:6px;white-space:nowrap;}
   .staff-empty{font-size:calc(11px * var(--en-scale));color:var(--ink-soft);padding:8px 2px 12px;}
   .settings-block{margin-bottom:26px;}
   .settings-block h3{font-family:'Oswald',sans-serif;text-transform:uppercase;font-size:calc(13.5px * var(--en-scale));letter-spacing:0.04em;color:var(--navy-deep);margin:0 0 12px;}
@@ -970,7 +984,6 @@
   html[lang="dv"] .tl-date,
   html[lang="dv"] .invoice td.num,
   html[lang="dv"] .invoice th.num,
-  html[lang="dv"] .staff-row .spin,
   html[lang="dv"] .view-field .vf-value,
   html[lang="dv"] .url-box .u,
   html[lang="dv"] .pin-box input,
@@ -5913,29 +5926,9 @@ function openProExpiryWarningPopup(daysLeft){
 }
 
 /* ---------------- Super Admin side of Pro: grant/renew ----------------
-   Reuses the exact same generic per-boat data store apiGet/apiSet already
-   use (GET/PUT /api/data/<boatId>/settings) -- just with an explicit
-   boatId instead of the app's own CURRENT_BOAT_ID, since Super Admin is
-   looking at boats that aren't necessarily the one currently loaded. No
-   new backend endpoint needed for reading/writing Pro status itself.
-   There's no dedicated backend notification for a Pro request either
-   (unlike boat-requests, which the real /api/admin/... endpoints handle)
-   -- so admin "sees" a pending request by opening an organization's
-   detail view, which fetches each of its boats' settings here. */
-async function adminGetBoatSettings(boatId){
-  const res = await fetch(`${API_BASE}/api/data/${boatId}/settings`);
-  if(!res.ok) throw new Error(`Failed to load settings for boat ${boatId}`);
-  const data = await res.json();
-  return (data && data.value) || {};
-}
-async function adminSetBoatSettings(boatId, settings){
-  const res = await fetch(`${API_BASE}/api/data/${boatId}/settings`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value: settings })
-  });
-  if(!res.ok) throw new Error(`Failed to save settings for boat ${boatId}`);
-}
+   Pro lives on the organizations table and is granted/revoked through
+   the dedicated admin endpoints below, not by reading/writing a boat's
+   own settings JSON. */
 // Grants/revokes Pro for the whole organization -- shared by every boat,
 // owner, manager, and staff under it (see the GET /api/data/:boatId/settings
 // merge on the server). These call the dedicated admin endpoints rather
