@@ -30,94 +30,6 @@ const webpush = require('web-push');
 const sql = neon(process.env.DATABASE_URL);
 const app = express();
 
-// ---------------------------------------------------------------------------
-// Encryption at rest for every boat's own operational data -- shipments,
-// customers, rates, trip logs, and settings, stored in app_data.value.
-// AES-256-GCM with a server-only key that's never sent to the client and
-// never logged: someone with raw read access to the database (a Neon
-// console session, a leaked DATABASE_URL, a database backup/export) sees
-// ciphertext, not cargo manifests, customer names and mobile numbers, or
-// financial figures. A fresh random IV on every write, and GCM's built-in
-// auth tag means tampered/corrupted ciphertext fails to decrypt loudly
-// instead of silently returning garbage.
-//
-// ENCRYPTION_KEY must be a 32-byte key, base64-encoded, in the environment
-// (generate with `openssl rand -base64 32`). It is NOT optional in
-// production -- see the startup check below. Losing this key makes every
-// boat's data permanently unreadable; back it up like a password, not a
-// config value, and never commit it or put it in env.example with a real
-// value.
-const ENCRYPTION_KEY_RAW = process.env.ENCRYPTION_KEY || '';
-const ENCRYPTION_KEY = ENCRYPTION_KEY_RAW ? Buffer.from(ENCRYPTION_KEY_RAW, 'base64') : null;
-if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length !== 32) {
-  console.error(
-    'ENCRYPTION_KEY is missing or invalid (must be a base64-encoded 32-byte ' +
-    'key -- generate one with `openssl rand -base64 32`). Every boat\'s ' +
-    'shipment/customer/rates/settings data will be stored and read as ' +
-    'PLAIN TEXT until this is set correctly.'
-  );
-}
-const APP_DATA_ENC_MARKER = 'aes-256-gcm-v1';
-
-// Encrypts a JS value (already-parsed object/array/etc, NOT a JSON string)
-// into the small wrapper object that actually gets stored in the jsonb
-// column. Falls back to storing the value as-is (plain) if ENCRYPTION_KEY
-// isn't configured, so local/dev setups without it still run -- but this
-// path logs loudly above on every server start so it's never silently
-// left unencrypted in production.
-function encryptAppDataValue(value) {
-  if (!ENCRYPTION_KEY) return value;
-  const plaintext = Buffer.from(JSON.stringify(value === undefined ? null : value), 'utf8');
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
-  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return {
-    __enc: APP_DATA_ENC_MARKER,
-    iv: iv.toString('base64'),
-    tag: tag.toString('base64'),
-    ct: ciphertext.toString('base64'),
-  };
-}
-
-// Reverses encryptAppDataValue. Passing through non-encrypted values
-// unchanged means older rows written before ENCRYPTION_KEY was configured
-// keep working (read as whatever plain JSON they already were) rather than
-// throwing -- new writes to that same row will pick up encryption from
-// then on. Returns null for a missing row (mirrors the old `rows[0].value`
-// shape callers already expect).
-function decryptAppDataValue(value) {
-  if (value === null || value === undefined) return value;
-  if (typeof value !== 'object' || value.__enc !== APP_DATA_ENC_MARKER) return value;
-  if (!ENCRYPTION_KEY) {
-    throw new Error('This data is encrypted but ENCRYPTION_KEY is not set -- cannot read it.');
-  }
-  const iv = Buffer.from(value.iv, 'base64');
-  const tag = Buffer.from(value.tag, 'base64');
-  const ciphertext = Buffer.from(value.ct, 'base64');
-  const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, iv);
-  decipher.setAuthTag(tag);
-  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  return JSON.parse(plaintext.toString('utf8'));
-}
-
-// Small helpers so every read/write call site looks the same and nobody
-// has to remember to wrap encrypt/decrypt by hand -- see every app_data
-// SELECT/INSERT/UPDATE below, all of which go through these two.
-async function getAppData(boatId, key) {
-  const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boatId} AND key = ${key}`;
-  return rows.length ? decryptAppDataValue(rows[0].value) : null;
-}
-async function putAppData(boatId, key, value) {
-  const stored = encryptAppDataValue(value);
-  await sql`
-    INSERT INTO app_data (boat_id, key, value, updated_at)
-    VALUES (${boatId}, ${key}, ${JSON.stringify(stored)}::jsonb, now())
-    ON CONFLICT (boat_id, key) DO UPDATE SET value = ${JSON.stringify(stored)}::jsonb, updated_at = now()
-  `;
-}
-
-
 // Every response here is JSON text -- shipment lists, settings, invoices --
 // which gzip compresses extremely well (typically 60-80% smaller on the
 // wire). This was previously being sent completely uncompressed. This
@@ -221,24 +133,31 @@ app.get('/api/data/:boatId/:key', async (req, res) => {
     }
     // Routine polling only needs to know whether anything changed, not the
     // embedded photo on every shipment -- and shipments can carry a lot of
-    // those. This used to strip the 'photo' field *inside* the SQL query so
-    // Postgres never had to send that data out of the database at all.
-    // Now that app_data.value is encrypted at rest, Postgres can no longer
-    // see into the JSON to strip a field from it -- the ciphertext has to
-    // come across, get decrypted here, and get stripped in Node instead.
-    // That does mean routine polling now counts more heavily against
-    // Neon's free-tier data transfer quota than before on boats with a lot
-    // of photographed shipments -- worth watching if that quota gets
-    // tight; see README.
+    // those. Stripping the 'photo' field *inside* the query (rather than
+    // fetching everything and trimming it before responding) means Neon
+    // never has to transfer that data out of the database at all, which is
+    // what actually counts against the data transfer quota -- not just
+    // what reaches the browser. Writes, the initial full load, and photo
+    // viewing/downloading all still go through the normal path below,
+    // completely unaffected.
     if (key === 'shipments' && req.query.photos === 'exclude') {
-      const value = await getAppData(boatId, key);
-      const stripped = Array.isArray(value) ? value.map(s => { const { photo, ...rest } = s || {}; return rest; }) : value;
-      return res.json({ value: stripped });
+      const rows = await sql`
+        SELECT
+          CASE WHEN jsonb_typeof(value) = 'array' THEN COALESCE(
+            (SELECT jsonb_agg(elem - 'photo' ORDER BY ord)
+             FROM jsonb_array_elements(value) WITH ORDINALITY AS t(elem, ord)),
+            '[]'::jsonb
+          ) ELSE value END AS value
+        FROM app_data
+        WHERE boat_id = ${boatId} AND key = ${key}
+      `;
+      return res.json({ value: rows.length ? rows[0].value : null });
     }
-    let value = await getAppData(boatId, key);
+    const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boatId} AND key = ${key}`;
+    let value = rows.length ? rows[0].value : null;
     if (key === 'settings') {
       const orgRows = await sql`
-        SELECT o.is_pro, o.pro_started_at, o.pro_expires_at FROM boats b
+        SELECT o.is_pro, o.pro_started_at, o.pro_expires_at, o.plan_limits_enabled FROM boats b
         JOIN organizations o ON o.id = b.organization_id
         WHERE b.id = ${boatId}
       `;
@@ -247,7 +166,12 @@ app.get('/api/data/:boatId/:key', async (req, res) => {
         value.isPro = orgRows[0].is_pro;
         value.proStartedAt = orgRows[0].pro_started_at;
         value.proExpiresAt = orgRows[0].pro_expires_at;
+        value.planLimitsEnabled = orgRows[0].plan_limits_enabled;
       }
+      value = sanitizeSettingsForClient(value, boatId);
+    }
+    if (key === 'shipments' && Array.isArray(value)) {
+      value = value.map(s => (s && s.photo) ? { ...s, photo: decryptField(s.photo, boatId) } : s);
     }
     res.json({ value });
   } catch (e) {
@@ -265,11 +189,128 @@ app.put('/api/data/:boatId/:key', async (req, res) => {
     const boatRows = await sql`SELECT id, status, suspension_note FROM boats WHERE id = ${boatId}`;
     if (boatRows.length === 0) return res.status(404).json({ error: 'unknown boat' });
     if (boatRows[0].status === 'suspended') return res.status(403).json({ error: 'This boat has been suspended.', note: boatRows[0].suspension_note || null });
-    await putAppData(boatId, key, value);
+    let storedValue = value;
+    if (key === 'settings' && storedValue && typeof storedValue === 'object') {
+      // Free/Pro plan caps (staff and manager counts per boat) -- only
+      // for organizations created after this feature shipped
+      // (plan_limits_enabled); every organization that existed before
+      // that stays grandfathered in as unlimited, same as everywhere
+      // else this feature touches. Checked here rather than in a
+      // dedicated "invite staff" endpoint because staff/manager lists
+      // are edited as part of the whole settings object, not through
+      // their own endpoint.
+      const staffCount = Array.isArray(storedValue.staffUsers) ? storedValue.staffUsers.length : 0;
+      const managerCount = Array.isArray(storedValue.managerUsers) ? storedValue.managerUsers.length : 0;
+      if(staffCount > 0 || managerCount > 0){
+        const planRows = await sql`
+          SELECT o.plan_limits_enabled, o.is_pro FROM boats b JOIN organizations o ON o.id = b.organization_id WHERE b.id = ${boatId}
+        `;
+        const plan = planRows[0];
+        if(plan && plan.plan_limits_enabled){
+          const staffCap = plan.is_pro ? 10 : 2;
+          const managerCap = plan.is_pro ? 2 : 0;
+          if(staffCount > staffCap){
+            return res.status(400).json({ error: `Your plan allows up to ${staffCap} staff per boat.` });
+          }
+          if(managerCount > managerCap){
+            return res.status(400).json({ error: managerCap === 0 ? 'Managers require the Pro plan.' : `Your plan allows up to ${managerCap} managers per boat.` });
+          }
+        }
+      }
+      storedValue = hashRawPinsInSettings({ ...storedValue });
+      if (storedValue.bankAccountName) storedValue.bankAccountName = encryptField(storedValue.bankAccountName, boatId);
+      if (storedValue.bankAccountNumber) storedValue.bankAccountNumber = encryptField(storedValue.bankAccountNumber, boatId);
+    }
+    if (key === 'shipments' && Array.isArray(storedValue)) {
+      storedValue = storedValue.map(s => (s && s.photo) ? { ...s, photo: encryptField(s.photo, boatId) } : s);
+    }
+    await sql`
+      INSERT INTO app_data (boat_id, key, value, updated_at)
+      VALUES (${boatId}, ${key}, ${JSON.stringify(storedValue)}::jsonb, now())
+      ON CONFLICT (boat_id, key) DO UPDATE SET value = ${JSON.stringify(storedValue)}::jsonb, updated_at = now()
+    `;
+    // Respond with what the client actually sent (pre-hash/pre-encrypt) --
+    // it already has the plaintext it just submitted, no need to make it
+    // wait for a round trip through sanitizeSettingsForClient just to get
+    // back the same thing it already has in memory.
     res.json({ value });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'db error' });
+  }
+});
+
+// Staff/Manager PIN sign-in -- PINs are hashed at rest (see
+// hashRawPinsInSettings above) and never sent to the client, so matching
+// an entered PIN against a boat's staff/manager list has to happen here
+// instead of in the browser. Returns just enough for the client to start a
+// session (name/username) -- never the PIN or its hash.
+app.post('/api/staff-login/:boatId', async (req, res) => {
+  const { boatId } = req.params;
+  const entered = (req.body && req.body.pin) || '';
+  if (!entered) return res.status(400).json({ ok: false, error: 'PIN is required.' });
+  try {
+    const boatRows = await sql`SELECT status, suspension_note FROM boats WHERE id = ${boatId}`;
+    if (!boatRows.length) return res.status(404).json({ ok: false, error: 'Unknown boat.' });
+    if (boatRows[0].status === 'suspended') return res.status(403).json({ ok: false, error: 'This boat has been suspended.', note: boatRows[0].suspension_note || null });
+    const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boatId} AND key = 'settings'`;
+    const settings = rows.length ? rows[0].value : {};
+    const users = settings.staffUsers || [];
+    const match = users.find(u => u.pin && verifySecret(entered, u.pin));
+    if (match) return res.json({ ok: true, name: match.name || null, username: match.username || null });
+    // Legacy fallback: a single shared staff PIN, only while no named staff
+    // accounts exist yet -- same rule the old client-side check used.
+    if (users.length === 0 && settings.staffPin && verifySecret(entered, settings.staffPin)) {
+      return res.json({ ok: true, name: null, username: null });
+    }
+    res.status(401).json({ ok: false, error: 'Incorrect PIN. Try again.' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: 'db error' });
+  }
+});
+
+// Owner PIN sign-in for a specific boat (#owner/<boatId> direct links) --
+// distinct from /api/org-login, which uses the organization-wide
+// boatName+passkey. Same hashed-at-rest, verified-server-side pattern as
+// staff/manager above.
+app.post('/api/owner-pin-login/:boatId', async (req, res) => {
+  const { boatId } = req.params;
+  const entered = (req.body && req.body.pin) || '';
+  if (!entered) return res.status(400).json({ ok: false, error: 'PIN is required.' });
+  try {
+    const boatRows = await sql`SELECT status, suspension_note FROM boats WHERE id = ${boatId}`;
+    if (!boatRows.length) return res.status(404).json({ ok: false, error: 'Unknown boat.' });
+    if (boatRows[0].status === 'suspended') return res.status(403).json({ ok: false, error: 'This boat has been suspended.', note: boatRows[0].suspension_note || null });
+    const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boatId} AND key = 'settings'`;
+    const settings = rows.length ? rows[0].value : {};
+    if (settings.ownerPin && verifySecret(entered, settings.ownerPin)) {
+      return res.json({ ok: true });
+    }
+    res.status(401).json({ ok: false, error: 'Incorrect PIN. Try again.' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: 'db error' });
+  }
+});
+
+app.post('/api/manager-login/:boatId', async (req, res) => {
+  const { boatId } = req.params;
+  const entered = (req.body && req.body.pin) || '';
+  if (!entered) return res.status(400).json({ ok: false, error: 'PIN is required.' });
+  try {
+    const boatRows = await sql`SELECT status, suspension_note FROM boats WHERE id = ${boatId}`;
+    if (!boatRows.length) return res.status(404).json({ ok: false, error: 'Unknown boat.' });
+    if (boatRows[0].status === 'suspended') return res.status(403).json({ ok: false, error: 'This boat has been suspended.', note: boatRows[0].suspension_note || null });
+    const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boatId} AND key = 'settings'`;
+    const settings = rows.length ? rows[0].value : {};
+    const users = settings.managerUsers || [];
+    const match = users.find(u => u.pin && verifySecret(entered, u.pin));
+    if (match) return res.json({ ok: true, name: match.name || null, username: match.username || null });
+    res.status(401).json({ ok: false, error: 'Incorrect PIN. Try again.' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: 'db error' });
   }
 });
 
@@ -608,54 +649,56 @@ app.post('/api/webhooks/swipe', async (req, res) => {
   }
 });
 
-// --- RedotPay Connect payment integration (Pro upgrade) ---------------------
-// Second automatic Pro-payment option alongside Swipe above -- same idea
-// (create a payment order, redirect the owner to a hosted checkout page,
-// grant Pro automatically once RedotPay confirms payment via webhook), a
-// separate provider. RedotPay Connect is primarily a stablecoin/crypto
-// acquirer that settles to you in USD -- see their docs before assuming
-// this gives you traditional Visa/Mastercard acceptance:
-// https://redotpay.readme.io/docs/welcome-to-redotpay-connect
+// --- RedotPay card payment integration (Pro upgrade) ------------------------
+// A second, independent "Pay by Card" option alongside Swipe -- same
+// pro_payments table, same overall shape (create a link, poll/webhook,
+// grant Pro on completion), but RedotPay's own API instead of Swipe's:
+// RSA-signed requests instead of an OAuth bearer token, and an order
+// serial number (orderSn) instead of a Swipe payment id. Rows from this
+// provider are distinguished by pro_payments.provider = 'redotpay' and use
+// the redotpay_order_sn column as their correlation key (swipe_payment_id
+// stays NULL on these rows).
 //
-// Setup (from your RedotPay Connect merchant dashboard):
-// REDOTPAY_MERCHANT_APP_KEY: your merchant appKey (sent as the X-R-Ak header).
-// REDOTPAY_PRIVATE_KEY: YOUR OWN RSA private key (PEM, 2048-bit+) -- generate
-//   with `openssl genrsa -out private_key.pem 2048`, upload the matching
-//   PUBLIC key to the RedotPay dashboard, and put the PRIVATE key here.
-//   Every API request is signed with this. Never commit it or share it.
-// REDOTPAY_ENV: 'production' or 'sandbox' (default) -- selects both the API
-//   base URL and which of RedotPay's own public keys is used to verify
-//   webhook signatures (sandbox and production keys are different and NOT
-//   interchangeable -- see redotpay.readme.io's signature guide).
-// REDOTPAY_KEY_VERSION: natural number, matches whatever key version you
-//   uploaded your public key as on RedotPay's dashboard (defaults to 1).
-// REDOTPAY_PRO_AMOUNT / REDOTPAY_PRO_CURRENCY: what a 30-day Pro period
-//   costs via this path (defaults 500 USD -- almost certainly NOT what you
-//   want left as-is; RedotPay settles in USD, unlike the ރ500 MVR shown in
-//   the manual bank-transfer tabs and used for Swipe, so this is
-//   deliberately a separate amount/currency pair, not reused from
-//   SWIPE_PRO_AMOUNT).
-const REDOTPAY_MERCHANT_APP_KEY = process.env.REDOTPAY_MERCHANT_APP_KEY;
-const REDOTPAY_PRIVATE_KEY = process.env.REDOTPAY_PRIVATE_KEY;
-const REDOTPAY_ENV = process.env.REDOTPAY_ENV === 'production' ? 'production' : 'sandbox';
+// REDOTPAY_APP_KEY: from the RedotPay Connect merchant platform's
+// Developer settings (the "appKey" shown after uploading your RSA public
+// key there).
+// REDOTPAY_PRIVATE_KEY: the PEM private key half of that same RSA pair
+// (paste the whole "-----BEGIN PRIVATE KEY-----...-----END PRIVATE
+// KEY-----" block, or a single-line value with literal \n's -- both are
+// handled below). Never upload this anywhere; only the public key goes to
+// RedotPay.
+// REDOTPAY_KEY_VERSION: the "X-R-Key-Version" of that key pair on
+// RedotPay's side (defaults to 1 -- only changes after a key rotation).
+// REDOTPAY_ENV: 'production' (default) or 'sandbox' -- selects which of
+// RedotPay's two API hosts to use.
+// REDOTPAY_WEBHOOK_KEY_VERSION is NOT a separate setting -- webhooks carry
+// their own X-R-Key-Version header, matched against RedotPay's published
+// platform public keys below (selected by REDOTPAY_ENV).
+// REDOTPAY_PRO_AMOUNT / REDOTPAY_PRO_CURRENCY: the fiat amount+currency
+// charged for a 30-day Pro period via this path. Unlike Swipe (MVR),
+// RedotPay settles in a small set of fiat currencies, so this defaults to
+// 5 USD rather than trying to reuse the ރ500 Swipe/bank-transfer figure --
+// set REDOTPAY_PRO_AMOUNT/REDOTPAY_PRO_CURRENCY to whatever your RedotPay
+// merchant account actually supports.
+const REDOTPAY_APP_KEY = process.env.REDOTPAY_APP_KEY;
+const REDOTPAY_PRIVATE_KEY = process.env.REDOTPAY_PRIVATE_KEY
+  ? process.env.REDOTPAY_PRIVATE_KEY.includes('BEGIN PRIVATE KEY')
+    ? process.env.REDOTPAY_PRIVATE_KEY.replace(/\\n/g, '\n')
+    : `-----BEGIN PRIVATE KEY-----\n${process.env.REDOTPAY_PRIVATE_KEY.replace(/\\n/g, '\n')}\n-----END PRIVATE KEY-----\n`
+  : null;
 const REDOTPAY_KEY_VERSION = process.env.REDOTPAY_KEY_VERSION || '1';
-// Sandbox base URL is confirmed directly from RedotPay's own API reference
-// pages. The production base URL is NOT independently confirmed here (their
-// docs pages don't show it in the same place) -- it's inferred by dropping
-// "sandbox" from the sandbox host, which is a common convention but not
-// verified. CONFIRM THIS against the credentials/URL RedotPay actually
-// gives you before relying on it in production; override directly with
-// REDOTPAY_BASE_URL if it's different.
-const REDOTPAY_BASE_URL = process.env.REDOTPAY_BASE_URL || (
-  REDOTPAY_ENV === 'production' ? 'https://acquirer.rp-2023app.com' : 'https://acquirersandbox.rp-2023app.com'
-);
-const REDOTPAY_PRO_AMOUNT = Number(process.env.REDOTPAY_PRO_AMOUNT) || 500;
+const REDOTPAY_BASE_URL = process.env.REDOTPAY_ENV === 'sandbox'
+  ? 'https://acquirersandbox.rp-2023app.com'
+  : 'https://acquirer.redotpay.com';
+const REDOTPAY_PRO_AMOUNT = Number(process.env.REDOTPAY_PRO_AMOUNT) || 5;
 const REDOTPAY_PRO_CURRENCY = process.env.REDOTPAY_PRO_CURRENCY || 'USD';
 
-// RedotPay's own public keys, used to verify the X-R-Signature header on
-// incoming webhooks -- copied verbatim from RedotPay's Request Signature
-// and Verification Guide (redotpay.readme.io). Selected by environment;
-// do NOT cross the sandbox key with production traffic or vice versa.
+// RedotPay's own published platform public keys, used to verify the
+// X-R-Signature header on incoming webhooks -- these are fixed per RedotPay's
+// docs (one pair per environment, keyed by X-R-Key-Version), not something
+// this deployment generates, so they're safe to hardcode here rather than
+// pull from an env var. Selected by REDOTPAY_ENV + the X-R-Key-Version the
+// webhook actually carries.
 const REDOTPAY_PLATFORM_PUBLIC_KEYS = {
   sandbox: {
     '1': `-----BEGIN PUBLIC KEY-----
@@ -680,106 +723,92 @@ lQIDAQAB
 -----END PUBLIC KEY-----`,
   },
 };
+function redotpayEnvName(){ return process.env.REDOTPAY_ENV === 'sandbox' ? 'sandbox' : 'production'; }
 
-// orderStatus in both the webhook payload and the order-detail query:
-// 1=Paying, 2=Success, 3=Payment failed, 4=Payment closed (per RedotPay's
-// webhook docs). Only 2 ever counts as done.
-function isRedotpayOrderDone(orderStatus){
-  return Number(orderStatus) === 2;
+// RedotPay's order status is a small integer (see docs), not a status word
+// like Swipe's -- normalized here to the same canonical strings this app
+// already stores in pro_payments.status ('PENDING' / 'COMPLETED' / 'FAILED'
+// / 'CLOSED') so every other place that reads that column doesn't need to
+// know which provider a row came from.
+function normalizeRedotPayOrderStatus(orderStatus){
+  switch(Number(orderStatus)){
+    case 1: return 'PENDING';
+    case 2: return 'COMPLETED';
+    case 3: return 'FAILED';
+    case 4: return 'CLOSED';
+    default: return 'PENDING';
+  }
 }
 
-// Builds the SHA256withRSA signature RedotPay requires on every signed API
-// request: sign() with PKCS1v15 padding (Node's default for RSA-SHA256) is
-// exactly SHA256withRSA -- same algorithm, same padding, just a different
-// name for it in Java vs Node's crypto module.
-function signRedotpayRequest(httpMethod, httpUri, timestampMs, compactBody){
-  if(!REDOTPAY_PRIVATE_KEY){
-    throw new Error('RedotPay is not configured (REDOTPAY_PRIVATE_KEY missing).');
-  }
-  const stringToSign = `${httpMethod} ${httpUri}\n${REDOTPAY_MERCHANT_APP_KEY}.${timestampMs}.${compactBody}`;
+// Builds the SHA256withRSA signature RedotPay requires on every signed
+// request: base64(sign("{METHOD} {uri}\n{appKey}.{ts}.{compactJsonBody}")).
+// Sandbox doesn't actually check this (per RedotPay's docs, signature
+// verification is off there to ease testing), but it's generated the same
+// way regardless so switching REDOTPAY_ENV to production later doesn't
+// silently break.
+function signRedotPayRequest(method, uri, appKey, timestamp, bodyString){
+  const stringToSign = `${method} ${uri}\n${appKey}.${timestamp}.${bodyString}`;
   const signer = crypto.createSign('RSA-SHA256');
   signer.update(stringToSign, 'utf8');
   return signer.sign(REDOTPAY_PRIVATE_KEY).toString('base64');
 }
-
-// RSA signature verification is turned off by RedotPay in Sandbox (per
-// their own docs -- "You can call Sandbox Open APIs without computing a
-// valid sign header"), so this always signs anyway: harmless in Sandbox,
-// required in Production, and means switching REDOTPAY_ENV to 'production'
-// later needs no code change here.
-async function redotpayApiRequest(uri, bodyObj){
-  if(!REDOTPAY_MERCHANT_APP_KEY){
-    throw new Error('RedotPay is not configured (REDOTPAY_MERCHANT_APP_KEY missing).');
+async function redotpayApiRequest(method, path, body){
+  if(!REDOTPAY_APP_KEY) throw new Error('RedotPay is not configured (REDOTPAY_APP_KEY missing).');
+  const bodyString = JSON.stringify(body);
+  const timestamp = String(Date.now());
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-R-Ak': REDOTPAY_APP_KEY,
+    'X-R-Ts': timestamp,
+    'X-R-Key-Version': REDOTPAY_KEY_VERSION,
+  };
+  // Signing is only possible (and only required outside sandbox) once a
+  // private key is configured -- omitted entirely rather than sent empty,
+  // since RedotPay treats a present-but-invalid header differently from a
+  // missing one.
+  if(REDOTPAY_PRIVATE_KEY){
+    headers['X-R-Signature'] = signRedotPayRequest(method, path, REDOTPAY_APP_KEY, timestamp, bodyString);
   }
-  const compactBody = JSON.stringify(bodyObj); // JSON.stringify is already compact (no extra whitespace)
-  const timestampMs = Date.now();
-  const signature = signRedotpayRequest('POST', uri, timestampMs, compactBody);
-  const res = await fetch(`${REDOTPAY_BASE_URL}${uri}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-R-Ts': String(timestampMs),
-      'X-R-Ak': REDOTPAY_MERCHANT_APP_KEY,
-      'X-R-Signature': signature,
-      'X-R-Key-Version': REDOTPAY_KEY_VERSION,
-    },
-    body: compactBody,
-  });
+  const res = await fetch(`${REDOTPAY_BASE_URL}${path}`, { method, headers, body: bodyString });
   const data = await res.json().catch(() => ({}));
-  if(!res.ok){
-    const detail = (data && (data.msg || data.message || data.code)) || `HTTP ${res.status}`;
-    throw new Error(`RedotPay API error: ${detail}`);
+  if(!res.ok || data.code !== 'SUCCESS'){
+    throw new Error(`RedotPay API error: ${(data && data.msg) || `HTTP ${res.status}`}`);
   }
-  return data;
+  return data.data || {};
 }
 
-// RedotPay's create-order response shape isn't pinned down to exact field
-// names in their published docs (unlike the request body, which is fully
-// specified) -- this checks the handful of plausible shapes rather than
-// hardcoding one guess. If none match, it throws with the raw response
-// logged so the mismatch is obvious and quick to fix by checking one real
-// Sandbox response.
-function extractRedotpayOrderFields(data){
-  const root = data && data.data ? data.data : data;
-  const sn = root && (root.sn || root.orderSn || root.preSn);
-  const paymentUrl = root && (root.url || root.payUrl || root.payLink || root.checkoutUrl || root.redirectUrl || root.link);
-  if(!sn || !paymentUrl){
-    console.error('Unrecognized RedotPay create-order response shape:', JSON.stringify(data));
-    throw new Error('RedotPay did not return a recognizable payment SN/link -- check server logs for the raw response.');
-  }
-  return { sn, paymentUrl };
-}
-
-// Verifies X-R-Signature on an incoming webhook per RedotPay's callback
-// rules: string-to-verify is "{appKey}.{timestamp}.{rawBody}" (note: NO
-// http-method/uri, unlike outgoing request signing above), verified with
-// RedotPay's OWN public key (never your private key -- this checks that
-// RedotPay sent it, not that you did). Also rejects anything older than 5
-// minutes, matching the Swipe webhook's replay guard above.
-function verifyRedotpayWebhookSignature(headers, rawBody){
+// Verifies a RedotPay webhook per its signature guide: the signed content
+// is "{appKey}.{X-R-Ts}.{raw body}" (note -- unlike outgoing requests, the
+// callback signature omits the HTTP method/URI), SHA256withRSA-verified
+// against RedotPay's own published platform public key for this
+// environment and the X-R-Key-Version the webhook carries -- never against
+// this deployment's own key pair, which only signs outgoing requests.
+// Also rejects anything older than 5 minutes to guard against replay.
+function verifyRedotPayWebhookSignature(headers, rawBody){
+  if(!REDOTPAY_APP_KEY) return false;
   const timestamp = headers['x-r-ts'];
-  const signatureB64 = headers['x-r-signature'];
+  const signature = headers['x-r-signature'];
   const keyVersion = headers['x-r-key-version'] || '1';
-  if(!timestamp || !signatureB64) return false;
+  if(!timestamp || !signature) return false;
 
-  const ageSeconds = Math.abs(Date.now() / 1000 - Number(timestamp) / 1000);
-  if(!Number.isFinite(ageSeconds) || ageSeconds > 300) return false;
+  const ageMs = Math.abs(Date.now() - Number(timestamp));
+  if(!Number.isFinite(ageMs) || ageMs > 5 * 60 * 1000) return false;
 
-  const publicKeyPem = (REDOTPAY_PLATFORM_PUBLIC_KEYS[REDOTPAY_ENV] || {})[keyVersion];
+  const publicKeyPem = (REDOTPAY_PLATFORM_PUBLIC_KEYS[redotpayEnvName()] || {})[String(keyVersion)];
   if(!publicKeyPem) return false;
 
   try{
-    const stringToVerify = `${REDOTPAY_MERCHANT_APP_KEY}.${timestamp}.${rawBody}`;
+    const stringToVerify = `${REDOTPAY_APP_KEY}.${timestamp}.${rawBody}`;
     const verifier = crypto.createVerify('RSA-SHA256');
     verifier.update(stringToVerify, 'utf8');
-    return verifier.verify(publicKeyPem, Buffer.from(signatureB64, 'base64'));
-  }catch(e){ return false; } // malformed signature/body -- definitely not valid
+    return verifier.verify(publicKeyPem, Buffer.from(signature, 'base64'));
+  }catch(e){ return false; } // malformed signature -- definitely not valid
 }
 
-// Grants Pro for a completed RedotPay payment AND raises an admin
-// notification -- shared by the webhook and the manual "Check Now"
-// fallback, same pattern as grantProForSwipePayment above.
-async function grantProForRedotpayPayment(record){
+// Same grant + admin-notification pairing as grantProForSwipePayment above,
+// just labelled for the "Paid via RedotPay" case so the Super Admin's
+// notification feed and Pro-payments list can tell the two apart.
+async function grantProForRedotPayPayment(record){
   await grantProToBoat(record.boat_id);
   const orgRows = await sql`
     SELECT o.id AS organization_id, o.boat_name AS org_boat_name, o.owner_name FROM boats b
@@ -787,113 +816,113 @@ async function grantProForRedotpayPayment(record){
     WHERE b.id = ${record.boat_id}
   `;
   const orgLabel = orgRows.length ? `${orgRows[0].owner_name} (${orgRows[0].org_boat_name})` : record.boat_id;
-  await notifyAdmin('pro_paid_via_redotpay', `${orgLabel} paid ${record.currency} ${record.amount} via RedotPay \u2014 Pro granted automatically, no approval needed.`, orgRows.length ? { type:'organization', id: orgRows[0].organization_id } : undefined);
+  await notifyAdmin('pro_paid_via_redotpay', `${orgLabel} paid ${record.currency}${record.amount} via card (RedotPay) \u2014 Pro granted automatically, no approval needed.`, orgRows.length ? { type:'organization', id: orgRows[0].organization_id } : undefined);
 }
 
-// Creates a RedotPay Paylink order for this boat's Pro upgrade/renewal.
-// outerOrderSn (our own reference) is what both the manual status check and
-// the webhook use to find their way back to this row -- generated here
-// rather than trusting RedotPay's `sn` alone, since outerOrderSn is always
-// present (we chose it) where a webhook field could in principle be absent
-// or reformatted.
-app.post('/api/pro/redotpay/payment-link', async (req, res) => {
+// Creates a RedotPay card-payment order for this boat's Pro upgrade/renewal.
+// outerOrderSn is this row's own pro_payments id -- RedotPay requires it to
+// be 6-32 chars of letters/numbers/_-|*, which the existing 'pp-<ts>-<rand>'
+// id shape already satisfies, so it doubles as the correlation key the
+// webhook uses to find this row back (see /api/webhooks/redotpay below).
+app.post('/api/pro/redotpay-payment-link', async (req, res) => {
   try{
     const { boatId } = req.body || {};
     if(!boatId) return res.status(400).json({ ok:false, error:'boatId is required.' });
     const boatRows = await sql`SELECT id FROM boats WHERE id = ${boatId}`;
     if(!boatRows.length) return res.status(404).json({ ok:false, error:'Unknown boat.' });
 
-    const outerOrderSn = `seafare-pro-${boatId}-${Date.now()}`;
-    const order = await redotpayApiRequest('/openapi/v2/order/create', {
-      outerOrderSn,
+    const paymentId = 'pp-' + Date.now() + '-' + Math.random().toString(36).slice(2,8);
+    const order = await redotpayApiRequest('POST', '/openapi/v2/order/create', {
+      outerOrderSn: paymentId,
       outerUid: boatId,
       orderAmount: REDOTPAY_PRO_AMOUNT,
       orderCurrency: REDOTPAY_PRO_CURRENCY,
       env: 'WEB',
       orderDesc: `SeaFare Pro upgrade -- boat ${boatId}`,
-      merchantName: 'SeaFare',
-      redirectUrl: APP_URL ? `${APP_URL}/#org` : undefined,
       goods: [{
-        goodsType: '02', // virtual goods -- this is a subscription upgrade, nothing shipped
-        goodsCategory: 'Z000', // Others
+        goodsType: '02',
+        goodsCategory: 'Z000',
         goodsCode: 'SEAFARE-PRO-30D',
-        goodsName: 'SeaFare Pro Upgrade (30 days)',
+        goodsName: 'SeaFare Pro (30 days)',
         goodsCount: 1,
         goodsAmount: REDOTPAY_PRO_AMOUNT,
         goodsCoin: REDOTPAY_PRO_CURRENCY,
       }],
+      merchantName: 'SeaFare',
     });
-    const { sn, paymentUrl } = extractRedotpayOrderFields(order);
 
     await sql`
-      INSERT INTO redotpay_payments (id, boat_id, outer_order_sn, redotpay_sn, amount, currency, status, payment_url)
-      VALUES (${'rpp-' + Date.now() + '-' + Math.random().toString(36).slice(2,8)}, ${boatId}, ${outerOrderSn}, ${sn}, ${REDOTPAY_PRO_AMOUNT}, ${REDOTPAY_PRO_CURRENCY}, 'PENDING', ${paymentUrl})
+      INSERT INTO pro_payments (id, boat_id, provider, redotpay_order_sn, amount, currency, status, payment_url)
+      VALUES (${paymentId}, ${boatId}, 'redotpay', ${order.orderSn}, ${REDOTPAY_PRO_AMOUNT}, ${REDOTPAY_PRO_CURRENCY}, 'PENDING', ${order.webUrl || order.h5Url || null})
     `;
 
-    res.status(201).json({ ok:true, paymentUrl, outerOrderSn, redotpaySn: sn, status: 'PENDING' });
+    res.status(201).json({ ok:true, paymentUrl: order.webUrl || order.h5Url || null, orderSn: order.orderSn, status: 'PENDING' });
   }catch(e){
     console.error('create RedotPay payment link failed', e);
-    res.status(502).json({ ok:false, error: 'Could not create a RedotPay payment link. Try again, or use another payment option.' });
+    res.status(502).json({ ok:false, error: 'Could not create a card payment link. Try again, or use the bank transfer option.' });
   }
 });
 
-// Manual fallback check (a "Check Now" button in the popup), same role as
-// the Swipe equivalent above -- polls RedotPay directly rather than only
-// ever waiting on the webhook, and grants Pro here too if it's already
-// done and hasn't been processed yet.
-app.get('/api/pro/redotpay/payment-link/:outerOrderSn/status', async (req, res) => {
+// Manual fallback check (same role as the Swipe status endpoint) -- polls
+// RedotPay directly for this order's current status rather than only ever
+// waiting on the webhook, and grants Pro here too if it's already
+// COMPLETED and this order hasn't been processed yet.
+app.get('/api/pro/redotpay-payment-link/:orderSn/status', async (req, res) => {
   try{
-    const rows = await sql`SELECT * FROM redotpay_payments WHERE outer_order_sn = ${req.params.outerOrderSn}`;
+    const rows = await sql`SELECT * FROM pro_payments WHERE redotpay_order_sn = ${req.params.orderSn} AND provider = 'redotpay'`;
     if(!rows.length) return res.status(404).json({ ok:false, error:'Unknown payment reference.' });
     const record = rows[0];
-    if(record.status === 'COMPLETED') return res.json({ ok:true, status:'COMPLETED' });
-
-    const detail = await redotpayApiRequest('/openapi/v2/order/detail', { outerOrderSn: req.params.outerOrderSn });
-    const root = detail && detail.data ? detail.data : detail;
-    const orderStatus = root && root.orderStatus;
-
-    if(isRedotpayOrderDone(orderStatus) && record.status !== 'COMPLETED'){
-      await sql`UPDATE redotpay_payments SET status = 'COMPLETED', completed_at = now() WHERE outer_order_sn = ${req.params.outerOrderSn}`;
-      await grantProForRedotpayPayment(record);
-      return res.json({ ok:true, status:'COMPLETED' });
+    if(record.status === 'COMPLETED'){
+      return res.json({ ok:true, status: 'COMPLETED' });
     }
-    res.json({ ok:true, status: record.status });
+    const remote = await redotpayApiRequest('POST', '/openapi/v2/order/detail', { orderSn: record.redotpay_order_sn });
+    const remoteStatus = normalizeRedotPayOrderStatus(remote.orderStatus);
+    if(remoteStatus === 'COMPLETED' && record.status !== 'COMPLETED'){
+      await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE redotpay_order_sn = ${req.params.orderSn}`;
+      if(record.purpose !== 'due_clearance') await grantProForRedotPayPayment(record);
+      return res.json({ ok:true, status: 'COMPLETED' });
+    } else if(remoteStatus !== record.status){
+      await sql`UPDATE pro_payments SET status = ${remoteStatus} WHERE redotpay_order_sn = ${req.params.orderSn}`;
+    }
+    res.json({ ok:true, status: remoteStatus });
   }catch(e){
     console.error('RedotPay payment status check failed', e);
     res.status(502).json({ ok:false, error:'Could not check payment status.' });
   }
 });
 
-// RedotPay calls this once a payment succeeds (orderStatus 2) or otherwise
-// resolves. Idempotent against retries the same way the Swipe webhook is --
-// checked by outer_order_sn (our own reference, always present, unlike
-// relying solely on a field that could vary in format) and gated on
-// status !== 'COMPLETED' before granting Pro again.
+// RedotPay calls this once a payment succeeds (see the Webhook doc -- it
+// only fires on success, unlike Swipe's every-state-change callback).
+// outerOrderSn is this app's own pro_payments.id, set as such at order
+// creation, so it's the reliable correlation key here (no fallback needed
+// the way Swipe's txCode-vs-txId split required, since RedotPay always
+// echoes it back). Idempotent against retries via the same
+// status !== 'COMPLETED' guard used on the Swipe webhook.
 app.post('/api/webhooks/redotpay', async (req, res) => {
-  const requestId = 'wh-' + Date.now() + '-' + Math.random().toString(36).slice(2,10);
   try{
     const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
-    if(!verifyRedotpayWebhookSignature(req.headers, rawBody)){
-      return res.status(401).json({ code:'FAIL', requestId, msg:'Invalid webhook signature.' });
+    if(!verifyRedotPayWebhookSignature(req.headers, rawBody)){
+      return res.status(401).json({ code:'FAIL', requestId: crypto.randomUUID(), msg:'Invalid webhook signature.' });
     }
-    const payload = req.body || {};
-    const outerOrderSn = payload.outerOrderSn || payload.outerOrder || null;
-    if(!outerOrderSn) return res.json({ code:'SUCCESS', requestId }); // nothing to correlate -- acknowledge and move on
+    const data = req.body || {};
+    const paymentId = data.outerOrderSn || data.outerOrder || null;
+    if(!paymentId) return res.json({ code:'SUCCESS', requestId: crypto.randomUUID() });
 
-    const rows = await sql`SELECT * FROM redotpay_payments WHERE outer_order_sn = ${outerOrderSn}`;
-    if(!rows.length) return res.json({ code:'SUCCESS', requestId }); // not one of ours
+    const rows = await sql`SELECT * FROM pro_payments WHERE id = ${paymentId} AND provider = 'redotpay'`;
+    if(!rows.length) return res.json({ code:'SUCCESS', requestId: crypto.randomUUID() }); // not one of ours
     const record = rows[0];
 
-    if(isRedotpayOrderDone(payload.orderStatus) && record.status !== 'COMPLETED'){
-      await sql`UPDATE redotpay_payments SET status = 'COMPLETED', completed_at = now() WHERE id = ${record.id}`;
-      await grantProForRedotpayPayment(record);
-    } else if(String(payload.orderStatus) !== record.status){
-      await sql`UPDATE redotpay_payments SET status = ${String(payload.orderStatus)} WHERE id = ${record.id}`;
+    const status = normalizeRedotPayOrderStatus(data.orderStatus);
+    if(status === 'COMPLETED' && record.status !== 'COMPLETED'){
+      await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE id = ${record.id}`;
+      if(record.purpose !== 'due_clearance') await grantProForRedotPayPayment(record);
+    } else if(status !== record.status){
+      await sql`UPDATE pro_payments SET status = ${status} WHERE id = ${record.id}`;
     }
-    res.json({ code:'SUCCESS', requestId });
+    res.json({ code:'SUCCESS', requestId: crypto.randomUUID() });
   }catch(e){
-    console.error('redotpay webhook handling failed', e);
-    res.status(500).json({ code:'FAIL', requestId, msg:'internal error' });
+    console.error('RedotPay webhook handling failed', e);
+    res.status(500).json({ code:'FAIL', requestId: crypto.randomUUID(), msg:'internal error' });
   }
 });
 
@@ -914,18 +943,11 @@ app.get('/api/totp-secret', (req, res) => {
 app.post('/api/reset-pin/request', async (req, res) => {
   const generic = { ok: true };
   const raw = (req.body && (req.body.identifier || req.body.email) || '').trim();
-  const boatId = (req.body && req.body.boatId || '').trim();
-  // Every other reset path (totp-verify, confirm) is scoped to one boat's
-  // own settings -- this one previously queried app_data for key='settings'
-  // with no boat_id filter at all, so in a multi-tenant database it would
-  // match whichever boat's settings row Postgres happened to return first,
-  // not necessarily (or ever, reliably) the boat actually requesting a
-  // reset. Requiring boatId here closes that -- a boat's owner-email/phone
-  // can only ever be checked against, and reset, for that boat.
-  if (!raw || !boatId) return res.json(generic);
+  if (!raw) return res.json(generic);
 
   try {
-    const settings = (await getAppData(boatId, 'settings')) || {};
+    const rows = await sql`SELECT value FROM app_data WHERE key = 'settings'`;
+    const settings = rows.length ? rows[0].value : {};
     const registeredEmail = (settings.ownerEmail || '').trim().toLowerCase();
     const registeredPhone = (settings.ownerPhone || '').replace(/\D/g, '');
 
@@ -946,8 +968,8 @@ app.post('/api/reset-pin/request', async (req, res) => {
     const token = crypto.randomBytes(24).toString('hex');
     const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
     await sql`
-      INSERT INTO pin_resets (token, role, expires_at, boat_id)
-      VALUES (${token}, 'owner', ${expiresAt}, ${boatId})
+      INSERT INTO pin_resets (token, role, expires_at)
+      VALUES (${token}, 'owner', ${expiresAt})
     `;
 
     const link = `${APP_URL}/#reset-pin/${token}`;
@@ -1054,9 +1076,15 @@ app.post('/api/reset-pin/confirm', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'This reset link is outdated. Request a new one.' });
     }
 
-    const settings = (await getAppData(record.boat_id, 'settings')) || {};
-    settings.ownerPin = String(newPin);
-    await putAppData(record.boat_id, 'settings', settings);
+    const settingsRows = await sql`SELECT value FROM app_data WHERE boat_id = ${record.boat_id} AND key = 'settings'`;
+    const settings = settingsRows.length ? settingsRows[0].value : {};
+    settings.ownerPin = hashSecret(String(newPin));
+
+    await sql`
+      INSERT INTO app_data (boat_id, key, value, updated_at)
+      VALUES (${record.boat_id}, 'settings', ${JSON.stringify(settings)}::jsonb, now())
+      ON CONFLICT (boat_id, key) DO UPDATE SET value = ${JSON.stringify(settings)}::jsonb, updated_at = now()
+    `;
     await sql`UPDATE pin_resets SET used = true WHERE token = ${token}`;
 
     res.json({ ok: true });
@@ -1090,6 +1118,115 @@ function verifySecret(secret, stored){
   const check = crypto.scryptSync(String(secret), salt, 64).toString('hex');
   try{ return crypto.timingSafeEqual(Buffer.from(hash,'hex'), Buffer.from(check,'hex')); }
   catch(e){ return false; }
+}
+
+// ---------------------------------------------------------------------------
+// Field-level encryption for sensitive-but-must-be-readable data (shipment
+// photos, bank account details) -- separate from hashSecret/verifySecret
+// above, which is for one-way secrets like PINs that only ever need
+// comparing, never reading back.
+//
+// Each boat (or organization) gets its own AES-256-GCM key, derived via
+// HKDF from a single master key (APP_DATA_ENCRYPTION_KEY, set in Render's
+// env) using that boat's/org's own id as the HKDF "info" parameter. This
+// means:
+//   - No per-entity keys are stored anywhere -- they're derived on the fly
+//     from the id already sitting right next to the data, so there's
+//     nothing extra to manage, rotate, or lose.
+//   - Data encrypted for one boat is mathematically tied to that boat's id;
+//     you can't decrypt boat A's data using boat B's id as the derivation
+//     input, even with the master key.
+//   - Deleting a boat's rows (already done on org/boat delete elsewhere in
+//     this file) is sufficient cleanup -- there's no separate per-boat key
+//     record to also delete.
+// This protects data that leaks out via the database alone (a stolen
+// backup, a misconfigured read replica, etc). It does NOT protect against
+// someone who has both DB access and this server's environment variables --
+// nothing purely software-based can, since the running server always needs
+// the master key to do its job. Access control (which boat's session can
+// read which boat_id) is still enforced the same way it always was, in the
+// route handlers below -- encryption adds confidentiality at rest, it
+// doesn't replace authorization.
+const ENC_MASTER_KEY = process.env.APP_DATA_ENCRYPTION_KEY || '';
+if(!ENC_MASTER_KEY){
+  console.warn('APP_DATA_ENCRYPTION_KEY is not set -- shipment photos and bank details will be stored unencrypted. Set a long random value for this in production.');
+}
+function deriveFieldKey(scopeId){
+  if(!ENC_MASTER_KEY) return null;
+  return crypto.hkdfSync('sha256', ENC_MASTER_KEY, scopeId || '', 'seafare-field-enc', 32);
+}
+// Returns a self-contained string "iv:authTag:ciphertext" (all hex) so
+// nothing extra needs to be stored alongside it. Falls back to returning
+// the plaintext unchanged if no master key is configured, so the app
+// keeps working (unencrypted) rather than breaking outright.
+function encryptField(plaintext, scopeId){
+  if(plaintext === null || plaintext === undefined || plaintext === '') return plaintext;
+  const key = deriveFieldKey(scopeId);
+  if(!key) return plaintext;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(String(plaintext), 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `enc:${iv.toString('hex')}:${authTag.toString('hex')}:${ciphertext.toString('hex')}`;
+}
+// Recognizes our own "enc:..." format and decrypts it; anything else
+// (plaintext from before encryption was turned on, or values written while
+// no master key was configured) is returned as-is rather than erroring, so
+// old data doesn't become unreadable.
+function decryptField(stored, scopeId){
+  if(typeof stored !== 'string' || !stored.startsWith('enc:')) return stored;
+  const key = deriveFieldKey(scopeId);
+  if(!key) return stored;
+  const [, ivHex, tagHex, dataHex] = stored.split(':');
+  try{
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    const plaintext = Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]);
+    return plaintext.toString('utf8');
+  }catch(e){
+    console.error('decryptField failed', e);
+    return null;
+  }
+}
+
+// PINs (staffUsers[].pin, managerUsers[].pin, legacy staffPin/ownerPin) are
+// generated client-side and arrive here as plain 3-6 digit strings. This
+// hashes any that aren't already hashed (hashSecret's output always
+// contains a ':', which a plain numeric PIN never does) before the
+// settings blob is persisted -- so a raw PIN is never written to the
+// database, and by extension never sent back out to any client either.
+// Idempotent: safe to run on every settings save even if some PINs in the
+// object are already hashed from a previous save.
+function hashRawPinsInSettings(settings){
+  if(!settings || typeof settings !== 'object') return settings;
+  const hashIfRaw = (v) => (typeof v === 'string' && v && !v.includes(':')) ? hashSecret(v) : v;
+  if(Array.isArray(settings.staffUsers)){
+    settings.staffUsers = settings.staffUsers.map(u => u && u.pin ? { ...u, pin: hashIfRaw(u.pin) } : u);
+  }
+  if(Array.isArray(settings.managerUsers)){
+    settings.managerUsers = settings.managerUsers.map(u => u && u.pin ? { ...u, pin: hashIfRaw(u.pin) } : u);
+  }
+  if(settings.staffPin) settings.staffPin = hashIfRaw(settings.staffPin);
+  if(settings.ownerPin) settings.ownerPin = hashIfRaw(settings.ownerPin);
+  return settings;
+}
+
+// Strips PIN hashes out of a settings object entirely before it's sent to
+// any client -- the client only ever needs to know a PIN exists (to e.g.
+// show "PIN set" in the staff list), never its hash, since PIN checking
+// now happens server-side in /api/staff-login and /api/manager-login below.
+// Also decrypts bank account fields (encrypted at rest, but the Owner does
+// need to see them to view/edit them in Settings).
+function sanitizeSettingsForClient(settings, scopeId){
+  if(!settings || typeof settings !== 'object') return settings;
+  const out = { ...settings };
+  if(Array.isArray(out.staffUsers)) out.staffUsers = out.staffUsers.map(({ pin, ...rest }) => ({ ...rest, hasPin: !!pin }));
+  if(Array.isArray(out.managerUsers)) out.managerUsers = out.managerUsers.map(({ pin, ...rest }) => ({ ...rest, hasPin: !!pin }));
+  if(out.staffPin) out.staffPin = undefined;
+  if(out.ownerPin) out.ownerPin = undefined;
+  if(out.bankAccountName) out.bankAccountName = decryptField(out.bankAccountName, scopeId);
+  if(out.bankAccountNumber) out.bankAccountNumber = decryptField(out.bankAccountNumber, scopeId);
+  return out;
 }
 
 async function getAdminSettingsRow(){
@@ -1163,6 +1300,8 @@ app.get('/api/admin/settings', requireAdmin, async (req, res) => {
       username: row.username || ADMIN_USERNAME || '',
       bankAccountName: row.bank_account_name || '',
       bankAccountNumber: row.bank_account_number || '',
+      mibAccountName: row.mib_account_name || '',
+      mibAccountNumber: row.mib_account_number || '',
       notifyNewSignups: row.notify_new_signups,
       notifyBoatRequests: row.notify_boat_requests,
       notifyNewBoats: row.notify_new_boats,
@@ -1192,16 +1331,35 @@ app.post('/api/admin/settings/credentials', requireAdmin, async (req, res) => {
 });
 app.post('/api/admin/settings/bank', requireAdmin, async (req, res) => {
   try{
-    const { bankAccountName, bankAccountNumber } = req.body || {};
+    const { bankAccountName, bankAccountNumber, mibAccountName, mibAccountNumber } = req.body || {};
     await ensureAdminSettingsRow();
     await sql`
-      UPDATE admin_settings SET bank_account_name = ${bankAccountName || ''}, bank_account_number = ${bankAccountNumber || ''}, updated_at = now()
+      UPDATE admin_settings SET
+        bank_account_name = ${bankAccountName || ''}, bank_account_number = ${bankAccountNumber || ''},
+        mib_account_name = ${mibAccountName || ''}, mib_account_number = ${mibAccountNumber || ''},
+        updated_at = now()
       WHERE id = 'admin'
     `;
     res.json({ ok:true });
   }catch(e){
     console.error(e);
     res.status(500).json({ ok:false, error:'Could not update bank details.' });
+  }
+});
+// Public (no admin auth) -- every owner's Upgrade to Pro popup needs these
+// account details, and owners aren't authenticated as the Super Admin.
+// Only ever returns the two account name/number pairs, nothing else off
+// the admin_settings row (no credentials, no notification toggles).
+app.get('/api/pro-bank-accounts', async (req, res) => {
+  try{
+    const row = await ensureAdminSettingsRow();
+    res.json({ ok:true, accounts: {
+      bml: { name: row.bank_account_name || '', number: row.bank_account_number || '' },
+      mib: { name: row.mib_account_name || '', number: row.mib_account_number || '' },
+    }});
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not load payment account details.' });
   }
 });
 app.post('/api/admin/settings/notifications', requireAdmin, async (req, res) => {
@@ -1307,10 +1465,7 @@ app.get('/api/admin/organizations', requireAdmin, async (req, res) => {
       ? await sql`SELECT boat_id, value FROM app_data WHERE key = 'settings' AND boat_id = ANY(${boats.map(b => b.id)})`
       : [];
     const contactsByBoatId = Object.fromEntries(
-      boatSettingsRows.map(r => {
-        const value = decryptAppDataValue(r.value);
-        return [r.boat_id, (value && value.tripDefaults && value.tripDefaults.boatContacts) || ''];
-      })
+      boatSettingsRows.map(r => [r.boat_id, (r.value && r.value.tripDefaults && r.value.tripDefaults.boatContacts) || ''])
     );
     // Flag any org whose mobile number has a prior deletion on record, so
     // the admin can see at a glance (and open up why) even outside the
@@ -1403,12 +1558,13 @@ app.post('/api/admin/organizations/:id/pro/grant', requireAdmin, async (req, res
     // approved.
     const boats = await sql`SELECT id FROM boats WHERE organization_id = ${req.params.id}`;
     for(const b of boats){
-      const settings = await getAppData(b.id, 'settings');
-      if(!settings) continue;
+      const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${b.id} AND key = 'settings'`;
+      if(!rows.length) continue;
+      const settings = rows[0].value || {};
       if(settings.proRequestPending || settings.proRequestScreenshot){
         settings.proRequestPending = false;
         settings.proRequestScreenshot = null;
-        await putAppData(b.id, 'settings', settings);
+        await sql`UPDATE app_data SET value = ${JSON.stringify(settings)}::jsonb, updated_at = now() WHERE boat_id = ${b.id} AND key = 'settings'`;
       }
     }
     const rows = await sql`SELECT is_pro, pro_started_at, pro_expires_at FROM organizations WHERE id = ${req.params.id}`;
@@ -1552,32 +1708,24 @@ app.get('/api/admin/boat-requests', requireAdmin, async (req, res) => {
 // org-wide) directly from this list.
 app.get('/api/admin/pro-requests', requireAdmin, async (req, res) => {
   try{
-    // This used to filter/sort with ad.value->>'proRequestPending' directly
-    // in SQL -- now that app_data.value is encrypted at rest, Postgres can
-    // no longer see into the ciphertext to check that flag or sort by
-    // proRequestedAt, so every boat's settings row comes back and the
-    // filter/sort happens here instead, after decrypting each one.
     const rows = await sql`
       SELECT ad.boat_id, ad.value, b.name AS boat_name, b.organization_id,
              o.boat_name AS org_boat_name, o.owner_name
       FROM app_data ad
       JOIN boats b ON b.id = ad.boat_id
       JOIN organizations o ON o.id = b.organization_id
-      WHERE ad.key = 'settings'
+      WHERE ad.key = 'settings' AND ad.value->>'proRequestPending' = 'true'
+      ORDER BY (ad.value->>'proRequestedAt') DESC NULLS LAST
     `;
-    const requests = rows
-      .map(r => ({ ...r, value: decryptAppDataValue(r.value) || {} }))
-      .filter(r => r.value.proRequestPending === true)
-      .sort((a, b) => new Date(b.value.proRequestedAt || 0) - new Date(a.value.proRequestedAt || 0))
-      .map(r => ({
-        boatId: r.boat_id,
-        boatName: r.boat_name,
-        organizationId: r.organization_id,
-        orgBoatName: r.org_boat_name,
-        ownerName: r.owner_name,
-        requestedAt: r.value.proRequestedAt || null,
-        screenshot: r.value.proRequestScreenshot || null,
-      }));
+    const requests = rows.map(r => ({
+      boatId: r.boat_id,
+      boatName: r.boat_name,
+      organizationId: r.organization_id,
+      orgBoatName: r.org_boat_name,
+      ownerName: r.owner_name,
+      requestedAt: r.value.proRequestedAt || null,
+      screenshot: r.value.proRequestScreenshot || null,
+    }));
     res.json({ ok:true, requests });
   }catch(e){
     console.error(e);
@@ -1585,36 +1733,44 @@ app.get('/api/admin/pro-requests', requireAdmin, async (req, res) => {
   }
 });
 
-// Every completed automatic payment (Swipe or RedotPay) that auto-granted
-// Pro (no admin approval involved) -- for the admin's "Paid via Swipe /
-// RedotPay" tab, so there's still visibility into these even though
-// nothing required action. Merges both providers' tables into one list
-// (tagged by `provider`) rather than a separate tab per provider, since
-// they're the same kind of event from the admin's point of view.
+// Every completed payment (Swipe or RedotPay card) that auto-granted Pro
+// (no admin approval involved) -- for the admin's "Paid via Swipe/RedotPay"
+// tab, so there's still visibility into these even though nothing required
+// action. `provider` lets the admin UI label each row by which gateway it
+// actually came through.
 app.get('/api/admin/pro-payments', requireAdmin, async (req, res) => {
   try{
     const rows = await sql`
-      SELECT pp.id, 'swipe' AS provider, pp.boat_id, pp.amount, pp.currency, pp.completed_at,
+      SELECT pp.id, pp.boat_id, pp.amount, pp.currency, pp.completed_at, pp.provider,
              b.name AS boat_name, b.organization_id, o.boat_name AS org_boat_name, o.owner_name
       FROM pro_payments pp
       JOIN boats b ON b.id = pp.boat_id
       JOIN organizations o ON o.id = b.organization_id
       WHERE pp.status = 'COMPLETED'
-      UNION ALL
-      SELECT rp.id, 'redotpay' AS provider, rp.boat_id, rp.amount, rp.currency, rp.completed_at,
-             b.name AS boat_name, b.organization_id, o.boat_name AS org_boat_name, o.owner_name
-      FROM redotpay_payments rp
-      JOIN boats b ON b.id = rp.boat_id
-      JOIN organizations o ON o.id = b.organization_id
-      WHERE rp.status = 'COMPLETED'
-      ORDER BY completed_at DESC
+      ORDER BY pp.completed_at DESC
     `;
     res.json({ ok:true, payments: rows });
   }catch(e){
     console.error(e);
-    res.status(500).json({ ok:false, error:'Could not load payments.' });
+    res.status(500).json({ ok:false, error:'Could not load card/Swipe payments.' });
   }
 });
+
+// Pro plan cap: up to 15 boats per organization -- only applied to
+// organizations created after the Free/Pro plan-limits feature shipped
+// (plan_limits_enabled); every organization that existed before that is
+// grandfathered in as unlimited, matching how nothing else about this
+// feature retroactively restricts existing accounts. Free-tier orgs never
+// need this check here -- they can't reach this function at all without a
+// Super Admin manually approving their (paid, reviewed) request in the
+// first place, which is its own natural gate.
+async function boatCapReached(organizationId){
+  const orgRows = await sql`SELECT plan_limits_enabled, is_pro FROM organizations WHERE id = ${organizationId}`;
+  const org = orgRows[0];
+  if(!org || !org.plan_limits_enabled || !org.is_pro) return false;
+  const countRows = await sql`SELECT COUNT(*)::int AS n FROM boats WHERE organization_id = ${organizationId}`;
+  return (countRows[0]?.n || 0) >= 15;
+}
 
 // Approve a pending boat request: creates the new boat row and marks the
 // request approved. This is the step you take after confirming the
@@ -1636,10 +1792,15 @@ async function createBoatForOrganization(organizationId, boatName){
   const org = orgRows[0];
   if(org && (org.bank_account_name || org.bank_account_number || org.contact_number)){
     const initialSettings = {
-      bankAccountName: org.bank_account_name || '', bankAccountNumber: org.bank_account_number || '',
+      bankAccountName: encryptField(decryptField(org.bank_account_name, organizationId) || '', boatId),
+      bankAccountNumber: encryptField(decryptField(org.bank_account_number, organizationId) || '', boatId),
       tripDefaults: { boatContacts: org.contact_number || '', trackingLink: '', viberLink: '' },
     };
-    await putAppData(boatId, 'settings', initialSettings);
+    await sql`
+      INSERT INTO app_data (boat_id, key, value, updated_at)
+      VALUES (${boatId}, 'settings', ${JSON.stringify(initialSettings)}::jsonb, now())
+      ON CONFLICT (boat_id, key) DO UPDATE SET value = ${JSON.stringify(initialSettings)}::jsonb, updated_at = now()
+    `;
   }
   return boatId;
 }
@@ -1650,6 +1811,9 @@ app.post('/api/admin/boat-requests/:id/approve', requireAdmin, async (req, res) 
     const request = rows[0];
     if(!request) return res.status(404).json({ ok:false, error:'Request not found.' });
     if(request.status !== 'pending') return res.status(400).json({ ok:false, error:'This request was already reviewed.' });
+    if(await boatCapReached(request.organization_id)){
+      return res.status(400).json({ ok:false, error:'This organization has reached its 15-boat Pro plan limit.' });
+    }
 
     const boatId = await createBoatForOrganization(request.organization_id, request.requested_boat_name);
 
@@ -1756,8 +1920,8 @@ async function collectBoatNumberSources(boatId){
   `;
   if(!boatRows.length) return null;
   const boat = boatRows[0];
-  const settings = await getAppData(boatId, 'settings');
-  const contacts = settings && settings.tripDefaults && settings.tripDefaults.boatContacts;
+  const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boatId} AND key = 'settings'`;
+  const contacts = rows.length ? (rows[0].value && rows[0].value.tripDefaults && rows[0].value.tripDefaults.boatContacts) : '';
   const numbers = parseNumbers(contacts).map(m => ({ mobile: m, sourceLabel: `Boat Contact (${boat.name})` }));
   return { organizationId: boat.organization_id, orgBoatName: boat.org_boat_name, ownerName: boat.owner_name, numbers };
 }
@@ -1814,8 +1978,8 @@ async function findActiveNumberConflict(numbers){
   const boats = await sql`SELECT id, name, organization_id FROM boats`;
   const orgById = Object.fromEntries(orgs.map(o => [o.id, o]));
   for(const boat of boats){
-    const settings = await getAppData(boat.id, 'settings');
-    const contacts = settings && settings.tripDefaults && settings.tripDefaults.boatContacts;
+    const rows = await sql`SELECT value FROM app_data WHERE boat_id = ${boat.id} AND key = 'settings'`;
+    const contacts = rows.length ? (rows[0].value && rows[0].value.tripDefaults && rows[0].value.tripDefaults.boatContacts) : '';
     const boatNums = parseNumbers(contacts);
     if(boatNums.some(n => numbers.includes(n))){
       const org = orgById[boat.organization_id];
@@ -2082,23 +2246,6 @@ app.post('/api/admin/push-subscribe', async (req, res) => {
   }
 });
 
-// Counterpart to push-subscribe -- called when the admin taps an already-
-// enabled push button to turn it back off on this device. Removes just
-// this device's row so it stops being sent to; other devices the admin
-// has enabled push on are unaffected.
-app.post('/api/admin/push-unsubscribe', async (req, res) => {
-  try{
-    if(!(await checkAdmin(req))) return res.status(401).json({ ok:false, error:'Invalid admin credentials.' });
-    const { endpoint } = req.body || {};
-    if(!endpoint) return res.status(400).json({ ok:false, error:'endpoint is required.' });
-    await sql`DELETE FROM admin_push_subscriptions WHERE endpoint = ${endpoint}`;
-    res.json({ ok:true });
-  }catch(e){
-    console.error('push-unsubscribe failed', e);
-    res.status(500).json({ ok:false, error:'Could not remove that subscription.' });
-  }
-});
-
 // Sends a real push to every device the Super Admin has enabled
 // notifications on. A subscription that comes back expired/gone (410 or
 // 404 -- the browser unsubscribed, cleared storage, etc.) is removed so it
@@ -2108,7 +2255,7 @@ async function sendAdminPush(type, message){
   if(!webPushConfigured) return;
   try{
     const subs = await sql`SELECT endpoint, subscription FROM admin_push_subscriptions`;
-    const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: 'Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: 'Paid via Swipe', pro_paid_via_redotpay: 'Paid via RedotPay' };
+    const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: 'Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: 'Paid via Swipe', pro_paid_via_redotpay: 'Paid via Card (RedotPay)' };
     const payload = JSON.stringify({ title: `SeaFare Super Admin \u2014 ${typeLabels[type] || type}`, body: message });
     await Promise.all(subs.map(async (s) => {
       try{
@@ -2230,11 +2377,11 @@ app.post('/api/signup', async (req, res) => {
       INSERT INTO organizations (
         id, boat_name, owner_name, contact_number, gmail, mobile, passkey_hash,
         bank_account_name, bank_account_number, tracking_link, viber_link,
-        social_links, routes, totp_secret
+        social_links, routes, totp_secret, plan_limits_enabled
       ) VALUES (
         ${orgId}, ${b.boatName}, ${b.ownerName}, ${effectiveContactNumber}, ${b.gmail || null}, ${b.mobile}, ${passkeyHash},
-        ${b.bankAccountName || null}, ${b.bankAccountNumber || null}, ${b.trackingLink || null}, ${b.viberLink || null},
-        ${JSON.stringify(b.socialLinks || [])}::jsonb, ${JSON.stringify(b.routes || [])}::jsonb, ${totpSecret}
+        ${b.bankAccountName ? encryptField(b.bankAccountName, orgId) : null}, ${b.bankAccountNumber ? encryptField(b.bankAccountNumber, orgId) : null}, ${b.trackingLink || null}, ${b.viberLink || null},
+        ${JSON.stringify(b.socialLinks || [])}::jsonb, ${JSON.stringify(b.routes || [])}::jsonb, ${totpSecret}, true
       )
     `;
 
@@ -2259,10 +2406,15 @@ app.post('/api/signup', async (req, res) => {
     // filled in.
     {
       const initialSettings = {
-        bankAccountName: b.bankAccountName || '', bankAccountNumber: b.bankAccountNumber || '',
+        bankAccountName: b.bankAccountName ? encryptField(b.bankAccountName, boatId) : '',
+        bankAccountNumber: b.bankAccountNumber ? encryptField(b.bankAccountNumber, boatId) : '',
         tripDefaults: { boatContacts: effectiveContactNumber, trackingLink: b.trackingLink || '', viberLink: b.viberLink || '' },
       };
-      await putAppData(boatId, 'settings', initialSettings);
+      await sql`
+        INSERT INTO app_data (boat_id, key, value, updated_at)
+        VALUES (${boatId}, 'settings', ${JSON.stringify(initialSettings)}::jsonb, now())
+        ON CONFLICT (boat_id, key) DO UPDATE SET value = ${JSON.stringify(initialSettings)}::jsonb, updated_at = now()
+      `;
     }
 
     res.json({ ok:true, organizationId: orgId, boatId, totpSecret });
@@ -2343,7 +2495,7 @@ app.post('/api/org-login', async (req, res) => {
       organization: {
         id: org.id, boatName: org.boat_name, ownerName: org.owner_name,
         contactNumber: org.contact_number, gmail: org.gmail, mobile: org.mobile,
-        bankAccountName: org.bank_account_name, bankAccountNumber: org.bank_account_number,
+        bankAccountName: decryptField(org.bank_account_name, org.id), bankAccountNumber: decryptField(org.bank_account_number, org.id),
         trackingLink: org.tracking_link, viberLink: org.viber_link,
         socialLinks: org.social_links, routes: org.routes,
         isPro: org.is_pro, proExpiresAt: org.pro_expires_at,
@@ -2378,6 +2530,9 @@ app.post('/api/boat-requests', async (req, res) => {
     }
 
     if(org.is_pro){
+      if(await boatCapReached(organizationId)){
+        return res.status(400).json({ ok:false, error:'You\u2019ve reached the 15-boat limit for your plan. Contact support if you need more.' });
+      }
       const boatId = await createBoatForOrganization(organizationId, requestedBoatName);
       // Informational only -- nothing for the admin to act on, so this
       // goes through the same notify type as any other new boat, not
@@ -2449,7 +2604,8 @@ app.post('/api/boats/first-free', async (req, res) => {
     `;
     if(org.bank_account_name || org.bank_account_number || org.contact_number){
       const initialSettings = {
-        bankAccountName: org.bank_account_name || '', bankAccountNumber: org.bank_account_number || '',
+        bankAccountName: encryptField(decryptField(org.bank_account_name, organizationId) || '', boatId),
+        bankAccountNumber: encryptField(decryptField(org.bank_account_number, organizationId) || '', boatId),
         tripDefaults: { boatContacts: org.contact_number || '', trackingLink: '', viberLink: '' },
       };
       await sql`
