@@ -912,6 +912,18 @@ app.post('/api/webhooks/redotpay', async (req, res) => {
     if(!rows.length) return res.json({ code:'SUCCESS', requestId: crypto.randomUUID() }); // not one of ours
     const record = rows[0];
 
+    // The Transaction and Refund webhooks share this same endpoint/body
+    // shape (see Developer settings), but only a Transaction event carries
+    // orderStatus -- a Refund event echoes outerOrderSn back with no
+    // orderStatus field at all. Number(undefined) is NaN, which
+    // normalizeRedotPayOrderStatus defaults to 'PENDING', so without this
+    // guard a refund notification for an already-COMPLETED payment would
+    // silently downgrade it back to PENDING. This app doesn't process
+    // refunds yet, so a refund event is just acknowledged and ignored here.
+    if(data.orderStatus === undefined || data.orderStatus === null){
+      return res.json({ code:'SUCCESS', requestId: crypto.randomUUID() });
+    }
+
     const status = normalizeRedotPayOrderStatus(data.orderStatus);
     if(status === 'COMPLETED' && record.status !== 'COMPLETED'){
       await sql`UPDATE pro_payments SET status = 'COMPLETED', completed_at = now() WHERE id = ${record.id}`;
