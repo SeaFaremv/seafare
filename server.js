@@ -649,8 +649,8 @@ app.post('/api/webhooks/swipe', async (req, res) => {
   }
 });
 
-// --- RedotPay card payment integration (Pro upgrade) ------------------------
-// A second, independent "Pay by Card" option alongside Swipe -- same
+// --- RedotPay crypto payment integration (Pro upgrade) -----------------------
+// A second, independent "Pay by Crypto" option alongside Swipe -- same
 // pro_payments table, same overall shape (create a link, poll/webhook,
 // grant Pro on completion), but RedotPay's own API instead of Swipe's:
 // RSA-signed requests instead of an OAuth bearer token, and an order
@@ -675,10 +675,9 @@ app.post('/api/webhooks/swipe', async (req, res) => {
 // their own X-R-Key-Version header, matched against RedotPay's published
 // platform public keys below (selected by REDOTPAY_ENV).
 // REDOTPAY_PRO_AMOUNT / REDOTPAY_PRO_CURRENCY: the fiat amount+currency
-// charged for a 30-day Pro period via this path. Unlike Swipe (MVR),
-// RedotPay settles in a small set of fiat currencies, so this defaults to
-// 5 USD rather than trying to reuse the ރ500 Swipe/bank-transfer figure --
-// set REDOTPAY_PRO_AMOUNT/REDOTPAY_PRO_CURRENCY to whatever your RedotPay
+// charged for a 30-day Pro period via this path. Defaults to 35 USD rather
+// than reusing the ރ500 Swipe/bank-transfer figure -- set
+// REDOTPAY_PRO_AMOUNT/REDOTPAY_PRO_CURRENCY to whatever your RedotPay
 // merchant account actually supports.
 const REDOTPAY_APP_KEY = process.env.REDOTPAY_APP_KEY;
 const REDOTPAY_PRIVATE_KEY = process.env.REDOTPAY_PRIVATE_KEY
@@ -690,8 +689,9 @@ const REDOTPAY_KEY_VERSION = process.env.REDOTPAY_KEY_VERSION || '1';
 const REDOTPAY_BASE_URL = process.env.REDOTPAY_ENV === 'sandbox'
   ? 'https://acquirersandbox.rp-2023app.com'
   : 'https://acquirer.redotpay.com';
-const REDOTPAY_PRO_AMOUNT = Number(process.env.REDOTPAY_PRO_AMOUNT) || 5;
+const REDOTPAY_PRO_AMOUNT = Number(process.env.REDOTPAY_PRO_AMOUNT) || 35;
 const REDOTPAY_PRO_CURRENCY = process.env.REDOTPAY_PRO_CURRENCY || 'USD';
+
 
 // RedotPay's own published platform public keys, used to verify the
 // X-R-Signature header on incoming webhooks -- these are fixed per RedotPay's
@@ -816,10 +816,10 @@ async function grantProForRedotPayPayment(record){
     WHERE b.id = ${record.boat_id}
   `;
   const orgLabel = orgRows.length ? `${orgRows[0].owner_name} (${orgRows[0].org_boat_name})` : record.boat_id;
-  await notifyAdmin('pro_paid_via_redotpay', `${orgLabel} paid ${record.currency}${record.amount} via card (RedotPay) \u2014 Pro granted automatically, no approval needed.`, orgRows.length ? { type:'organization', id: orgRows[0].organization_id } : undefined);
+  await notifyAdmin('pro_paid_via_redotpay', `${orgLabel} paid ${record.currency}${record.amount} via crypto (RedotPay) \u2014 Pro granted automatically, no approval needed.`, orgRows.length ? { type:'organization', id: orgRows[0].organization_id } : undefined);
 }
 
-// Creates a RedotPay card-payment order for this boat's Pro upgrade/renewal.
+// Creates a RedotPay crypto-payment order for this boat's Pro upgrade/renewal.
 // outerOrderSn is this row's own pro_payments id -- RedotPay requires it to
 // be 6-32 chars of letters/numbers/_-|*, which the existing 'pp-<ts>-<rand>'
 // id shape already satisfies, so it doubles as the correlation key the
@@ -859,7 +859,7 @@ app.post('/api/pro/redotpay-payment-link', async (req, res) => {
     res.status(201).json({ ok:true, paymentUrl: order.webUrl || order.h5Url || null, orderSn: order.orderSn, status: 'PENDING' });
   }catch(e){
     console.error('create RedotPay payment link failed', e);
-    res.status(502).json({ ok:false, error: 'Could not create a card payment link. Try again, or use the bank transfer option.' });
+    res.status(502).json({ ok:false, error: 'Could not create a crypto payment link. Try again, or use the bank transfer option.' });
   }
 });
 
@@ -1745,7 +1745,7 @@ app.get('/api/admin/pro-requests', requireAdmin, async (req, res) => {
   }
 });
 
-// Every completed payment (Swipe or RedotPay card) that auto-granted Pro
+// Every completed payment (Swipe or RedotPay crypto) that auto-granted Pro
 // (no admin approval involved) -- for the admin's "Paid via Swipe/RedotPay"
 // tab, so there's still visibility into these even though nothing required
 // action. `provider` lets the admin UI label each row by which gateway it
@@ -2267,7 +2267,7 @@ async function sendAdminPush(type, message){
   if(!webPushConfigured) return;
   try{
     const subs = await sql`SELECT endpoint, subscription FROM admin_push_subscriptions`;
-    const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: 'Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: 'Paid via Swipe', pro_paid_via_redotpay: 'Paid via Card (RedotPay)' };
+    const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: 'Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: 'Paid via Swipe', pro_paid_via_redotpay: 'Paid via Crypto (RedotPay)' };
     const payload = JSON.stringify({ title: `SeaFare Super Admin \u2014 ${typeLabels[type] || type}`, body: message });
     await Promise.all(subs.map(async (s) => {
       try{
