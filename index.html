@@ -215,6 +215,23 @@
     0%{ transform:translateY(0); opacity:1; }
     100%{ transform:translateY(-16px); opacity:0; }
   }
+  /* Generic auto-dismissing toast (see showToast()) -- centered, no dark
+     overlay behind it since it's a passing confirmation, not something
+     that needs the person's attention before they can do anything else.
+     Same light-blue/teal note styling already used for inline status
+     text elsewhere (e.g. the old persistent "waiting for Super Admin"
+     note), just floated as its own popup instead of living inside
+     another panel. */
+  .app-toast{
+    position:fixed;left:50%;top:16px;transform:translate(-50%,-16px);
+    z-index:2500;max-width:420px;width:calc(100% - 32px);
+    background:var(--paper-dark);color:var(--teal);font-weight:600;
+    padding:14px 18px;border-radius:12px;text-align:center;
+    box-shadow:0 10px 28px rgba(0,0,0,0.22);
+    opacity:0;pointer-events:none;
+    transition:opacity 0.25s ease, transform 0.25s ease;
+  }
+  .app-toast.show{ opacity:1; transform:translate(-50%,0); }
   .brand h1{font-size:calc(18px * var(--en-scale));color:#F4F9FF;margin:0;font-weight:600;letter-spacing:0.06em;}
   .brand span{display:block;font-family:'JetBrains Mono',monospace;font-size:calc(9px * var(--en-scale));color:#B8D4EC;letter-spacing:0.14em;text-transform:uppercase;margin-top:2px;}
   /* Small "PRO" badge shown while this boat's Pro subscription is active
@@ -682,8 +699,16 @@
     animation:invoice-pop-in 0.22s ease-out;
   }
   .plan-card.pro{
+    /* Border-width matches .plan-card above (1.5px) on purpose -- this
+       used to also add a 3px amber glow ring around the border
+       (box-shadow:0 0 0 3px ...), which made the Pro card's outline read
+       as visibly thicker/bigger than the Free card's plain border right
+       next to it on the Choose-a-Plan screen, even though the border
+       itself was the same width. Dropped that ring so the two outlines
+       match in size -- the amber color plus the elevation shadow below
+       is enough to still set Pro apart. */
     border:1.5px solid var(--amber);
-    box-shadow:0 0 0 3px rgba(255,178,44,0.14), 0 10px 24px rgba(15,45,74,0.1);
+    box-shadow:0 10px 24px rgba(15,45,74,0.1);
   }
   .plan-ribbon{
     position:absolute;top:-11px;right:16px;background:var(--amber);color:var(--navy-deep);
@@ -709,36 +734,32 @@
      fit -- nothing extra needed there. Narrow viewports are the ones
      that need help: .plan-cards already wraps the cards into a vertical
      stack on its own (they don't fit side by side under ~480px), but the
-     app's own header (logo/brand, clock, role pill, settings/theme
-     icons) was still taking up space above it -- on a phone screen
-     that's often enough that the second (Pro) card gets pushed below
-     the fold and needs a scroll to reach.  Hiding header.app-head here
-     and trimming every card/hero spacing down removes that scroll for
-     most phones, so the animated boat/wave hero plus both full cards sit
-     together within one screen -- the -area itself gets centered in
-     100dvh instead of just flowing from the top, and overflow-y is left
-     on as a fallback for any screen too short to fit all of it, rather
-     than clipping content outright. */
+     leftover space was tight enough on a phone screen that the second
+     (Pro) card could get pushed below the fold. The header's brand row
+     (logo, "SeaFare", the clock) stays visible -- only the row below it
+     (role pill, settings/theme icons -- already hidden via
+     hideNormalShell() regardless) took up extra height, so the plan
+     panel now just flows normally in the page below the clock instead of
+     being centered/overlapping it. Trimming every card/hero spacing down
+     on top of that is what gets the animated boat/wave hero plus both
+     full cards to fit in one screen on most phones without scrolling;
+     overflow-y stays on as a fallback for any screen too short to fit
+     all of it, rather than clipping content outright. */
   @media (max-width: 640px){
-    body.plan-choice-screen header.app-head{ display:none; }
-    body.plan-choice-screen #gate-area{
-      min-height:100dvh;
-      display:flex;
-      flex-direction:column;
-      justify-content:center;
-      overflow-y:auto;
-    }
-    body.plan-choice-screen .plan-hero{ height:56px; }
-    body.plan-choice-screen .plan-hero-boat{ width:36px; bottom:14px; }
-    body.plan-choice-screen .plan-body{ padding:14px 14px 16px; }
+    body.plan-choice-screen header.app-head{ padding-bottom:8px; }
+    body.plan-choice-screen header.app-head > div:last-child{ display:none; }
+    body.plan-choice-screen #gate-area{ overflow-y:auto; }
+    body.plan-choice-screen .plan-hero{ height:48px; }
+    body.plan-choice-screen .plan-hero-boat{ width:32px; bottom:12px; }
+    body.plan-choice-screen .plan-body{ padding:12px 14px 14px; }
     body.plan-choice-screen .plan-heading{ font-size:calc(17px * var(--en-scale)); margin-bottom:2px; }
     body.plan-choice-screen .plan-body > .sub{ margin-bottom:0; }
-    body.plan-choice-screen .plan-cards{ margin-top:10px; gap:10px; flex-direction:column; }
-    body.plan-choice-screen .plan-card{ padding:14px; min-width:0; }
-    body.plan-choice-screen .plan-tier-icon{ width:30px; height:30px; margin-bottom:6px; }
-    body.plan-choice-screen .plan-tier-price{ margin-bottom:8px; }
-    body.plan-choice-screen .plan-check-list{ gap:6px; margin-bottom:12px; }
-    body.plan-choice-screen .plan-check-row{ font-size:calc(12px * var(--en-scale)); }
+    body.plan-choice-screen .plan-cards{ margin-top:8px; gap:8px; flex-direction:column; }
+    body.plan-choice-screen .plan-card{ padding:12px; min-width:0; }
+    body.plan-choice-screen .plan-tier-icon{ width:28px; height:28px; margin-bottom:4px; }
+    body.plan-choice-screen .plan-tier-price{ margin-bottom:6px; }
+    body.plan-choice-screen .plan-check-list{ gap:5px; margin-bottom:10px; }
+    body.plan-choice-screen .plan-check-row{ font-size:calc(11.5px * var(--en-scale)); }
   }
   .search-row{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;}
   .search-row input{margin-bottom:0;flex:1;min-width:180px;}
@@ -5344,16 +5365,42 @@ function markProAckPending(){
 function clearProAckPending(){
   try{ localStorage.removeItem(proAckPendingKey()); }catch(e){}
 }
+// Separate from the pending-request flag above -- this just remembers
+// whether THIS device last saw this boat as Pro or not, so a Pro grant
+// with no request behind it at all (Super Admin just switches it on as a
+// courtesy, nobody ever submitted a transfer or opened a Swipe link)
+// still gets caught. Without this, checkProActivationAck() below would
+// only ever fire for request-based grants, since markProAckPending() is
+// only ever called from submitProRequest()/renderSwipeAccountBody().
+function proLastStateKey(){
+  return `sf_pro_last_state:${CURRENT_BOAT_ID || 'x'}`;
+}
 let _proActivationAckCheckedThisLoad = false;
+// Run once per app open, from renderDashboard() the same way
+// checkProExpiryWarning() is. Two independent reasons this device might
+// owe the person a "Pro is now active" moment it hasn't shown yet:
+//   1. It knows it's mid-request (proAckPendingKey) -- covers Super Admin
+//      approving a submitted transfer, or a Swipe payment completing,
+//      while this tab wasn't open to catch it live.
+//   2. This boat just flipped from not-Pro to Pro since the last time
+//      this device checked (proLastStateKey), with NO request pending at
+//      all -- covers a Super Admin granting Pro unprompted, which #1
+//      alone would never catch.
+// Either way, the animation is due. A brand-new device's very first
+// check on an org that's already Pro just records that silently instead
+// of firing -- nothing "just changed" from that device's point of view,
+// so popping the animation there would be a false alarm, not a catch-up.
 async function checkProActivationAck(){
   if(_proActivationAckCheckedThisLoad) return;
   _proActivationAckCheckedThisLoad = true;
+  const nowPro = isProAccount();
   let pending = false;
   try{ pending = localStorage.getItem(proAckPendingKey()) === '1'; }catch(e){}
-  if(!pending) return;
-  // Not confirmed yet as far as this device knows -- leave the flag set
-  // and just check again next app open, same as before.
-  if(!isProAccount()) return;
+  let lastKnown = null;
+  try{ lastKnown = localStorage.getItem(proLastStateKey()); }catch(e){}
+  const justWentPro = nowPro && lastKnown !== null && lastKnown !== 'pro';
+  try{ localStorage.setItem(proLastStateKey(), nowPro ? 'pro' : 'free'); }catch(e){}
+  if(!nowPro || !(pending || justWentPro)) return;
   clearProAckPending();
   await showProActivatedAnimation();
 }
@@ -5465,7 +5512,7 @@ function openUpgradeToProPopup(){
         <div class="plan-tier-icon pro" style="margin-bottom:14px;">
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS.crown}</svg>
         </div>
-        <p class="sub" style="margin-bottom:16px;">${t('To Upgrade to pro version pay \u0783500 by transfer.')}</p>
+        <p class="sub" style="margin-bottom:16px;">${t('To Upgrade to pro version pay \u0783500 by transfer or Swipe.')}</p>
         <div class="sub-tabs" id="upgrade-pro-account-tabs">
           <button class="active" data-pro-account-tab="bml">${t('BML Account')}</button>
           <button data-pro-account-tab="mib">${t('MIB Account')}</button>
@@ -5689,6 +5736,7 @@ async function checkSwipeProPaymentStatus(isAutoPoll){
 // new payment.
 async function handleProPaymentConfirmed(){
   clearProAckPending();
+  try{ localStorage.setItem(proLastStateKey(), 'pro'); }catch(e){}
   const returnContext = _proUpgradeReturnContext || { entryMode: state.entryMode, tab: state.tab, settingsTab: state.settingsTab };
   _proUpgradeReturnContext = null;
   closeUpgradeToProPopup();
@@ -5721,6 +5769,26 @@ async function handleProPaymentConfirmed(){
 // Animated teal check + a small "SeaFare Pro" mark, held for ~2s so the
 // confirmation actually registers before moving on. Same single
 // rgba(0,0,0,0.5) overlay treatment as every other popup in the app.
+// Small non-blocking confirmation that shows itself and disappears again
+// on its own -- no overlay/backdrop (unlike every modal popup elsewhere
+// in the app), since this is just a passing "got it" rather than
+// something the person needs to dismiss or act on. Used for the
+// bank-transfer submission confirmation (see renderUpgradeToProRequestArea)
+// so submitting doesn't leave a permanent "waiting..." note sitting in a
+// popup the person then has to close themselves -- it tells them once,
+// briefly, and gets out of the way.
+function showToast(message, durationMs){
+  document.querySelectorAll('.app-toast').forEach(el => el.remove());
+  const el = document.createElement('div');
+  el.className = 'app-toast';
+  el.textContent = message;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, durationMs || 5000);
+}
 function showProActivatedAnimation(){
   return new Promise((resolve) => {
     lockBodyScroll();
@@ -5771,16 +5839,31 @@ function renderUpgradeToProRequestArea(alreadyRequested){
   });
   submitBtn.addEventListener('click', async () => {
     const file = fileInput.files && fileInput.files[0];
-    if(!file){ alert(t('Attach a screenshot of the transfer first.')); return; }
+    if(!file){ themedAlert(t('Attach a screenshot of the transfer first.')); return; }
     submitBtn.disabled = true; submitBtn.textContent = t('Notifying\u2026');
     try{
       const screenshot = await compressImageToDataUrl(file, 800, 0.55);
       await submitProRequest(screenshot);
-      renderUpgradeToProRequestArea(true);
+      // Rather than leaving a permanent "waiting for the Super Admin"
+      // note sitting inside the popup (the old behavior -- see the note
+      // still used above for alreadyRequested, which is for *reopening*
+      // the popup later to check status, a different moment from this
+      // one), the confirmation is a brief toast and the popup itself
+      // closes right away. If this was opened from the Choose-a-Plan
+      // screen (state.showPlanChoice still true -- see the pro-card
+      // click handler in renderChoosePlanScreen, which no longer hides
+      // that screen just to open this popup), re-render it so the Pro
+      // card's button immediately reflects the new pending state
+      // ("Continue with Free Version" -- there's nothing more to do on
+      // Pro until the Super Admin confirms it) instead of still reading
+      // "Continue with Pro" as if nothing happened.
+      closeUpgradeToProPopup();
+      showToast(t('Payment noted \u2014 waiting for the Super Admin to confirm it.'));
+      if(state.showPlanChoice) renderChoosePlanScreen();
     }catch(e){
       console.error('submitProRequest failed', e);
       submitBtn.disabled = false; submitBtn.textContent = t('I\u2019ve Paid \u2014 Notify Admin');
-      alert(t('Could not send that. Check your connection and try again.'));
+      themedAlert(t('Could not send that. Check your connection and try again.'));
     }
   });
 }
@@ -9292,6 +9375,53 @@ function showMessageBox(title, message){
   document.getElementById('message-box-close').addEventListener('click', close);
   overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
 }
+// Drop-in replacement for window.alert() -- same themed .panel backdrop
+// as every other themed popup, so it follows dark/light mode instead of
+// the browser's own unstylable native dialog chrome (a real
+// alert()/confirm() can never pick up the app's theme, no matter what
+// CSS says, since the OS draws it, not the page). No title bar -- most
+// call sites are one-line notices, so this skips straight to the
+// message rather than manufacturing a title for messages that never had
+// one.
+function themedAlert(message){
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="panel" style="max-width:360px;width:100%;">
+      <p style="margin:0 0 16px;line-height:1.5;white-space:pre-line;">${escapeHtml(message)}</p>
+      <button class="btn btn-primary" id="themed-alert-close" style="width:100%;">${t("OK")}</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  document.getElementById('themed-alert-close').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
+}
+// Drop-in replacement for window.confirm() -- same idea as themedAlert(),
+// but since a themed popup can't block the script the way the native
+// dialog does, every call site becomes `if(!(await themedConfirm(...)))
+// return;` inside an async function instead of the old synchronous
+// `if(!confirm(...)) return;`.
+function themedConfirm(message){
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px;';
+    overlay.innerHTML = `
+      <div class="panel" style="max-width:360px;width:100%;">
+        <p style="margin:0 0 16px;line-height:1.5;white-space:pre-line;">${escapeHtml(message)}</p>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost" id="themed-confirm-cancel" style="flex:1;">${t("Cancel")}</button>
+          <button class="btn btn-primary" id="themed-confirm-ok" style="flex:1;">${t("OK")}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const finish = (result) => { overlay.remove(); resolve(result); };
+    document.getElementById('themed-confirm-cancel').addEventListener('click', () => finish(false));
+    document.getElementById('themed-confirm-ok').addEventListener('click', () => finish(true));
+    overlay.addEventListener('click', (e) => { if(e.target === overlay) finish(false); });
+  });
+}
 
 function confirmAdminAction(label, onConfirm, withNote, withAmount){
   const overlay = document.createElement('div');
@@ -10169,6 +10299,18 @@ function planCard(opts){
 }
 function renderChoosePlanScreen(){
   const area = document.getElementById('gate-area');
+  // Once a bank-transfer request has actually been submitted, picking
+  // "Pro" again would just reopen the same payment popup with nothing
+  // new to do -- there's nothing left to submit until the Super Admin
+  // confirms it. The Pro card's button reflects that: it becomes
+  // "Continue with Free Version" so the person isn't stuck on this
+  // screen waiting -- they can go use the app under Free right away
+  // (see the pro-card click handler below) while the request sits
+  // pending in the background. See renderUpgradeToProRequestArea(), the
+  // moment this flips to true, and showToast() there, which is what
+  // brings them back to this (re-rendered) screen right after
+  // submitting.
+  const proPending = !!(state.settings && state.settings.proRequestPending);
   area.innerHTML = `
     <div style="max-width:680px;margin:0 auto;padding:20px 16px 60px;">
       <div class="panel plan-panel">
@@ -10195,7 +10337,7 @@ function renderChoosePlanScreen(){
             ${planCard({
               title: t('Pro'), priceHtml: `<strong>\u0783500</strong> / ${t('mo')}`, icon: 'crown', highlight: true,
               points: PRO_PLAN_FEATURES.map(p => t(p)),
-              btnId: 'choose-plan-pro-btn', btnLabel: t('Continue with Pro'),
+              btnId: 'choose-plan-pro-btn', btnLabel: proPending ? t('Continue with Free Version') : t('Continue with Pro'),
             })}
           </div>
         </div>
@@ -10207,8 +10349,19 @@ function renderChoosePlanScreen(){
     renderOrgArea();
   });
   document.getElementById('choose-plan-pro-btn').addEventListener('click', () => {
-    state.showPlanChoice = false;
-    renderOrgArea();
+    if(proPending){
+      // Already requested and waiting on the Super Admin -- same "go use
+      // the app" action as the Free card, just reached via the Pro card
+      // since that's the one they actually picked.
+      state.showPlanChoice = false;
+      renderOrgArea();
+      return;
+    }
+    // Deliberately doesn't set state.showPlanChoice = false or call
+    // renderOrgArea() here (unlike the Free button above) -- this screen
+    // stays put underneath the popup, so if they submit a request the
+    // Pro card above is right there to re-render with its new label
+    // rather than needing to be reconstructed from scratch.
     openUpgradeToProPopup();
   });
 }
