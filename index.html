@@ -10986,6 +10986,7 @@ function renderOrgLogin(){
         <input type="password" id="ol-passkey" style="text-align:left;letter-spacing:normal;font-family:inherit;font-size:calc(16px * var(--en-scale));">
         <div style="text-align:left;margin:-4px 0 4px;"><a href="javascript:void(0)" id="ol-forgot-link" style="text-decoration:underline;color:var(--navy-deep);font-size:calc(13px * var(--en-scale));">Forgot password?</a></div>
         <div class="pin-error" id="ol-error">${escapeHtml(state.orgError || '')}</div>
+        <div id="ol-wait-note" style="display:none;font-size:calc(12px * var(--en-scale));color:var(--ink-soft);text-align:left;margin:-2px 0 8px;">This can take up to a minute if the server has been idle.</div>
         <button class="btn btn-primary" id="ol-submit-btn" style="width:100%;margin:10px 0;">${t("Log In")}</button>
         <button class="btn btn-ghost" id="ol-signup-instead-btn" style="width:100%;margin-bottom:8px;">${t("New here? Register your boat")}</button>
         <button class="btn btn-ghost" id="ol-back-btn" style="width:100%;">${t("Back")}</button>
@@ -11001,6 +11002,7 @@ function renderOrgLogin(){
   });
   const submit = async () => {
     const errorEl = document.getElementById('ol-error');
+    const waitNote = document.getElementById('ol-wait-note');
     const btn = document.getElementById('ol-submit-btn');
     clearFieldErrors(['ol-boat-name','ol-passkey']);
     const boatName = document.getElementById('ol-boat-name').value.trim();
@@ -11010,11 +11012,25 @@ function renderOrgLogin(){
     if(!boatName || !passkey){ errorEl.textContent = 'Enter your username and password.'; return; }
     errorEl.textContent = '';
     btn.disabled = true; btn.textContent = 'Logging in\u2026';
+    // The backend sleeps when idle and can take up to ~50s to wake back
+    // up on its first request -- surfacing that expectation up front
+    // (rather than leaving "Logging in..." sitting there with zero
+    // explanation) is what stops a genuinely-still-working request from
+    // reading as a stuck/broken button. Also a hard cutoff via
+    // AbortController so a request that's actually gone nowhere (bad
+    // connection, server down) doesn't leave the button disabled
+    // forever with no way to tell the difference or retry.
+    const waitNoteTimer = setTimeout(() => { waitNote.style.display = 'block'; }, 4000);
+    const controller = new AbortController();
+    const timeoutTimer = setTimeout(() => controller.abort(), 55000);
     try{
       const res = await fetch(`${API_BASE}/api/org-login`, {
-        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ boatName, passkey })
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ boatName, passkey }),
+        signal: controller.signal
       });
       const data = await res.json().catch(() => ({}));
+      clearTimeout(waitNoteTimer); clearTimeout(timeoutTimer);
+      waitNote.style.display = 'none';
       btn.disabled = false; btn.textContent = t('Log In');
       if(res.ok && data.ok){
         state.orgAuthed = true; state.orgPasskey = passkey;
@@ -11036,8 +11052,12 @@ function renderOrgLogin(){
       }
     }catch(e){
       console.error('org login failed', e);
+      clearTimeout(waitNoteTimer); clearTimeout(timeoutTimer);
+      waitNote.style.display = 'none';
       btn.disabled = false; btn.textContent = t('Log In');
-      errorEl.textContent = 'Something went wrong. Try again.';
+      errorEl.textContent = e.name === 'AbortError'
+        ? 'Taking too long to respond. Check your connection and try again.'
+        : 'Something went wrong. Try again.';
     }
   };
   document.getElementById('ol-submit-btn').addEventListener('click', submit);
