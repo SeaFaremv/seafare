@@ -5437,6 +5437,11 @@ async function fetchProBankAccounts(){
 // 500 there too if unset). Only affects the wording shown before the link
 // is created; the actual amount charged always comes from the server.
 const SWIPE_PRO_DISPLAY_AMOUNT = 500;
+// Same idea for the RedotPay "Pay by Card" tab -- must match
+// REDOTPAY_PRO_AMOUNT / REDOTPAY_PRO_CURRENCY on the server (defaults to
+// 5 USD there too if unset).
+const REDOTPAY_PRO_DISPLAY_AMOUNT = 5;
+const REDOTPAY_PRO_DISPLAY_CURRENCY = 'USD';
 
 // Records that this boat has paid and is waiting on Super Admin to flip
 // it to Pro -- the actual "notify the admin" step, since there's no push
@@ -5525,11 +5530,12 @@ function openUpgradeToProPopup(){
         <div class="plan-tier-icon pro" style="margin-bottom:14px;">
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS.crown}</svg>
         </div>
-        <p class="sub" style="margin-bottom:16px;">${t('To Upgrade to pro version pay \u0783500 by transfer or Swipe.')}</p>
+        <p class="sub" style="margin-bottom:16px;">${t('To Upgrade to pro version pay \u0783500 by transfer or Swipe, or pay by card.')}</p>
         <div class="sub-tabs" id="upgrade-pro-account-tabs">
           <button class="active" data-pro-account-tab="bml">${t('BML Account')}</button>
           <button data-pro-account-tab="mib">${t('MIB Account')}</button>
           <button data-pro-account-tab="swipe">${t('Pay by Swipe')}</button>
+          <button data-pro-account-tab="redotpay">${t('Pay by Card')}</button>
         </div>
         <div id="upgrade-pro-account-body"><div class="empty" style="padding:16px 0;">${t('Loading\u2026')}</div></div>
         <div id="upgrade-pro-request-area" style="margin-top:14px;"></div>
@@ -5548,7 +5554,7 @@ function openUpgradeToProPopup(){
     // the default bml tab.
     if(!document.getElementById('upgrade-pro-account-body')) return;
     const activeTab = document.querySelector('#upgrade-pro-account-tabs .active');
-    if(activeTab && activeTab.dataset.proAccountTab !== 'swipe'){
+    if(activeTab && activeTab.dataset.proAccountTab !== 'swipe' && activeTab.dataset.proAccountTab !== 'redotpay'){
       renderUpgradeToProAccountBody(activeTab.dataset.proAccountTab);
     }
   });
@@ -5556,6 +5562,7 @@ function openUpgradeToProPopup(){
 
 function closeUpgradeToProPopup(){
   stopSwipePaymentPolling();
+  stopRedotPayPaymentPolling();
   stopBankTransferPolling();
   const overlay = document.getElementById('upgrade-pro-popup-overlay');
   if(overlay) unlockBodyScroll();
@@ -5565,21 +5572,24 @@ function closeUpgradeToProPopup(){
 function wireUpgradeToProAccountTabs(){
   document.querySelectorAll('#upgrade-pro-account-tabs [data-pro-account-tab]').forEach(b => b.addEventListener('click', () => {
     stopSwipePaymentPolling();
+    stopRedotPayPaymentPolling();
     document.querySelectorAll('#upgrade-pro-account-tabs [data-pro-account-tab]').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     renderUpgradeToProAccountBody(b.dataset.proAccountTab);
   }));
 }
 
-// The Swipe tab renders into the very same #upgrade-pro-account-body slot
-// as BML/MIB below, instead of opening a second stacked popup on top of
+// The Swipe/RedotPay tabs render into the very same #upgrade-pro-account-body
+// slot as BML/MIB below, instead of opening a second stacked popup on top of
 // this one -- that used to double up the dark overlay (two translucent
 // backdrops layered on each other) so the organization app behind looked
 // noticeably darker/grayer than every other popup in the app. One panel,
 // one overlay, same as everywhere else.
 function renderUpgradeToProAccountBody(which){
-  if(which === 'swipe'){ renderSwipeAccountBody(); return; }
+  if(which === 'swipe'){ stopRedotPayPaymentPolling(); renderSwipeAccountBody(); return; }
+  if(which === 'redotpay'){ stopSwipePaymentPolling(); renderRedotPayAccountBody(); return; }
   stopSwipePaymentPolling();
+  stopRedotPayPaymentPolling();
   const body = document.getElementById('upgrade-pro-account-body');
   if(!body) return;
   if(!_proBankAccounts){
@@ -5726,6 +5736,80 @@ async function checkSwipeProPaymentStatus(isAutoPoll){
     if(statusEl) statusEl.textContent = data.ok ? `${t('Status')}: ${data.status}` : t('Could not check payment status.');
   }catch(e){
     console.error('checkSwipeProPaymentStatus failed', e);
+    if(statusEl) statusEl.textContent = t('Could not check payment status.');
+  }finally{
+    if(!isAutoPoll && btn){ btn.disabled = false; btn.textContent = t('Check Now'); }
+  }
+}
+
+// "Pay by Card" tab -- same shape as the Swipe tab above (creates a real
+// payment link server-side, shows it with an Open + status line, and
+// checks status when the person comes back to this tab rather than on a
+// timer), just talking to the RedotPay endpoints instead of Swipe's.
+let _redotpayProPaymentRef = null;
+let _redotpayProReturnHandler = null;
+function stopRedotPayPaymentPolling(){
+  if(_redotpayProReturnHandler){
+    document.removeEventListener('visibilitychange', _redotpayProReturnHandler);
+    window.removeEventListener('focus', _redotpayProReturnHandler);
+    _redotpayProReturnHandler = null;
+  }
+  _redotpayProPaymentRef = null;
+}
+async function renderRedotPayAccountBody(){
+  const body = document.getElementById('upgrade-pro-account-body');
+  if(!body) return;
+  body.innerHTML = `<div class="note">${t('Generating a payment link\u2026')}</div>`;
+  try{
+    const res = await fetch(`${API_BASE}/api/pro/redotpay-payment-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ boatId: CURRENT_BOAT_ID }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok || !data.ok || !data.paymentUrl){
+      body.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.')}</div>`;
+      return;
+    }
+    _redotpayProPaymentRef = data.orderSn;
+    markProAckPending();
+    body.innerHTML = `
+      <div class="note">${t('Tap below to pay')} ${REDOTPAY_PRO_DISPLAY_CURRENCY} ${REDOTPAY_PRO_DISPLAY_AMOUNT} ${t('by card. Pro activates automatically once payment is confirmed \u2014 no need to notify the Super Admin for this option.')}</div>
+      <a href="${escapeHtml(data.paymentUrl)}" target="_blank" rel="noopener" class="btn btn-primary" style="width:100%;margin-top:10px;display:block;text-align:center;text-decoration:none;">${t('Open Payment Link')}</a>
+      <button type="button" class="btn btn-ghost" id="redotpay-payment-check-btn" style="width:100%;margin-top:8px;">${t('Check Now')}</button>
+      <div id="redotpay-payment-status" class="tag-meta" style="margin-top:8px;">${t('Status')}: ${escapeHtml(data.status || 'PENDING')}</div>
+    `;
+    document.getElementById('redotpay-payment-check-btn').addEventListener('click', () => checkRedotPayProPaymentStatus(false));
+    // Check automatically the moment the person comes back to this tab --
+    // not on a timer running the whole time they're away. Cleared by
+    // stopRedotPayPaymentPolling() on popup close, tab switch, or once the
+    // payment clears.
+    _redotpayProReturnHandler = () => {
+      if(document.visibilityState === 'visible') checkRedotPayProPaymentStatus(true);
+    };
+    document.addEventListener('visibilitychange', _redotpayProReturnHandler);
+    window.addEventListener('focus', _redotpayProReturnHandler);
+  }catch(e){
+    console.error('renderRedotPayAccountBody failed', e);
+    body.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.')}</div>`;
+  }
+}
+async function checkRedotPayProPaymentStatus(isAutoPoll){
+  if(!_redotpayProPaymentRef) return;
+  const btn = document.getElementById('redotpay-payment-check-btn');
+  const statusEl = document.getElementById('redotpay-payment-status');
+  if(!isAutoPoll && btn){ btn.disabled = true; btn.textContent = t('Checking\u2026'); }
+  try{
+    const res = await fetch(`${API_BASE}/api/pro/redotpay-payment-link/${encodeURIComponent(_redotpayProPaymentRef)}/status`);
+    const data = await res.json().catch(() => ({}));
+    if(data.ok && data.status === 'COMPLETED'){
+      stopRedotPayPaymentPolling();
+      await handleProPaymentConfirmed();
+      return;
+    }
+    if(statusEl) statusEl.textContent = data.ok ? `${t('Status')}: ${data.status}` : t('Could not check payment status.');
+  }catch(e){
+    console.error('checkRedotPayProPaymentStatus failed', e);
     if(statusEl) statusEl.textContent = t('Could not check payment status.');
   }finally{
     if(!isAutoPoll && btn){ btn.disabled = false; btn.textContent = t('Check Now'); }
@@ -9189,7 +9273,7 @@ function createAdminBannerStack(){
   return stack;
 }
 function showAdminNotificationBanner(n){
-  const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: '\u2705 Paid via Swipe' };
+  const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: '\u2705 Paid via Swipe', pro_paid_via_redotpay: '\u2705 Paid via Card (RedotPay)' };
   const title = typeLabels[n.type] || n.type || 'New notification';
   if(typeof Notification !== 'undefined' && Notification.permission === 'granted'){
     try{
@@ -9775,7 +9859,7 @@ const ADMIN_NOTIFY_TOGGLES = [
   { key: 'notifyBoatRequests', label: 'Additional-boat requests' },
   { key: 'notifyNewBoats', label: 'New boats created' },
   { key: 'notifyProRequests', label: 'Pro upgrade requests (bank transfer)' },
-  { key: 'notifyProPayments', label: 'Pro paid via Swipe' },
+  { key: 'notifyProPayments', label: 'Pro paid via Card/Swipe' },
 ];
 function openAdminSettingsPopup(){
   closeAdminSettingsPopup();
@@ -9928,7 +10012,7 @@ function renderAdminDashboard(){
           <button class="${state.adminTab==='requests'?'active':''}" data-admintab="requests">${t("Boat Requests")}</button>
           <button class="${state.adminTab==='blocked'?'active':''}" data-admintab="blocked">${t("Blocked Users")}</button>
           <button class="${state.adminTab==='proRequests'?'active':''}" data-admintab="proRequests">Pro Requests${(state.adminProRequests||[]).length ? ` (${(state.adminProRequests||[]).length})` : ''}</button>
-          <button class="${state.adminTab==='proPayments'?'active':''}" data-admintab="proPayments">Paid via Swipe${(state.adminProPayments||[]).length ? ` (${(state.adminProPayments||[]).length})` : ''}</button>
+          <button class="${state.adminTab==='proPayments'?'active':''}" data-admintab="proPayments">Paid via Card/Swipe${(state.adminProPayments||[]).length ? ` (${(state.adminProPayments||[]).length})` : ''}</button>
           <button class="${state.adminTab==='notifications'?'active':''}" data-admintab="notifications">Notifications${(state.adminNotifications||[]).filter(n=>!n.read).length ? ` (${(state.adminNotifications||[]).filter(n=>!n.read).length})` : ''}</button>
         </div>
         ${state.adminTab !== 'notifications' ? `
@@ -10059,13 +10143,13 @@ function renderAdminTabBody(){
       if(state.adminProPayments === null) await loadAdminProPayments();
       if(!document.getElementById('admin-body')) return;
       const pays = (state.adminProPayments || []).filter(p => adminMatchesSearch(state.adminSearchQuery, p.owner_name, p.org_boat_name, p.boat_name));
-      body.innerHTML = pays.length === 0 ? `<div class="empty">No Swipe payments yet.</div>` : pays.map(p => `
+      body.innerHTML = pays.length === 0 ? `<div class="empty">No card/Swipe payments yet.</div>` : pays.map(p => `
         <button type="button" class="settings-block" data-pro-payment-org="${p.organization_id}" style="display:block;width:100%;text-align:left;cursor:pointer;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
             <div>
               <h3 style="margin-bottom:4px;">${escapeHtml(p.owner_name)} \u2014 ${escapeHtml(p.org_boat_name)}</h3>
               <p class="sub" style="margin-bottom:2px;">Paid from boat: ${escapeHtml(p.boat_name)}</p>
-              <p class="tag-meta">${p.completed_at ? fmtDate(p.completed_at) : ''}</p>
+              <p class="tag-meta">${p.completed_at ? fmtDate(p.completed_at) : ''}${p.provider === 'redotpay' ? ' \u2014 via Card (RedotPay)' : ' \u2014 via Swipe'}</p>
             </div>
             <span class="status-pill status-delivered">${escapeHtml(p.currency)} ${escapeHtml(String(p.amount))}</span>
           </div>
@@ -10170,7 +10254,7 @@ function renderAdminTabBody(){
       if(!document.getElementById('admin-body')) return;
       const notes = state.adminNotifications || [];
       const unreadCount = notes.filter(n => !n.read).length;
-      const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: '\u2705 Paid via Swipe' };
+      const typeLabels = { new_signup: 'New Signup', new_boat: 'New Boat', pending_request: 'Pending Request', resignup_after_deletion: '\u26a0 Re-signup After Deletion', pro_request: 'Pro Upgrade Requested', pro_paid_via_swipe: '\u2705 Paid via Swipe', pro_paid_via_redotpay: '\u2705 Paid via Card (RedotPay)' };
       body.innerHTML = `
         <button type="button" class="btn btn-ghost" id="admin-enable-push-btn" style="width:100%;margin-bottom:12px;">${state.adminPushSubscribed ? t('\u2713 Push Notifications Enabled \u2014 tap to disable') : t('\ud83d\udd14 Enable Push Notifications on This Device')}</button>
         ${unreadCount ? `<button type="button" class="btn btn-ghost" id="admin-notif-mark-all-btn" style="width:100%;margin-bottom:12px;">Mark all ${unreadCount} as read</button>` : ''}
