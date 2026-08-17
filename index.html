@@ -3530,6 +3530,7 @@ function wireActiveTripStripEvents(){
 function renderDashboard(){
   const panel = document.getElementById('panel');
   checkProExpiryWarning();
+  checkProActivationAck();
   const trips = state.trips || [];
   const hasOpenTrip = trips.some(t => !t.finished);
   // If every trip is finished (no new one started yet), the most recently
@@ -5280,6 +5281,44 @@ function proDaysLeft(){
   return (new Date(s.proExpiresAt).getTime() - Date.now()) / 86400000;
 }
 
+// Marks (on this device, for this boat) that a Pro payment is in flight
+// and the person hasn't actually seen the "Pro is now active" confirmation
+// for it yet -- set the moment they submit a bank-transfer request or open
+// a Swipe payment link, cleared once showProActivatedAnimation() has
+// actually played for them. This is what makes Pro activation reliably
+// *seen*, not just applied, even when the confirming event (Super Admin
+// approving the transfer, or Swipe confirming the payment) happens while
+// they're not looking at this tab at all -- mid-payment in the Swipe app,
+// or with the browser/app closed entirely overnight waiting on the Super
+// Admin. See checkProActivationAck(), run once per app open from
+// renderDashboard() the same way checkProExpiryWarning() is: if this flag
+// is still set next time they open the app AND isProAccount() is now
+// true, that's exactly the "it went through while I was away" case, and
+// the confirmation they missed gets shown right then instead of silently
+// never appearing.
+function proAckPendingKey(){
+  return `sf_pro_ack_pending:${CURRENT_BOAT_ID || 'x'}`;
+}
+function markProAckPending(){
+  try{ localStorage.setItem(proAckPendingKey(), '1'); }catch(e){}
+}
+function clearProAckPending(){
+  try{ localStorage.removeItem(proAckPendingKey()); }catch(e){}
+}
+let _proActivationAckCheckedThisLoad = false;
+async function checkProActivationAck(){
+  if(_proActivationAckCheckedThisLoad) return;
+  _proActivationAckCheckedThisLoad = true;
+  let pending = false;
+  try{ pending = localStorage.getItem(proAckPendingKey()) === '1'; }catch(e){}
+  if(!pending) return;
+  // Not confirmed yet as far as this device knows -- leave the flag set
+  // and just check again next app open, same as before.
+  if(!isProAccount()) return;
+  clearProAckPending();
+  await showProActivatedAnimation();
+}
+
 // Fetched fresh from the server every time the Upgrade to Pro popup opens
 // (see openUpgradeToProPopup) rather than hardcoded, so a Super Admin
 // editing these in Admin Settings takes effect for every owner immediately
@@ -5336,6 +5375,7 @@ async function submitProRequest(screenshotDataUrl){
     fresh.proRequestedAt = new Date().toISOString();
     fresh.proRequestScreenshot = screenshotDataUrl || null;
   });
+  markProAckPending();
   try{
     await fetch(`${API_BASE}/api/pro-requests`, {
       method: 'POST',
@@ -5417,6 +5457,7 @@ function openUpgradeToProPopup(){
 
 function closeUpgradeToProPopup(){
   stopSwipePaymentPolling();
+  stopBankTransferPolling();
   const overlay = document.getElementById('upgrade-pro-popup-overlay');
   if(overlay) unlockBodyScroll();
   overlay?.remove();
@@ -5500,6 +5541,39 @@ function stopSwipePaymentPolling(){
   }
   _swipeProPaymentRef = null;
 }
+// Same "check when they actually come back to the tab" approach as the
+// Swipe polling above, but for a submitted bank-transfer request instead
+// of a Swipe link -- there's no separate payment status endpoint for
+// this path, so it just re-fetches this boat's own settings and checks
+// isProAccount(); the Super Admin approving the transfer is what flips
+// that server-side. Started the moment the "waiting for the Super Admin"
+// note is shown (see renderUpgradeToProRequestArea) and stopped on popup
+// close or once it's confirmed.
+let _bankTransferReturnHandler = null;
+function stopBankTransferPolling(){
+  if(_bankTransferReturnHandler){
+    document.removeEventListener('visibilitychange', _bankTransferReturnHandler);
+    window.removeEventListener('focus', _bankTransferReturnHandler);
+    _bankTransferReturnHandler = null;
+  }
+}
+async function checkBankTransferProStatus(){
+  try{
+    state.settings = await loadSettings();
+  }catch(e){ console.error('checkBankTransferProStatus failed', e); return; }
+  if(isProAccount()){
+    stopBankTransferPolling();
+    await handleProPaymentConfirmed();
+  }
+}
+function startBankTransferPolling(){
+  if(_bankTransferReturnHandler) return;
+  _bankTransferReturnHandler = () => {
+    if(document.visibilityState === 'visible') checkBankTransferProStatus();
+  };
+  document.addEventListener('visibilitychange', _bankTransferReturnHandler);
+  window.addEventListener('focus', _bankTransferReturnHandler);
+}
 async function renderSwipeAccountBody(){
   const body = document.getElementById('upgrade-pro-account-body');
   if(!body) return;
@@ -5516,6 +5590,7 @@ async function renderSwipeAccountBody(){
       return;
     }
     _swipeProPaymentRef = data.swipePaymentId;
+    markProAckPending();
     body.innerHTML = `
       <div class="note">${t('Tap below to pay \u0783')}${SWIPE_PRO_DISPLAY_AMOUNT} ${t('via the Swipe app. Pro activates automatically once payment is confirmed \u2014 no need to notify the Super Admin for this option.')}</div>
       <a href="${escapeHtml(data.paymentUrl)}" target="_blank" rel="noopener" class="btn btn-primary" style="width:100%;margin-top:10px;display:block;text-align:center;text-decoration:none;">${t('Open Payment Link')}</a>
@@ -5558,10 +5633,12 @@ async function checkSwipeProPaymentStatus(isAutoPoll){
   }
 }
 
-// Shared "Pro just activated" moment, fired the instant a Swipe payment is
-// confirmed (whether caught by the auto-poll or a manual "Check Now").
-// Closes the payment panel, shows a brief animated confirmation, then
-// refreshes whichever screen the person was on -- captured in
+// Shared "Pro just activated" moment, fired the instant a Swipe payment or
+// a Super-Admin-approved bank transfer is confirmed (whether caught by an
+// auto-poll, a manual "Check Now", or the bank-transfer visibility/focus
+// check -- see checkBankTransferProStatus()). Closes the payment panel,
+// shows a brief animated confirmation, then refreshes whichever screen the
+// person was on -- captured in
 // _proUpgradeReturnContext when the popup was first opened -- so Pro-only
 // options appear immediately and they can pick up right where they left
 // off, no manual reload or renavigating needed. On the Org Dashboard
@@ -5572,6 +5649,7 @@ async function checkSwipeProPaymentStatus(isAutoPoll){
 // redraws that same tab now that isProAccount()/isOrgPro() reflect the
 // new payment.
 async function handleProPaymentConfirmed(){
+  clearProAckPending();
   const returnContext = _proUpgradeReturnContext || { entryMode: state.entryMode, tab: state.tab, settingsTab: state.settingsTab };
   _proUpgradeReturnContext = null;
   closeUpgradeToProPopup();
@@ -5634,8 +5712,10 @@ function renderUpgradeToProRequestArea(alreadyRequested){
   if(!area) return;
   if(alreadyRequested){
     area.innerHTML = `<div class="note" style="color:var(--teal);font-weight:600;">${t('Payment noted \u2014 waiting for the Super Admin to confirm it.')}</div>`;
+    startBankTransferPolling();
     return;
   }
+  stopBankTransferPolling();
   // A screenshot of the transfer is required, not optional -- that's
   // what Super Admin actually confirms the payment against (see the
   // per-boat Pro block in the admin dashboard). Submit stays disabled
