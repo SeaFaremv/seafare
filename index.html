@@ -702,6 +702,44 @@
   .plan-check-list{flex:1;display:flex;flex-direction:column;gap:9px;margin-bottom:18px;}
   .plan-check-row{display:flex;align-items:flex-start;gap:9px;font-size:calc(13px * var(--en-scale));color:var(--ink);line-height:1.4;}
   .plan-check-row svg{flex-shrink:0;margin-top:1px;}
+  /* Mobile Choose-a-Plan layout -- see renderOrgArea(), which toggles
+     this class on <body> exactly while the plan screen is showing. On a
+     wide (PC) viewport the two cards already sit side by side for free,
+     just from .plan-cards' flex-wrap only kicking in once they don't
+     fit -- nothing extra needed there. Narrow viewports are the ones
+     that need help: .plan-cards already wraps the cards into a vertical
+     stack on its own (they don't fit side by side under ~480px), but the
+     app's own header (logo/brand, clock, role pill, settings/theme
+     icons) was still taking up space above it -- on a phone screen
+     that's often enough that the second (Pro) card gets pushed below
+     the fold and needs a scroll to reach.  Hiding header.app-head here
+     and trimming every card/hero spacing down removes that scroll for
+     most phones, so the animated boat/wave hero plus both full cards sit
+     together within one screen -- the -area itself gets centered in
+     100dvh instead of just flowing from the top, and overflow-y is left
+     on as a fallback for any screen too short to fit all of it, rather
+     than clipping content outright. */
+  @media (max-width: 640px){
+    body.plan-choice-screen header.app-head{ display:none; }
+    body.plan-choice-screen #gate-area{
+      min-height:100dvh;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      overflow-y:auto;
+    }
+    body.plan-choice-screen .plan-hero{ height:56px; }
+    body.plan-choice-screen .plan-hero-boat{ width:36px; bottom:14px; }
+    body.plan-choice-screen .plan-body{ padding:14px 14px 16px; }
+    body.plan-choice-screen .plan-heading{ font-size:calc(17px * var(--en-scale)); margin-bottom:2px; }
+    body.plan-choice-screen .plan-body > .sub{ margin-bottom:0; }
+    body.plan-choice-screen .plan-cards{ margin-top:10px; gap:10px; flex-direction:column; }
+    body.plan-choice-screen .plan-card{ padding:14px; min-width:0; }
+    body.plan-choice-screen .plan-tier-icon{ width:30px; height:30px; margin-bottom:6px; }
+    body.plan-choice-screen .plan-tier-price{ margin-bottom:8px; }
+    body.plan-choice-screen .plan-check-list{ gap:6px; margin-bottom:12px; }
+    body.plan-choice-screen .plan-check-row{ font-size:calc(12px * var(--en-scale)); }
+  }
   .search-row{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;}
   .search-row input{margin-bottom:0;flex:1;min-width:180px;}
   .filter-chip{
@@ -2842,6 +2880,7 @@ function renderGate(){
   document.getElementById('header-theme-toggle-btn').style.display='none';
   document.getElementById('header-settings-btn').style.display='none';
   document.getElementById('gate-area').style.display='block';
+  document.body.classList.remove('plan-choice-screen');
   const area = document.getElementById('gate-area');
 
   if(state.gateStage === 'pin' && state.pinTargetRole){
@@ -5819,6 +5858,20 @@ async function adminSetBoatSettings(boatId, settings){
 // merge on the server). These call the dedicated admin endpoints rather
 // than mutating a boat's own settings JSON, since Pro now lives on the
 // organizations table.
+// Server-side, POST /api/admin/organizations/:orgId/pro/grant must, for
+// every boat under this organization with a pending request: set
+// isPro=true (org-wide) and, on that specific requesting boat's own
+// settings record, clear proRequestPending, proRequestedAt, AND
+// proRequestScreenshot (the actual transfer-slip image bytes/base64) --
+// not just flip the pending flag. The screenshot is only ever needed for
+// the review that just happened; once granted there's no reason to keep
+// a payment slip image sitting in the database indefinitely. Frontend
+// already reflects this by nulling out its own cached copies
+// (state.adminOrgs/state.adminProRequests) right after this call
+// resolves -- see wireAdminOrgProButtons() and the Grant button handlers
+// in the Pro Requests tab / openAdminProRequestPopup() -- but the actual
+// deletion has to happen here, server-side, since that's where the row
+// lives.
 async function adminApproveProForOrganization(orgId){
   const data = await adminFetch(`/api/admin/organizations/${orgId}/pro/grant`, { method: 'POST' });
   if(!data.ok) throw new Error(data.error || `Failed to grant Pro for organization ${orgId}`);
@@ -8788,6 +8841,13 @@ function hideNormalShell(){
   document.getElementById('gate-area').style.display = 'block';
   document.getElementById('gate-area').classList.remove('admin-shell');
   document.body.classList.remove('admin-mode');
+  // Defaults off here -- only renderOrgArea() (the one screen this
+  // applies to) turns it back on, right after this call, based on
+  // whether the Choose-a-Plan screen is actually what's showing. Clearing
+  // it unconditionally on every other path into hideNormalShell() (owner
+  // gate, staff gate, invalid-link screen, etc.) stops it from getting
+  // stuck on from a previous visit to the plan screen.
+  document.body.classList.remove('plan-choice-screen');
 }
 
 function renderInvalidLinkScreen(message){
@@ -9000,6 +9060,24 @@ async function pollAdminNotificationsOnce(){
 // reference_type/reference_id -- those just fall back to staying on the
 // Notifications tab, same as today.
 function navigateToNotification(n){
+  // A pro_request notification is specifically "an owner attached a
+  // transfer slip, come review it" -- landing on the generic org popup
+  // (see openAdminOrgPopup/renderAdminOrgProBlock, which only shows the
+  // Pro status pill and Grant/Revoke buttons, never the screenshot) would
+  // mean re-finding the request in the Pro Requests tab just to actually
+  // see the slip. Opening it straight into openAdminProRequestPopup()
+  // instead shows exactly what needs reviewing -- who requested it, from
+  // which boat, and the attached screenshot -- with Grant right there.
+  if(n.type === 'pro_request' && n.reference_id){
+    state.adminTab = 'proRequests';
+    renderAdminDashboard();
+    (async () => {
+      if(state.adminProRequests === null) await loadAdminProRequests();
+      if(!document.getElementById('admin-body')) return; // tab changed again before this resolved
+      openAdminProRequestPopup(n.reference_id);
+    })();
+    return;
+  }
   if(n.reference_type === 'organization' && n.reference_id){
     state.adminTab = 'organizations';
     state.adminOrgDetailId = n.reference_id;
@@ -9434,6 +9512,64 @@ function openAdminOrgPopup(orgId){
 }
 function closeAdminOrgPopup(){
   const overlay = document.getElementById('admin-org-popup-overlay');
+  if(overlay) unlockBodyScroll();
+  overlay?.remove();
+}
+
+// Focused single-request popup -- reached from tapping a pro_request
+// notification (see navigateToNotification) so opening the notification
+// lands directly on the thing that actually needs reviewing (who
+// requested it, from which boat, and the attached transfer-slip
+// screenshot) instead of the generic org detail popup, which never shows
+// the screenshot at all. Same data (state.adminProRequests) and same
+// Grant action as the Pro Requests tab list -- this is just that one
+// request's row shown on its own, so it reads as "here's the thing you
+// tapped" rather than a list to search through.
+function openAdminProRequestPopup(orgId){
+  closeAdminProRequestPopup();
+  const r = (state.adminProRequests || []).find(x => x.organizationId === orgId);
+  if(!r){
+    // Already granted/cleared (e.g. approved from another tab/device
+    // since the notification fired) -- nothing left to review, so just
+    // fall back to the org popup so the tap still lands somewhere useful.
+    (async () => {
+      if(state.adminOrgs === null) await loadAdminOrgs();
+      openAdminOrgPopup(orgId);
+    })();
+    return;
+  }
+  lockBodyScroll();
+  const overlay = document.createElement('div');
+  overlay.id = 'admin-pro-request-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2300;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="plan-card pro" id="admin-pro-request-popup-panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:420px;margin:0;animation:invoice-pop-in 0.18s ease-out;position:relative;">
+      <button type="button" class="btn btn-ghost" id="admin-pro-request-popup-close-btn" style="position:absolute;top:14px;right:14px;padding:6px 11px;">\u2715</button>
+      <div class="plan-tier-icon pro" style="margin-bottom:14px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS.crown}</svg>
+      </div>
+      <h3 style="margin-bottom:4px;">${escapeHtml(r.ownerName)} \u2014 ${escapeHtml(r.orgBoatName)}</h3>
+      <p class="sub" style="margin-bottom:10px;">Requested from boat: ${escapeHtml(r.boatName)}${r.requestedAt ? ` \u00b7 ${fmtDate(r.requestedAt)}` : ''}</p>
+      ${r.screenshot ? `<img src="${r.screenshot}" style="max-width:100%;border-radius:8px;border:1px solid var(--line);margin-bottom:14px;">` : `<p class="sub" style="margin-bottom:14px;">No transfer slip attached.</p>`}
+      <button class="btn btn-primary" style="width:100%;" id="admin-pro-request-popup-grant-btn" ${state.adminBusyId===r.organizationId?'disabled':''}>Grant Pro (30 days)</button>
+    </div>
+  `;
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) closeAdminProRequestPopup(); });
+  document.body.appendChild(overlay);
+  document.getElementById('admin-pro-request-popup-close-btn').addEventListener('click', closeAdminProRequestPopup);
+  document.getElementById('admin-pro-request-popup-grant-btn').addEventListener('click', () => {
+    confirmAdminAction('Grant Pro for this organization (30 days) \u2014 shared by every boat, owner, manager, and staff under it, and this clears the request', async () => {
+      state.adminBusyId = orgId;
+      try{ await adminApproveProForOrganization(orgId); }
+      finally{ state.adminBusyId = null; }
+      state.adminOrgs = null; state.adminProRequests = null;
+      closeAdminProRequestPopup();
+      renderAdminDashboard();
+    });
+  });
+}
+function closeAdminProRequestPopup(){
+  const overlay = document.getElementById('admin-pro-request-popup-overlay');
   if(overlay) unlockBodyScroll();
   overlay?.remove();
 }
@@ -9967,6 +10103,7 @@ function renderAdminTabBody(){
 /* ---------------- Owner signup / org login (Phase 2) ---------------- */
 function renderOrgArea(){
   hideNormalShell();
+  document.body.classList.toggle('plan-choice-screen', !!(state.orgAuthed && state.showPlanChoice));
   if(state.orgAuthed){
     if(state.showPlanChoice){ renderChoosePlanScreen(); return; }
     renderOrgDashboard();
