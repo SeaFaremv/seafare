@@ -135,31 +135,6 @@
     min-height:100vh;
     position:relative;
   }
-  /* Desktop-only cursor interaction with the wave background (see the
-     mousemove listener further down): a soft highlight follows the
-     pointer while it moves, then fades back out on its own once it
-     stops -- the ambient wave-drift animation above never pauses, this
-     just layers a temporary glow on top of it. --cursor-x/--cursor-y are
-     registered via @property so browsers can animate them smoothly
-     instead of jumping between values. Skipped entirely on touch
-     devices, where there's no persistent hover to react to. */
-  @property --cursor-x{ syntax:'<percentage>'; inherits:true; initial-value:50%; }
-  @property --cursor-y{ syntax:'<percentage>'; inherits:true; initial-value:30%; }
-  body{ --cursor-x:50%; --cursor-y:30%; }
-  body::before{
-    content:'';
-    position:fixed;inset:0;pointer-events:none;z-index:0;
-    background:radial-gradient(circle at var(--cursor-x) var(--cursor-y), rgba(255,255,255,0.10), transparent 32%);
-    opacity:0;
-    transition:opacity 0.6s ease, --cursor-x 1.1s cubic-bezier(.22,.61,.36,1), --cursor-y 1.1s cubic-bezier(.22,.61,.36,1);
-  }
-  body.cursor-active::before{
-    opacity:1;
-    transition:opacity 0.25s ease, --cursor-x 0.15s linear, --cursor-y 0.15s linear;
-  }
-  @media (prefers-reduced-motion: reduce){
-    body::before{ display:none; }
-  }
   @keyframes wave-drift{
     from{ background-position: 0 0, 0 0, 0 0; }
     to{ background-position: 0 0, 0 0, 280px 140px; }
@@ -1705,7 +1680,7 @@ function wireMobileValidation(inputId, extraCheck){
     const v = input.value.trim();
     if(!v){ errorEl.style.display = 'none'; return true; }
     if(!isValidMaldivesMobile(v)){
-      errorEl.textContent = 'Invalid mobile number';
+      errorEl.textContent = t('Invalid mobile number');
       errorEl.style.display = '';
       return false;
     }
@@ -1735,315 +1710,530 @@ function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'
 // guessed at, so a missing translation just falls back to English
 // instead of silently mistranslating something.
 const TR = {
-  "+ Add Route": "ދަތުރު އެޑް ކޮށްލާ",
-  "+ Add Your Free Boat": "ބޯޓް އެޑް ކުރުމަށް",
-  "+ Add Manager": "މެނޭޖަރ އެއް ލުމަށް",
-  "+ Add Staff": "ސްޓާފް މެމްބަރެއް އެޑްކޮށްލާ",
-  "Account Details": "އެކައުންޓް ޑީޓެއިލްސް",
-  "Account name": "އެކައުންޓް ނަން",
-  "Account number": "އެކައުންޓް ނަންބަރ",
-  "Add": "އެޑް",
-  "Add at least one item before confirming.": "ކޮންފަރމް ކުރުމުގެ ކުރިން މަދުވެގެނެ 1 އައިޓަމް އެޑް ކުރައްވާ",
-  "Add Customer": "އާ ކަސްޓަމަރ އެއް އެޑްކޮށްލާ",
-  "Add Manager": "މެނޭޖަރ އެއް އެޑް ކުރުމަށް",
-  "Additional boats require approval after payment. Enter a name for the new boat and attach a screenshot of your transfer.": "އިތުރު ބޯޓެއް އެޑްކުރާނާމަ ޑިވަލޮޕަރުގެ އެޕްރޫވަލް ބޭނުންވާނެ، ބޭނުންފުޅުވާ ބޯޓުގެ ނަމާއި ޕޭމަންޓް ސިލިޕް އަޕްލޯޑް ކުރުމަށްފަހު ހުށަހަޅުއްވާ",
-  "Already registered? Log in": "ކުރިން ރަޖިސްޓަރ ކޮށްފައި؟ ލޮގިން ކޮށްލާ",
-  "An owner or manager will need to approve your request and share a sign-in PIN with you before you can get in.": "ވެރިފަރާތުން ނުވަތަ މެނޭޖަރު އެޕްރޫވް ކުރަންދެން މަޑުކޮށްލައްވާ، އެޕްރޫވް ކުރުމަށްފަހު ލޮގްއިން ވުމަށް ބޭނުންވާ ޕިން ވެރިފަރާތުން ނުވަތަ މެނޭޖަރު ހިއްސާ ކުރުމުން ލޮގްއިން ވެވޭނެ.",
-  "Announcement copied.": "އެނައުންސްމަންޓް ކޮޕީ ކުރެވިއްޖެ",
-  "Anyone with the staff link can request access on their own. They can't sign in until you approve them here and share the generated PIN.": "ސްޓާފް ލިންކް އިން ކޮންމެ ބޭފުޅަކަށްވެސް ސްޓާފަކަށްވުމަށް ރިކުއެސްޓް ކޮށްލެވޭނެ، ސްޓާފުންނަށް ލޮގިން ކުރެވޭނީ ވެރިފަރާތުން ރިކުއެސްޓް އެޕްރޫވް ކުރުމުން",
+  "+ Add Route": "+ ރޫޓު އިތުރުކުރައްވާ",
+  "+ Add Your Free Boat": "+ ތިބާގެ ހިލޭ ދޯނި އިތުރުކުރައްވާ",
+  "+ Add Manager": "+ މެނޭޖަރެއް އިތުރުކުރޭ",
+  "+ Add Staff": "+ ސްޓާފެއް އިތުރުކުރޭ",
+  "Account Details": "އެކައުންޓްގެ ތަފްސީލު",
+  "Account name": "އެކައުންޓްގެ ނަން",
+  "Account number": "އެކައުންޓް ނަންބަރު",
+  "Add": "އިތުރުކުރޭ",
+  "Add at least one item before confirming.": "ކަށަވަރުކުރުމުގެ ކުރިން މަދުވެގެން އެއް އައިޓަމް އިތުރުކުރައްވާ.",
+  "Add Customer": "ކަސްޓަމަރު އިތުރުކުރޭ",
+  "Add Manager": "މެނޭޖަރެއް އިތުރުކުރޭ",
+  "Additional boats require approval after payment. Enter a name for the new boat and attach a screenshot of your transfer.": "އިތުރު ދޯނިފަހަރު ބޭނުންކުރެވޭނީ ފައިސާ ދެއްކުމުން އެޕްރޫވް ކުރުމަށް ފަހުގައެވެ. އާ ދޯނީގެ ނަން ލިޔުއްވައި، ފައިސާ ފޮނުވި ކަމުގެ ސްކްރީންޝޮޓް އެޓޭޗް ކުރައްވާ.",
+  "Already registered? Log in": "މިހާރުވެސް ރަޖިސްޓްރީ ވެފައިވޭތަ؟ ލޮގިން ވެވަޑައިގަންނަވާ",
+  "An owner or manager will need to approve your request and share a sign-in PIN with you before you can get in.": "އެތެރެވުމުގެ ކުރިން، ވެރިފަރާތުން ނުވަތަ މެނޭޖަރަކު ތިޔަބޭފުޅާގެ ރިކުއެސްޓް އެޕްރޫވްކޮށް، ސައިން-އިން ޕިންއެއް ޙިއްޞާކުރަން ޖެހޭނެއެވެ.",
+  "Announcement copied.": "އިޢުލާން ކޮޕީކުރެވިއްޖެ.",
+  "Anyone with the staff link can request access on their own. They can't sign in until you approve them here and share the generated PIN.": "ސްޓާފް ލިންކް ލިބިފައިވާ ކޮންމެ މީހަކަށްވެސް އަމިއްލައަށް އެކްސެސްއަށް އެދެވިދާނެއެވެ. މިތަނުން ތިޔަބޭފުޅާ އެޕްރޫވްކޮށް، ޖެނެރޭޓްވި ޕިން ހިއްސާކުރަންދެން އެމީހުންނަކަށް ސައިން-އިން އެއް ނުވެވޭނެއެވެ.",
   "Approve": "އެޕްރޫވް",
-  "At least 6 characters": "މަދުވެގެން 6 އަކުރު އިންނަންވާނެ.",
+  "At least 6 characters": "މަދުވެގެން 6 އަކުރު",
   "Back": "ފަހަތަށް",
-  "Back to Login": "ލޮގްއިން ވުމަށް ފަހަތަށް",
-  "Back to PIN": "ޕިން ޖެއްސެވިމަށް ފަހަތަށް",
-  "Back to Sign In": "ލޮގްއިން އަށް އަނބުރާ ދިއުމަށް",
-  "Bank account number (optional)": "ބޭންކް އެކައުންޓް ނަންބަރ ( އިޙްތިޔާރީ )",
-  "Boat contact number(s) *": "ބޯޓުގެ ފޯނު ނަންބަރު(ތަށް)*",
-  "Boat contact numbers": "ބޯޓުގެ ފޯނު ނަންބަރުތަށް",
-  "Boat name": "ބޯޓުގެ ނަން",
-  "Boat name (this is also your login username) *": "ބޯޓުގެ ނަން ( މިއީ ލޮގިންގެ ޔޫސަރ ނަން )",
+  "Back to Login": "އަނބުރާ ލޮގިން އަށް",
+  "Back to PIN": "އަނބުރާ ޕިން އަށް",
+  "Back to Sign In": "އަނބުރާ ސައިން އިން އަށް",
+  "Bank account number (optional)": "ބޭންކް އެކައުންޓް ނަންބަރު (އިޚްތިޔާރީ)",
+  "Boat contact number(s) *": "ދޯނީގެ ގުޅޭނެ ނަންބަރު (ތައް) *",
+  "Boat contact numbers": "ދޯނީގެ ގުޅޭނެ ނަންބަރުތައް",
+  "Boat name": "ދޯނީގެ ނަން",
+  "Boat name (this is also your login username) *": "ދޯނީގެ ނަން (މިއީ ތިޔަބޭފުޅާގެ ލޮގިން ޔޫޒަރނޭމް ވެސް މެއެވެ) *",
   "Boat Requests": "ބޯޓް ރިކުއެސްޓް",
-  "Boat Routes": "ބޯޓް ދަތުރު ކުރާނެ ރޫޓް",
-  "Boat Staff": "ބޯޓް ސްޓާފް",
-  "By Destination Island": "ބޯޓް ދަތުރު ކުރާނެ ރަށްތަށް",
-  "By Island": "ރަށްތަށް",
+  "Boat Routes": "ދޯނީގެ ރޫޓުތައް",
+  "Boat Staff": "ދޯނީގެ ފަޅުވެރިން / ސްޓާފުން",
+  "By Destination Island": "ދަތުރުކުރާ ރަށަށް ބަލައިގެން",
+  "By Island": "ރަށަށް ބަލައިގެން",
   "Cancel": "ކެންސަލް",
-  "Cargo Check-In": "ނާލު ނޯޓްކުރުން",
-  "Cargo ferry logistics, run from your phone.": "މުދާ ފެރީ",
-  "Cargo note (optional)": "ނާލު ނޯޓް ( ބޭނުންނަމަ )",
-  "CF-260721-A3K9 or mobile number": "ސފ-260721-އ3ކ9 ނުވަތަ ފޯނު ނަންބަރ",
-  "Choose how to send the sign-in PIN and staff link.": "ލޮގް އިން ކުރަން ބޭނުންކުރާ ޕިން ފޮނުވާނެ ގޮތް ހިޔާރު ކުރަށްވާ",
-  "Clear": "ފުހެލާ",
-  "Close": "ކްލޯސް",
-  "Collect Cash": "ފައިސާ ނަންގަވާ",
-  "Collect — Cash": "ފައިސާ - ނަންގަވާ",
-  "Collect — Transfer": "ބޭންކް ޓްރާންސްފަރ",
+  "Cargo Check-In": "މުދާ ޗެކް-އިން ކުރުން",
+  "Cargo ferry logistics, run from your phone.": "ކާގޯ ފެރީ ލޮޖިސްޓިކްސް، ފޯނުން ބަލަހައްޓަވާ.",
+  "Cargo note (optional)": "މުދަލުގެ ނޯޓް (އިޚްތިޔާރީ)",
+  "CF-260721-A3K9 or mobile number": "CF-260721-A3K9 ނުވަތަ މޯބައިލް ނަންބަރު",
+  "Choose how to send the sign-in PIN and staff link.": "ސައިން-އިން ޕިން އަދި ސްޓާފް ލިންކް ފޮނުވާނެ ގޮތެއް ޚިޔާރުކުރައްވާ.",
+  "Clear": "ފޮހެލައްވާ",
+  "Close": "ލައްޕާ",
+  "Collect Cash": "ފައިސާ ބަލައިގަނޭ",
+  "Collect — Cash": "ފައިސާ ބަލައިގަތުން — ނަގުދު ފައިސާ",
+  "Collect — Transfer": "ފައިސާ ނެގުން — ޓްރާންސްފަރ",
   "Confirm": "ކޮންފަރމް",
-  "Confirm Cash Payment": "ފައިސާގެ ޕޭމަންޓް ކޮންފަރމް",
-  "Confirm Delivery": "ޑެލިވަރީ ކޮންފަރމް",
-  "Confirm Loaded & Take Photo": "އެރުވި މުދާ ލޯޑް ކުރުމަށް މުދަލުގެ ފޮޓޯ ގަނޑެއް ނަގާ",
-  "Confirm — Finish Trip": "ދަތުރު ނިމިފައި",
-  "Connect Google Account": "ގޫގުލް އެކައުންޓް ކަނެކްޓް ކޮށްލައްވާ",
-  "Could not check Google connection status.": "ގޫގުލް ކަނެކްޝަން ސްޓޭޓަސް ޗެކެއް ނުކުރެވުނު",
-  "Could not copy — select the text box manually.": "ކޮޕީ އެއް ނުކުރެވުނު، ސެލެކްޓް ކުރުމަށްފަހު ކޮޕީ ކޮށްލައްވާ",
-  "Could not copy. Long-press the announcement text instead.": "ކޮޕީ އެއް ނުކުރެވުނު، އެނައުންސްމަންޓް ސެލެކްޓް ކުރުމަށްފަހު ކޮޕީ ކޮށްލައްވާ",
-  "Could not delete this entry. Check your connection and try again.": "ޑިލީޓް އެއް ނުކުރެވުނު، އިންޓަރނެޓް ކަނެކްޝަން ޗެކް ކޮށްލައްވާ",
-  "Could not generate the invoice image. Check your connection and try again.": "ބިލް ޖެނެރޭޓް ނުކުރެވުނު. އިންޓަރނެޓް ކަނެކްޝަން ޗެކް ކޮށްލައްވާ",
-  "Could not generate the invoice image. Try again.": "ބިލްގެ ފޮޓޯ ޖެނެރޭޓް ނުކުރެވުނު. އަލުން މަސައްކަތް ކޮށްލައްވާ",
-  "Could not mark this trip in transit. Check your connection and try again.": "މި ދަތުރު ފެށުނު ކަމަކަށް ބަދަލު ނުކުރެވުނު، އިންޓަރނެޓް ކަނެކްޝަން ޗެކް ކޮށްލައްވާ",
-  "Could not save this delivery. Check your connection and try again.": "ޑެލިވަރީ ސޭވް އެއް ނުކުރެވުނު، އިންޓަރނެޓް ކަނެކްޝަން ޗެކް ކޮށްލައްވާ",
-  "Could not start Google connection. Try again.": "ގޫގުލް ކަނެކްޝަން ނުފެށުނު، އަލުން ޓްރައި ކޮށްލައްވާ",
-  "Create Invite": "ދައުވަތު ދެއްވާ",
-  "Create My Boat": "ބޯޓެ ރަޖިސްޓަރ ކޮށްލާ",
-  "Create Trip & Set Active": "އާ ދަތުރެއް ނޯޓް ކޮށް ކުރިޔަށްދާ ކަމަށް ސެޓް ކޮށްލާ",
-  "Currently there are no trips scheduled. Please check back once the next trip is announced.": "އެއްވެސް ދަތުރެއް މިވަގުތު ކުރިއަކަށް ނުދޭ ދަތުރެއް އިއުލާން ކޮށްލުމުން ޗެކްކޮށްލައްވާ",
-  "Customer Check-In Link": "ކަސްޓަމަރ ޗެކިން ލިންކް",
-  "Customer check-ins, loading log, and delivery status.": "ކަސްޓަމަރ ޗެކިންތަށް، އެރުވި މުދަލުގެ ތަފްސީލް، ޑެލިވަރީގެ ތަފްސީލް",
+  "Confirm Cash Payment": "ނަގުދު ފައިސާ ދެއްކިކަން ކަށަވަރުކުރޭ",
+  "Confirm Delivery": "ޑެލިވަރީ ކަށަވަރުކުރޭ",
+  "Confirm Loaded & Take Photo": "މުދާ އެރުވިކަން ކަށަވަރުކޮށް ފޮޓޯ ނަންގަވާ",
+  "Confirm — Finish Trip": "ކަށަވަރުކުރުން — ދަތުރު ނިންމާ",
+  "Connect Google Account": "ގޫގުލް އެކައުންޓް ކަނެކްޓް ކުރައްވާ",
+  "Could not check Google connection status.": "ގޫގުލް ކަނެކްޝަންގެ ސްޓޭޓަސް ބެލޭގޮތެއް ނުވި.",
+  "Could not copy — select the text box manually.": "ކޮޕީއެއް ނުކުރެވުނު — ލިޔުންކޮޅު މެނުއަލްކޮށް ސިލެކްޓް ކުރައްވާ.",
+  "Could not copy. Long-press the announcement text instead.": "ކޮޕީއެއް ނުކުރެވުނު. އޭގެ ބަދަލުގައި އިޢުލާނުގެ ލިޔުމަށް ފިތާލައިގެން ހިފަހައްޓައިގެން ހުންނަވާ.",
+  "Could not delete this entry. Check your connection and try again.": "މި އެންޓްރީ ޑިލީޓެއް ނުކުރެވުނު. އިންޓަނެޓް ކަނެކްޝަން ޗެކްކުރެއްވުމަށްފަހު އަލުން މަސައްކަތްކުރައްވާ.",
+  "Could not generate the invoice image. Check your connection and try again.": "އިންވޮއިސްގެ ފޮޓޯ ނުހެދުނު. އިންޓަނެޓް ކަނެކްޝަން ޗެކްކުރެއްވުމަށްފަހު އަލުން މަސައްކަތްކުރައްވާ.",
+  "Could not generate the invoice image. Try again.": "އިންވޮއިސްގެ ފޮޓޯ ނުހެދުނު. އަލުން މަސައްކަތްކުރައްވާ.",
+  "Could not mark this trip in transit. Check your connection and try again.": "މި ދަތުރު ދަތުރުމަތީގައިވާ ކަމަކަށް ފާހަގައެއް ނުކުރެވުނު. ކަނެކްޝަން ޗެކްކުރެއްވުމަށްފަހު އަލުން މަސައްކަތްކުރައްވާ.",
+  "Could not save this delivery. Check your connection and try again.": "މި ޑެލިވަރީ ސޭވެއް ނުކުރެވުނު. އިންޓަނެޓް ކަނެކްޝަން ޗެކްކުރެއްވުމަށްފަހު އަލުން މަސައްކަތްކުރައްވާ.",
+  "Could not start Google connection. Try again.": "ގޫގުލް ކަނެކްޝަން ފެށޭގޮތެއް ނުވި. އަލުން މަސައްކަތްކުރައްވާ.",
+  "Create Invite": "ދަޢުވަތު ތައްޔާރުކުރޭ",
+  "Create My Boat": "މަގޭ ދޯނި ހަދާ",
+  "Create Trip & Set Active": "ދަތުރު ހަދައި އެކްޓިވް ކުރައްވާ",
+  "Currently there are no trips scheduled. Please check back once the next trip is announced.": "މިވަގުތު އެއްވެސް ދަތުރެއް ތާވަލުކުރެވިފައެއް ނެތެވެ. ދެން އޮންނަ ދަތުރު އިޢުލާންކުރުމުން ޗެކްކޮށްލައްވާށެވެ.",
+  "Customer Check-In Link": "ކަސްޓަމަރުން ޗެކް-އިން ވާ ލިންކު",
+  "Customer check-ins, loading log, and delivery status.": "ކަސްޓަމަރުންގެ ޗެކް-އިންތައް، މުދާ އެރުވި ލޮގް، އަދި ޑެލިވަރީ ސްޓޭޓަސް.",
   "Customers": "ކަސްޓަމަރުން",
-  "Dashboard": "ޑޭޝް ބޯޑް",
-  "Decline": "ޑިކްލައިން",
+  "Dashboard": "ޑޭޝްބޯޑް",
+  "Decline": "ރިޖެކްޓް / ބާޠިލް",
   "Delete": "ޑިލީޓް",
   "Delete Organization": "އޯގަނައިޒޭޝަން ޑިލީޓް ކޮށްލާ",
-  "Delivered at island": "ކަނޑައެޅިފައިވާ ރަށަށް ޑެލިވަރ ކުރެވިއްޖެ",
-  "Destination island": "ބޯޓް ދަތުރު ކުރާނެ ރަށްތަށް",
-  "Destinations (one per line)": "ބޯޓް ދާނެ ރަށްތަށް ( ކޮންމެ ރޮނގެއްގައި ރަށެއް )",
-  "Detailed Reports": "ރިޕޯޓްތަށް",
-  "Disconnect Google Account": "ގޫގުލް އެކައުންޓް ޑިސްކަނެކްޓް ކޮށްލައްވާ",
-  "Download Report": "ރިޕޯޓްތަށް ޑައުންލޯޑް ކޮށްލާ",
-  "e.g. 3 sacks of rice, fragile": "މިސާލު: ބިއްލޫރި (ފްރެޖައިލް)",
-  "e.g. 771 2345": "މިސާލު: 7777777",
-  "e.g. 7730000123456": "މިސާލު: 7730000123456",
-  "e.g. 7777777 / 9999999": "މިސާލު: 7777777 / 9999999",
-  "e.g. Ahmed": "މިސާލު: އަހުމަދު",
-  "e.g. Ahmed, 7712345, CF-260801-91H9": "މިސާލު: އަހުމަދު 7712345, CF-260801-91H9",
-  "e.g. ahmed@example.com": "މިސާލު: ބިއްލޫރި (ފްރެޖައިލް)",
-  "e.g. GreenLine Cargo": "މިސާލު: ގްރީންލައިން ކާރގޯ",
-  "e.g. https://instagram.com/yourboat": "މިސާލު: ބިއްލޫރި (ފްރެޖައިލް)",
-  "e.g. https://invite.viber.com/...": "މިސާލު: ބިއްލޫރި (ފްރެޖައިލް)",
-  "e.g. https://m.followme.mv/public/...": "މިސާލު: ބިއްލޫރި (ފްރެޖައިލް)",
-  "e.g. Maafushi": "މިސާލު: މާޅޮސް",
-  "e.g. Maalhos / Himandhoo / Feridhoo": "މިސާލު: މާޅޮސް / ހިމަންދޫ / ފެރިދޫ",
-  "e.g. Male'": "މިސާލު: މާލެ",
-  "e.g. Male' T-Jetty Area": "މިސާލު: މާލެ ޓީ-ޖެޓީ ސަރަހައްދު",
-  "e.g. Male' → Maalhos, Himandhoo, Feridhoo": "މިސާލު: ބިއްލޫރި (ފްރެޖައިލް)",
-  "e.g. Motorcycle": "މިސާލު: ބިއްލޫރި (ފްރެޖައިލް)",
+  "Delivered at island": "މުދާ ހަވާލުކުރި ރަށް",
+  "Destination island": "ދާންވީ ރަށް",
+  "Destinations (one per line)": "މަންޒިލްތައް (ކޮންމެ ފޮޅުވަތަކަށް ރަށެއް)",
+  "Detailed Reports": "ތަފްސީލީ ރިޕޯޓްތައް",
+  "Disconnect Google Account": "ގޫގުލް އެކައުންޓް ޑިސްކަނެކްޓް ކުރައްވާ",
+  "Download Report": "ރިޕޯޓް ޑައުންލޯޑްކުރޭ",
+  "e.g. 3 sacks of rice, fragile": "މިސާލަކަށް: 3 ބަސްތާ ހަނޑޫ، ނާޒުކު ތަކެތި",
+  "e.g. 771 2345": "މިސާލަކަށް: 771 2345",
+  "e.g. 7730000123456": "މިސާލަކަށް: 7730000123456",
+  "e.g. 7777777 / 9999999": "މިސާލަކަށް: 7777777 / 9999999",
+  "e.g. Ahmed": "މިސާލަކަށް: އަޙްމަދު",
+  "e.g. Ahmed, 7712345, CF-260801-91H9": "މިސާލަކަށް: އަޙްމަދު، 7712345، CF-260801-91H9",
+  "e.g. ahmed@example.com": "މިސާލަކަށް: ahmed@example.com",
+  "e.g. GreenLine Cargo": "މިސާލަކަށް: ގްރީންލައިން ކާގޯ",
+  "e.g. https://instagram.com/yourboat": "މިސާލަކަށް: https://instagram.com/yourboat",
+  "e.g. https://invite.viber.com/...": "މިސާލަކަށް: https://invite.viber.com/...",
+  "e.g. https://m.followme.mv/public/...": "މިސާލަކަށް: https://m.followme.mv/public/...",
+  "e.g. Maafushi": "މިސާލަކަށް: މާފުށި",
+  "e.g. Maalhos / Himandhoo / Feridhoo": "މިސާލަކަށް: މާޅޮސް / ހިމަންދޫ / ފެރިދޫ",
+  "e.g. Male'": "މިސާލަކަށް: މާލެ",
+  "e.g. Male' T-Jetty Area": "މިސާލަކަށް: މާލެ ޓީ-ޖެޓީ ސަރަހައްދު",
+  "e.g. Male' → Maalhos, Himandhoo, Feridhoo": "މިސާލަކަށް: މާލެ → މާޅޮސް، ހިމަންދޫ، ފެރިދޫ",
+  "e.g. Motorcycle": "މިސާލަކަށް: ސައިކަލު",
   "e.g. Overdue payment for additional boat": "މިސާލު: ބިއްލޫރި (ފްރެޖައިލް)",
-  "Edit": "އެޑިޓް",
-  "Email address": "އީ-މެއިލް",
-  "Enter": "ކުރިއަށް",
-  "Enter a valid email address.": "ރަނގަޅު އީ-މެއިލް އެޑްރެސް ޖައްސަވާ",
-  "Enter an origin and at least one destination.": "ފުރާ ރަށް އަދި ބޯޓް ދަތުރު ކުރާނެ މަދުވެގެން 1 ރަށް ޖައްސަވާ",
-  "Enter both a name and an email address.": "ނަމާއި އީ-މެއިލް އެޑްރެސް ޖައްސަވާ",
-  "Enter the manager’s name.": "މެނޭޖަރގެ ނަން ޖައްސަވާ",
-  "Enter the origin.": "ބޯޓް ފުރާ ރަށް ޖައްސަވާ",
-  "Enter the PIN your owner shared with you": "ވެރިފަރާތުން ނުވަތަ މެނޭޖަރު ހިއްސާ ކޮށްލި ޕިން ޖައްސަވާ",
-  "Enter your details and who's receiving the cargo. You'll get a tracking code to share.": "ތިފަރާތުގެ މައުލޫމާތާއި މުދަލާހަވާލުވާ ފަރާތުގެ މައުލޫމާތު ފުރާލަށްވާ، މުދަލާ ހަވާލުވާ ފަރާތަށް ފޮނުވުމަށް ޓްރެކިނގް ކޯޑެއް ލިބިލައްވާނެ.",
-  "Enter your name and email address.": "ނަމާއި އީ-މެއިލް އެޑްރެސް ޖައްސަވާ",
-  "Enter your PIN": "ޕިން ޖައްސަވާ",
-  "Estimated departure time": "ފުރަން ހަމަޖެހިފައިވާ ގަޑި",
-  "Every owner starts with one free boat. Fill in the basics below — everything else is optional and can be added later from Settings.": "ކޮންމެ ބޭފުޅކަށްވެސް 1 ބޯޓް ހިލޭ އެޑްކުރެވޭނެ، މަޖުބޫރު ބައިތަށް ފުރުމަށްފަހު ކުރިއަށް ގެންދަވާ، ބާކީ ފުރުން މަޖުބޫރު ނޫން ބައިތަށް ފަހުން ސެޓިންގްސް ތެރޭން ފުރާލެވޭނެ.",
-  "Every shipment that's been loaded, whether or not it's been delivered or paid yet.": "ބޯޓަށް އަރުވާފައި މުދާ ޑެލިވަރީ ކުރެވިފައި / ނުކުރެވި ނުވަތަ ފައިސާ ލިބިފައި / ނުލިބި ހުރި ކަމުގައި ވިޔަސް.",
-  "Everyone who has sent cargo on this boat, one entry per mobile number (in case two senders share a name).": "ބޯޓުން މުދާ ފޮނުވި ފަރާތްތަށް",
-  "Fill in sender, receiver, and destination island.": "މުދާ ފޮނުވާ ފަރާތް، މުދާ ހަވާލުވާ ފަރާތް އަދި ފޮނުވާ ރަށް ފުރުއްވާ",
-  "Fills in automatically once you pick an origin": "ބޯޓް ފުރާ ރަށް ޖެއްސެވުމުން އަމިއްލައަކަށް މިގޮޅި ފުރޭނެ",
-  "Fills in automatically once you pick an origin — edit if needed": "ބޯޓް ފުރާ ރަށް ޖެއްސެވުމުން އަމިއްލައަކަށް މިގޮޅި ފުރޭނެ - ބަދަލު ކޮށްލަން ބޭނުން ނަމަަ ފިތާލުމަށްފަހު ބަދަލު ކޮށްލާ",
-  "Filter by island": "ރަށްރަށް ވަކިކޮށް ބަލާލުމަށް",
-  "Finish Trip": "ދަތުރު ނިމިފައި",
-  "Finished trips. Select one to see delivered/undelivered by destination island.": "ދަތުރު ނިމިފައި. ވަކި ރަށަކަށް ދެލިވަރީ ކުރެވިފައި ނުވަތަ ނުކުރެވޭ ނާލެއް ވޭތޯ ބެލުމަށް ހޯދާލައްވާ",
-  "Fixed details used on every trip announcement, since these rarely change. Set once here instead of retyping them each time you plan a trip.": "ހުރިހާ ދަތުރު އިއުލާންތަކުގައި ބޭނުން ކުރެވިފައިވާނީ އެއްގޮތަކަށް، ކޮންމެ ދަތުރަކަށް އިއުލާން އަލުން ލިޔުމުގެ ބަދަލުގައި މިތާގައި އިއުލާން ލިޔުއްވާ.",
-  "Forgot PIN?": "ޕިން ހަނދާންނެތިފައި",
-  "Generate Report": "ރިޕޯޓް ޖެނެރޭޓް ކޮށްލާ",
-  "Generated automatically when a shipment's items are logged. Invoices from finished trips move to Reports.": "އޮޓޯއިން ޖެނެރޭޓް ކުރެވިފައި. ނިމިފައިވާ ދަތުރުތަކުގެ ބިލްތަށް ރިޕޯޓް ތަކުން ފެނިލައްވާނެ",
-  "Give someone full run of this boat — Dashboard, Trips, Invoices, Reports, and Settings (Staff & Trip Settings only) — without letting them see or edit your account details or item prices. Only you can add or remove managers.": "ބޯޓް މެނޭޖް ކުރުމުގެ ހުރިހާ ބާރެއް އެހެން ފަރާތަކަށް ދިނުމަށް ހޯމް,  ދަތުރުތަށް، ރިޕޯޓްތަށް އަދި ސެޓިނގްސް ( ސްޓާފް އަދި ދަތުރު ސެޓިންގްސް ) - އެކައުންޓް ޑީޓެއިލްސް އަދި އަގުތަށް ބަދަލު ކުރުމުގެ ބާރު ނުދެވޭނެއެވެ، މެނޭޖަރުން ހިޔާރު ކުރުމާހި ވަކި ކުރުމުގެ ބާރު ދެވިފައި ވާނީ ވެރިފަރާތަށް އެކަންޏެވެ.",
-  "Gmail (optional, for future PIN reset)": "ޖީމެއިލް އެޑްރެސް",
+  "Edit": "އިސްލާހުކުރައްވާ",
+  "Email address": "އީމެއިލް އެޑްރެސް",
+  "Enter": "އެތެރެވޭ",
+  "Enter a valid email address.": "ޞައްޙަ އީމެއިލް އެޑްރެހެއް ޖައްސަވާ.",
+  "Enter an origin and at least one destination.": "ފުރާ ރަށަކާއި މަދުވެގެން އެއް މަންޒިލް ލިޔުއްވާ.",
+  "Enter both a name and an email address.": "ނަމާއި އީމެއިލް އެޑްރެސް ޖައްސަވާ.",
+  "Enter the manager’s name.": "މެނޭޖަރުގެ ނަން ޖައްސަވާ.",
+  "Enter the origin.": "ފުރާ ރަށް ލިޔުއްވާ.",
+  "Enter the PIN your owner shared with you": "ވެރިފަރާތުން ޙިއްޞާކުރި ޕިން ޖައްސަވާ",
+  "Enter your details and who's receiving the cargo. You'll get a tracking code to share.": "ތިޔަބޭފުޅާގެ މަޢުލޫމާތާއި މުދާ ލިބޭ ފަރާތުގެ މަޢުލޫމާތު ލިޔުއްވާ. ޝެއަރ ކުރުމަށްޓަކައި ޓްރެކިންގ ކޯޑެއް ލިބޭނެއެވެ.",
+  "Enter your name and email address.": "ތިޔަބޭފުޅާގެ ނަމާއި އީމެއިލް އެޑްރެސް ޖައްސަވާ.",
+  "Enter your PIN": "ތިޔަބޭފުޅާގެ ޕިން ޖައްސަވާ",
+  "Estimated departure time": "ފުރާނެ ކަމަށް ލަފާކުރާ ވަގުތު",
+  "Every owner starts with one free boat. Fill in the basics below — everything else is optional and can be added later from Settings.": "ކޮންމެ ވެރިއަކަށްވެސް އެއް ދޯނި ހިލޭ ލިބޭނެއެވެ. ތިރީގައިވާ އަސާސީ މަޢުލޫމާތު ފުރިހަމަކުރައްވާ — އެހެން ހުރިހާ މަޢުލޫމާތަކީ އިޚްތިޔާރީ އަދި ފަހުން ސެޓިންގްސް އިން އިތުރުކުރެވިދާނެ މަޢުލޫމާތުތަކެކެވެ.",
+  "Every shipment that's been loaded, whether or not it's been delivered or paid yet.": "ބޯޓަށް އަރުވާފައިވާ ހުރިހާ ޝިޕްމަންޓްތައް، މުދާ ހަވާލުކުރެވިފައި ވިޔަސް އަދި ފައިސާ ދައްކާފައި ވިޔަސް ނުވަތަ ނުވިޔަސް.",
+  "Everyone who has sent cargo on this boat, one entry per mobile number (in case two senders share a name).": "މި ބޯޓުން މުދާ ފޮނުވާފައިވާ ހުރިހާ ފަރާތްތައް، ކޮންމެ މޯބައިލް ނަންބަރަކަށް އެއް އެންޓްރީ (ދެ މީހެއްގެ ނަން އެއްގޮތް ވެދާނެތީ).",
+  "Fill in sender, receiver, and destination island.": "ފޮނުވާ ފަރާތާއި، ލިބޭ ފަރާތް، އަދި ދާންވީ ރަށް ފުރިހަމަކުރައްވާ.",
+  "Fills in automatically once you pick an origin": "ފުރާ ރަށް ޚިޔާރުކުރުމުން އޮޓޯއިން ފުރޭނެ",
+  "Fills in automatically once you pick an origin — edit if needed": "ފުރާ ރަށް ޚިޔާރުކުރުމުން އޮޓޯއިން ފުރޭނެ — ބޭނުންނަމަ ބަދަލުކުރައްވާ",
+  "Filter by island": "ރަށުން ފިލްޓަރ ކުރޭ",
+  "Finish Trip": "ދަތުރު ނިންމާ",
+  "Finished trips. Select one to see delivered/undelivered by destination island.": "ނިމިފައިވާ ދަތުރުތައް. ދަތުރުކުރާ ރަށްރަށަށް މުދާ ޙަވާލުކުރެވުނު އަދި ޙަވާލުނުކުރެވި ހުރި މިންވަރު ބެއްލެވުމަށް ދަތުރެއް ޚިޔާރުކުރައްވާ.",
+  "Fixed details used on every trip announcement, since these rarely change. Set once here instead of retyping them each time you plan a trip.": "މިއީ މަދުން ނޫނީ ބަދަލުނުވާ މައުލޫމާތު ކަމަށްވާތީ، ކޮންމެ ދަތުރެއް އިއުލާނުކުރާއިރު ބޭނުންކުރާ ދާއިމީ ތަފްސީލުތަކެވެ. ކޮންމެ ދަތުރެއް ރާވާއިރު އަލުން ލިޔުމުގެ ބަދަލުގައި އެއްފަހަރު މިތަނުގައި ސެޓްކޮށްލައްވާ.",
+  "Forgot PIN?": "ޕިން ހަނދާންނެތުނީތަ؟",
+  "Generate Report": "ރިޕޯޓް ތައްޔާރުކުރައްވާ",
+  "Generated automatically when a shipment's items are logged. Invoices from finished trips move to Reports.": "ޝިޕްމަންޓެއްގެ އައިޓަމްތައް ލޮގްކުރުމުން އޮޓޮމެޓިކުން ހެދޭނެއެވެ. ނިމިފައިވާ ދަތުރުތަކުގެ އިންވޮއިސްތައް ބަދަލުވާނީ ރިޕޯޓްސް އަށެވެ.",
+  "Give someone full run of this boat — Dashboard, Trips, Invoices, Reports, and Settings (Staff & Trip Settings only) — without letting them see or edit your account details or item prices. Only you can add or remove managers.": "ތިޔަބޭފުޅާގެ އެކައުންޓްގެ ތަފްޞީލު ނުވަތަ މުދަލުގެ އަގުތައް ބެލުމާއި ބަދަލުކުރުމުގެ ހުއްދަ ނުދީ، މި ދޯނީގެ ފުރިހަމަ ބާރު — ޑޭޝްބޯޑް، ދަތުރުތައް، އިންވޮއިސްތައް، ރިޕޯޓްތައް، އަދި ސެޓިންގްސް (ހަމައެކަނި ސްޓާފް އަދި ދަތުރުގެ ސެޓިންގްސް) — އެހެން ފަރާތަކަށް ދެއްވާ. މެނޭޖަރުން އިތުރުކޮށް ނުވަތަ ވަކިކުރެވޭނީ ހަމައެކަނި ތިޔަބޭފުޅާއަށެވެ.",
+  "Gmail (optional, for future PIN reset)": "ޖީމެއިލް (އިޚްތިޔާރީ، ކުރިމަގުގައި ޕިން ރީސެޓްކުރުމަށް)",
   "Home": "ހޯމް",
   "https://yourdomain.com/cargo-log": "https://yourdomain.com/cargo-log",
-  "I'm Receiving Cargo": "މުދާ ހަވާލުވާ ފަރާތް",
-  "I'm Sending Cargo": "މުދާ ފޮނުވާ ފަރާތް",
-  "Image downloaded to owner's phone.": "ފޮޓޯ ވެރިފަރާތުގެ ފޯނަށް ޑައުންލޯޑް ވެއްޖެ",
-  "Incorrect PIN. Try again.": "ޖެއްސެވި ޕިން ރަނގަޅެއް ނޫން. އަލުން ޕިން ޖައްސަވާ",
-  "Invite Staff Member": "ސްޓާފް އަކަށް އިންވައިޓް ކޮށްލާ",
-  "Invoices": "ބިލްތަށް",
+  "I'm Receiving Cargo": "އަޅުގަނޑު މުދާ ބަލައިގަންނަނީ",
+  "I'm Sending Cargo": "އަޅުގަނޑު މުދާ ފޮނުވަނީ",
+  "Image downloaded to owner's phone.": "ފޮޓޯ ވެރިފަރާތުގެ ފޯނަށް ޑައުންލޯޑް ކުރެވިއްޖެ.",
+  "Incorrect PIN. Try again.": "ޕިން ނުބައި. އަލުން މަސައްކަތްކުރައްވާ.",
+  "Invite Staff Member": "ސްޓާފް މެންބަރަކަށް ދަޢުވަތު އަރުވާ",
+  "Invoices": "އިންވޮއިސްތައް",
   "Island name": "ރަށުގެ ނަން",
-  "Island, reason, receiver name, and receiver mobile are all required for an off-island delivery.": "މުދާ ބޭލުމަށް ނޯޓް ކޮށްފައިވާ ރަށް ނޫން ރަށަކަށް މުދާ ބާލާނަމަ މުދާ ބާލާ ރަށް، ސަބަބު، ހަވާލުވާފަރާތުގެ ނަން އަދި ހަވާލުވާފަރާތުގެ ފޯނު ނަންބަރު ބޭނުންވާނެއެވެ.",
-  "Islands": "ރަށްތަށް",
-  "Item List (tap to search)": "ތަކެތީގެ ލިސްޓް ( ހޯދުމަށް ފިތާލާ )",
-  "Item Rates": "މުދަލުގެ ރޭޓްތަށް",
-  "Keep Undelivered": "ޑެލިވަރީ ނުކުރެވޭ",
-  "Leave blank to just use this page's own address for the customer link shown above.": "މަތީގައިވާ ކަސްޓަމަރ ލިނކް ބޭންދުމަށް މިގޮޅި ހުސްކޮށް ދޫކޮށްލައްވާ",
-  "Loading location / jetty": "ލޯޑް ކުރާ ތަން / ޖެޓީ",
-  "Loading location / jetty (optional)": "މުދާ އަރުވާ ތަން / ޖެޓީ ( ބޭނުންފުޅު ނަމަ )",
-  "Loading time": "މުދާ އަރުވަން ފަށާ ގަޑި",
-  "Log In": "ލޮގް އިން",
-  "Log Items Loaded": "ނާލު އެރުވިފައި",
+  "Island, reason, receiver name, and receiver mobile are all required for an off-island delivery.": "ރޫޓުގައި ނުހިމެނޭ ރަށަކަށް މުދާ ހަވާލުކުރާނަމަ ރަށުގެ ނަން، ސަބަބު، ލިބޭ ފަރާތުގެ ނަން އަދި ލިބޭ ފަރާތުގެ މޯބައިލް ނަންބަރު ފުރިހަމަކުރަންވާނެއެވެ.",
+  "Islands": "ރަށްތައް",
+  "Item List (tap to search)": "އައިޓަމް ލިސްޓު (ހޯދުމަށް ފިތާލައްވާ)",
+  "Item Rates": "މުދަލުގެ އަގުތައް",
+  "Keep Undelivered": "ޑެލިވަރ ނުކުރެވޭ ކަމަށް ބަހައްޓާ",
+  "Leave blank to just use this page's own address for the customer link shown above.": "މަތީގައިވާ ކަސްޓަމަރ ލިންކުގެ ގޮތުގައި މި ޕޭޖުގެ އަމިއްލަ އެޑްރެސް ބޭނުންކުރުމަށް ހުސްކޮށް ބާއްވާށެވެ.",
+  "Loading location / jetty": "މުދާ އަރުވާ ތަން / ފާލަން",
+  "Loading location / jetty (optional)": "މުދާ އަރުވާ ތަން / ފާލަން (އިޚްތިޔާރީ)",
+  "Loading time": "މުދާ އަރުވާ ވަގުތު",
+  "Log In": "ލޮގިން",
+  "Log Items Loaded": "އެރުވި މުދަލުގެ ލޮގް",
   "Log out": "ލޮގްއައުޓް",
   "Manager": "މެނޭޖަރ",
   "Manager Access": "މެނޭޖަރ އެކްސެސް",
-  "Manager Links": "މެނޭޖަރ ލިނކްތަށް",
-  "Manager's name": "މެނޭޖަރުންގެ ނަންތަށް",
-  "Mark as Delivered": "ޑެލިވަރީ ކުރެވިފައި",
-  "Mark Delivered": "ޑެލިވަރީ ކުރެވިއްޖެ",
-  "Mark Trip Finished": "ޓްރިޕް ނިމުނު ކަމަށް ޖައްސަވާ",
-  "Mark Unpaid": "ފައިސާ ނުދައްކާ",
-  "Mobile number": "ފޯނު ނަންބަރު",
-  "New boat name": "އާ ބޯޓުގެ ނަން",
-  "New Check-In": "މުދާ ފޮނުވުމަށް",
-  "New here? Register your boat": "އަލަށްތޯ ؟ ބޯޓް ރަޖިސްޓރ ކޮށްލައްވާ",
-  "New Item": "އާ މުދަލެއް",
-  "New item name": "އާ މުދަލުގެ ނަން",
-  "New PIN": "އާ ޕާސްވޯޑް",
+  "Manager Links": "މެނޭޖަރ ލިންކްތައް",
+  "Manager's name": "މެނޭޖަރުގެ ނަން",
+  "Mark as Delivered": "ޑެލިވަރ ކުރެވިއްޖެ ކަމަށް ފާހަގަކުރޭ",
+  "Mark Delivered": "ޑެލިވަރ ކުރެވިއްޖެ ކަމަށް ފާހަގަކުރޭ",
+  "Mark Trip Finished": "ދަތުރު ނިމުނުކަމަށް ފާހަގަކުރައްވާ",
+  "Mark Unpaid": "ފައިސާ ނުދައްކާ ކަމަށް ފާހަގަކުރޭ",
+  "Mobile number": "މޯބައިލް ނަންބަރު",
+  "New boat name": "އާ ދޯނީގެ ނަން",
+  "New Check-In": "އައު ޗެކް-އިން",
+  "New here? Register your boat": "އަލަށްތޯ؟ ތިބާގެ ދޯނި ރަޖިސްޓްރީ ކުރައްވާ",
+  "New Item": "އައު އައިޓަމް",
+  "New item name": "އައު މުދަލުގެ ނަން",
+  "New PIN": "އައު ޕިން",
   "New Trip": "އާ ދަތުރު",
   "No boat requests yet.": "އެއްވެސް ބޯޓް ރިކުއެސްޓް އެއް ނެތް",
   "No boats yet.": "އެއްވެސް ބޯޓެއް ނެތް",
-  "No customers yet.": "އެއްވެސް ކަސްޓަމަރެއް ނެތް",
-  "No destination islands on this trip.": "ބޯޓް ދަތުރު ކުރާނެ ރަށެއް ހިޔާރު ކުރެވިފައި ނެތް",
-  "No finished trips yet.": "ނިމިފައި އެއްވެސް ދަތުރެއް ނެތް",
-  "No invoiced shipments yet.": "ބިލް ކުރެވިފައިވާ އެއްވެސް ނާލެއް ނެތް",
-  "No invoices yet.": "އެއްވެސް ބިލެއް ނެތް",
-  "No items added yet.": "އެއްވެސް މުދަލެއް އަރުވާފައި ނެތް",
-  "No items yet — add one above.": "އެއްވެސް މުދަލެއް ނެތް - މުދާ އެޑް ކޮށްލާ",
-  "No matches.": "ދިމާވާ އެއްޗެއް ނެތް",
-  "No matching items.": "ދިމާވާ އެއްވެސް މުދަލެއް ނެތް",
+  "No customers yet.": "އަދި އެއްވެސް ކަސްޓަމަރަކު ނެތް.",
+  "No destination islands on this trip.": "މި ދަތުރުގައި ދާން ހަމަޖެހިފައިވާ އެއްވެސް ރަށެއް ނެތް.",
+  "No finished trips yet.": "އަދި ނިމިފައިވާ އެއްވެސް ދަތުރެއް ނެތް.",
+  "No invoiced shipments yet.": "އަދި އިންވޮއިސް ހެދިފައިވާ އެއްވެސް ޝިޕްމަންޓެއް ނެތް.",
+  "No invoices yet.": "އަދި އެއްވެސް އިންވޮއިސްއެއް ނެތް.",
+  "No items added yet.": "އަދި އެއްވެސް އައިޓަމެއް އިތުރުކޮށްފައެއް ނެތް.",
+  "No items yet — add one above.": "އަދި އެއްވެސް މުދަލެއް ނެތް — މަތިން މުދަލެއް އިތުރުކުރައްވާ.",
+  "No matches.": "ދިމާވާ އެއްޗެއް ނުފެނުނު.",
+  "No matching items.": "ގުޅޭ އެއްވެސް އައިޓަމެއް ނެތް.",
   "No notifications yet.": "އެއވެސް ނޮޓިފިކޭޝަން އެއް ނެތް",
   "No organizations yet. This phase only manages data — owner self-signup comes in a later phase.": "އެއްވެސް އޯގަނައިޒޭޝަން އެއް ނެތް",
-  "No paid invoices for this island.": "ފައިސާ ދައްކާފައިވާ އެއްވެސް ބިލެއް މިރަށަކު ނެތް",
+  "No paid invoices for this island.": "މި ރަށަށް ފައިސާ ދައްކާފައިވާ އެއްވެސް އިންވޮއިސްއެއް ނެތް.",
   "No payment screenshot attached.": "ޕޭމަންޓް ސްލިޕް އެޓޭޗް ކުރެވިފައި ނެތް",
-  "No routes set up yet.": "ބޯޓް ދަތުރު ކުރާނެ ރޫޓް ހިޔާރު ކުރެވިފައި ނެތް",
-  "No saved route starts here — pick which islands this trip stops at.": "މި ރޫޓް ސޭވް ކުރެވިފައި ނެތް - ބޯޓް ދަތުރު ކުރާނެ ރަށްތަށް މާކް ކުރަށްވާ",
-  "No shipments here yet.": "އެއްވެސް ނާލެއް ނެތް",
-  "No shipments in this period.": "ތި މުއްދަތުގައި އެއްވެސް ނާލެއް ނެތް",
-  "No trip exists yet, so this customer won't be tied to one — describe the route by hand below. Once a trip is created, load their items onto it as normal.": "އެއްވެސް ދަތުރެއް މިވަގުތު އެޑް ކުރެވިފައި ނެތް. ބޭނުންފުޅުވާ ރަށެއް ހިޔާރު ކުރުމަށްފަހު ނާލު އެޑް ކޮށްލައްވާ",
-  "No trips planned yet.": "އެއްވެސް ދަތުރެއް ރޭވިފައެއް ނެތް",
-  "No unpaid invoices for this island.": "ފައިސާ ނުދައްކާ އެއްވެސް ބިލެއް މިރަށަކު ނެތް",
-  "Nothing delivered yet for this island.": "ރި ރަށަށް އެއްވެސް މުދަލެއް ޑެލިވަރީ ކުރެވިފައެއް އަދި ނެތް",
-  "Nothing here right now.": "މިވަގުތު އެއްވެސް އެއްޗެއް ނެތް",
-  "Nothing undelivered for this island.": "ރި ރަށަށް އެއްވެސް މުދަލެއް ޑެލިވަރީ ނުކުރެވިއެއް ނެތް",
-  "Only the Owner or a Manager can delete a shipment once items have been logged.": "މުދާ އެޅުމަށްފަހު ޑިލީޓް ކުރެވޭނީ ވެރިފަރާތަށް ނޫނީ މެނޭޖަރަށް",
+  "No routes set up yet.": "އަދި އެއްވެސް ރޫޓެއް ސެޓަޕް ކުރެވިފައެއް ނެތް.",
+  "No saved route starts here — pick which islands this trip stops at.": "މިތަނުން ފެށޭ އެއްވެސް ސޭވްކޮށްފައިވާ ރޫޓެއް ނެތް — މި ދަތުރުގައި މަޑުކުރާ ރަށްތައް ޚިޔާރުކުރައްވާ.",
+  "No shipments here yet.": "އަދި މިތަނުގައި އެއްވެސް ޝިޕްމަންޓެއް ނެތް.",
+  "No shipments in this period.": "މި މުއްދަތުގައި އެއްވެސް ޝިޕްމަންޓެއް ނެތް.",
+  "No trip exists yet, so this customer won't be tied to one — describe the route by hand below. Once a trip is created, load their items onto it as normal.": "އަދި އެއްވެސް ދަތުރެއް ހަދާފައެއް ނެތެވެ. އެހެންކަމުން މި ކަސްޓަމަރު އެއްވެސް ދަތުރަކާ ގުޅުވާނުލެވޭނެއެވެ — ތިރީގައި އަމިއްލައަށް ރޫޓު ލިޔުއްވާށެވެ. ދަތުރެއް ހެދުމަށްފަހު، އާދައިގެ މަތިން މުދާތައް އެ ދަތުރަށް އަރުވާށެވެ.",
+  "No trips planned yet.": "އަދި އެއްވެސް ދަތުރެއް ރޭވިފައެއް ނެތް.",
+  "No unpaid invoices for this island.": "މި ރަށަށް ފައިސާ ނުދައްކާ އެއްވެސް އިންވޮއިސްއެއް ނެތް.",
+  "Nothing delivered yet for this island.": "މި ރަށަށް އަދި އެއްވެސް އެއްޗެއް ޙަވާލުކުރެވިފައެއް ނުވޭ.",
+  "Nothing here right now.": "މިވަގުތު މިތަނުގައި އެއްވެސް އެއްޗެއް ނެތް.",
+  "Nothing undelivered for this island.": "މި ރަށަށް ޙަވާލުނުކުރެވި އެއްވެސް އެއްޗެއް ނެތް.",
+  "Only the Owner or a Manager can delete a shipment once items have been logged.": "މުދާތައް ލޮގްކުރުމަށްފަހު ޝިޕްމަންޓެއް ޑިލީޓްކުރެވޭނީ ހަމައެކަނި ވެރިފަރާތަށް ނުވަތަ މެނޭޖަރަކަށެވެ.",
   "Origin": "ފުރާ ރަށް",
-  "Origin, at least one destination, and a date are required.": "ފުރާ ރަށް، ދަތުރު ކުރާނެ މަދުވެގެން 1 ރަށް، އަދި ތާރީހް ބޭނުންފުޅުވާނެ",
-  "Other social media links (one per line, optional)": "އެހެން ސޯޝަލް މީޑިއާ ލިންކްތަށް ( ބޭނުންފުޅު ނަމަ )",
-  "Owner Links": "ވެރިފަރާތުގެ ލިންކް",
-  "Owner name *": "ވެރިފަރާތުގެ ނަން",
+  "Origin, at least one destination, and a date are required.": "ފުރާ ރަށާއި، މަދުވެގެން އެއް މަންޒިލް އަދި ތާރީޚެއް ބޭނުންވާނެއެވެ.",
+  "Other social media links (one per line, optional)": "އެހެނިހެން ސޯޝަލް މީޑިއާ ލިންކްތައް (ކޮންމެ ފޮޅުވަތަކަށް ލިންކެއް، އިޚްތިޔާރީ)",
+  "Owner Links": "ވެރިފަރާތުގެ ލިންކުތައް",
+  "Owner name *": "ވެރިފަރާތުގެ ނަން *",
   "Owner PIN": "ވެރިފަރާތުގެ ޕިން",
-  "Owner's personal mobile number *": "ވެރިފަރާތުގެ ފޯނު ނަންބަރ*",
-  "Owner-only view. Revenue reflects collected (paid) payments only.": "ވެރިފަރާތަށް އެކަނި ފެންނަ ރެވެނިއުގައި ވަނީ ލިބިފައިވާ ފައިސާގެ ޖުމުލަ އަދަދު",
-  "Owner-only.": "ވެރިފަރާތް އެކަނި",
+  "Owner's personal mobile number *": "ވެރިފަރާތުގެ އަމިއްލަ މޯބައިލް ނަންބަރު *",
+  "Owner-only view. Revenue reflects collected (paid) payments only.": "ހަމައެކަނި ވެރިފަރާތަށް ފެންނަ ގޮތަށް. އާމްދަނީގެ ގޮތުގައި ދައްކާނީ ހަމައެކަނި ބަލައިގަނެވިފައިވާ (ފައިސާ ދައްކާފައިވާ) ޢަދަދުތަކެވެ.",
+  "Owner-only.": "ހަމައެކަނި ވެރިފަރާތަށް.",
   "Owners & Boats": "ވެރިފަރާތްތަށް އަދި ބޯޓުތަށް",
   "Password": "ޕާސްވޯޑް",
-  "Payment Details": "ޕޭމަންޓް ތަފްސީލް",
-  "Payment screenshot": "ޕޭމަންޓް ސްކްރޯންޝޮޓް",
-  "Pending Access Requests": "ޕެންޑިންގް އެކްސެސް ރިކުއެސްޓްތަށް",
-  "Pick a time frame and generate a summary -- revenue, shipment counts, and a per-island breakdown for that period.": "ރިޕޯޓް ޖެނެރޭޓް ކުރަން ބޭނުންވާ ތާރީހް ހިޔާރު ކުރަށްވާ",
-  "Pick both a start and end date.": "ފެށޭ ތާރީހާއި ނިމޭ ތާރީހް ނަންގަވާ",
-  "Pick which trip this customer is for.": "މި ކަސްޓަމަރ އަކީ ކޮން ދަތުރަކަށްކަން ނަންގަވާ",
-  "Plan the next trip. The active trip's destinations show up on the customer check-in form automatically.": "އިތުރު ދަތުރެއް އެޑް ކުރަށްވާ، މިހާރު ރޭވިފައިވާ ދަތުރު ކަސްޓަމަރ ޗެކިން ފޯމުން ފެނިލައްވާނެ.",
+  "Payment Details": "ފައިސާގެ ތަފްސީލު",
+  "Payment screenshot": "ފައިސާ ދެއްކި ސްލިޕްގެ ސްކްރީންޝޮޓް",
+  "Pending Access Requests": "އިންތިޒާރުގައިވާ އެކްސެސް ރިކުއެސްޓްތައް",
+  "Pick a time frame and generate a summary -- revenue, shipment counts, and a per-island breakdown for that period.": "މުއްދަތެއް ހޮއްވަވާފައި ޚުލާސާއެއް ތައްޔާރުކުރައްވާ -- އެ މުއްދަތުގެ ޖުމްލަ އާމްދަނީ، ކާގޯގެ އަދަދު، އަދި ރަށްރަށަށް ބެހިފައިވާ ގޮތް.",
+  "Pick both a start and end date.": "ފެށޭ އަދި ނިމޭ ތާރީޚު ޚިޔާރުކުރައްވާ.",
+  "Pick which trip this customer is for.": "މި ކަސްޓަމަރު ނިސްބަތްވާ ދަތުރު ޚިޔާރުކުރައްވާ.",
+  "Plan the next trip. The active trip's destinations show up on the customer check-in form automatically.": "ދެން އޮތް ދަތުރު ރާއްވަވާ. އެކްޓިވް ދަތުރުގެ މަންޒިލްތައް ކަސްޓަމަރުންގެ ޗެކް-އިން ފޯމުގައި އޮޓޯއިން ދައްކާނެއެވެ.",
   "Price": "އަގު",
-  "Print this or display it on the boat -- customers scan it with their phone camera to check in cargo. Press and hold the image to save it to your phone.": "ކަސްޓަމަރުންނަށް މި ކިއު އާރ ކޯޑް ފޯނުން ސްކޭން ކުރުމަށްފަހު ނާލު އެރުވޭނެ.",
-  "Public URL customers should scan (once published/hosted)": "ޕަބްލިކް ޔޫ އާރ އެލް ( ޕަބްލިޝް ކުރުމަށްފަހު ކަސްޓަމަރ ސްކޭން ކުރުމަށް )",
-  "QR Link Override": "ކިޔު އާރް ލިންކް އޯވަރރައިޑް",
+  "Print this or display it on the boat -- customers scan it with their phone camera to check in cargo. Press and hold the image to save it to your phone.": "މި ޕްރިންޓްކުރައްވާ ނުވަތަ ބޯޓުގައި ފެންނަން ހުންނާނެހެން ބަހައްޓަވާ -- ކަސްޓަމަރުން ފޯނުގެ ކެމެރާއިން މިއަށް ސްކޭންކޮށްގެން މުދާ ޗެކް-އިން ކުރެވޭނެއެވެ. ފޯނަށް ސޭވްކުރުމަށްޓަކައި މި ފޮޓޯއަށް ފިތައިގެން ހިފަހައްޓާލައްވާ.",
+  "Public URL customers should scan (once published/hosted)": "ކަސްޓަމަރުން ސްކޭންކުރަންވީ ޢާންމު ޔޫއާރްއެލް (ޕަބްލިޝް/ހޯސްޓް ކުރުމަށްފަހު)",
+  "QR Link Override": "ކިއުއާރް ލިންކް އޯވަރރައިޑް",
   "Rate": "ރޭޓް",
   "Re-enter your Super Admin password to continue.": "ސުޕަރ އެޑްމިން ޕާސްވޯޑް ޖައްސަވާ",
-  "Reason (required)": "ސަބަބު ( ފުރަންޖެހޭ )",
+  "Reason (required)": "ސަބަބު (ލާޒިމު)",
   "Reason (shown to the organization)": "ސަބަބު",
-  "Receiver's mobile number": "ހަވާލުވާފަރާތުގެ ފޯނު ނަންބަރު",
-  "Receiver's mobile number (required)": "ހަވާލުވާފަރާތުގެ ފޯނު ނަންބަރު ( ލިޔުއްވާ )",
-  "Receiver's name": "ހަވާލުވާފަރާތުގެ ނަން",
-  "Receiver's name at this island (required)": "ހަވާލުވާފަރާތުގެ ނަން ( ލިޔުއްވާ )",
-  "Refresh": "ރީފްރެޝް",
-  "Register Your Boat": "ބޯޓް ރަޖިސްޓްރީ ކޮށްލާ",
-  "Register a New User or Organization": "ބޯޓް ރަޖިސްޓްރީ ކޮށްލާ",
+  "Receiver's mobile number": "ލިބޭ ފަރާތުގެ މޯބައިލް ނަންބަރު",
+  "Receiver's mobile number (required)": "މުދާ ލިބޭ ފަރާތުގެ މޯބައިލް ނަންބަރު (ލާޒިމު)",
+  "Receiver's name": "ލިބޭ ފަރާތުގެ ނަން",
+  "Receiver's name at this island (required)": "މި ރަށުން މުދާ ލިބޭ ފަރާތުގެ ނަން (ލާޒިމު)",
+  "Refresh": "ރިފްރެޝް",
+  "Register Your Boat": "ދޯނި ރަޖިސްޓްރީ ކުރައްވާ",
+  "Register a New User or Organization": "އައު ބޭނުންކުރާ ފަރާތެއް ނުވަތަ ކުންފުންޏެއް ރަޖިސްޓްރީކުރައްވާ",
   "Reject": "ރިޖެކްޓް",
-  "Remove": "ރިމޫވް",
+  "Remove": "އުނިކުރޭ",
   "Report": "ރިޕޯޓް",
-  "Request Access": "ރިކުއެސްޓް ފޮނުވާ",
+  "Request Access": "އެކްސެސް އަށް އެދުމަށް",
   "Request Sent": "ރިކުއެސްޓް ފޮނުވިއްޖެ",
-  "Request sent. Wait for an owner or manager to approve you and share your PIN.": "ރިކުއެސްޓް ފޮނުވިއްޖެ، ވެރިފަރާތުން ނުވަތަ މެނޭޖަރު އެޕްރޫވް ކުރަންދެން މަޑުކޮށްލައްވާ",
-  "Request submitted. It will be reviewed once your payment is confirmed.": "ރިކުއެސްޓް ކުރެވިފައި. ޕޭމަންޓް ކޮންފަރމް ކުރުމަށްފަހު ރިވިއު ކުރެވޭނެ",
-  "Revenue by island, trip-by-trip drill-down, and the delivery photo archive.": "ފައިސާ ލިބިފައިވާގޮތް - ރަށްރަށް ވަކިން",
-  "Revenue Reports": "ފައިސާގެ ރިޕޯޓް",
-  "Save Link": "ލިންކް ސޭވް ކޮށްްލާ",
-  "Save Password": "ޕާސްވޯޑް ސޭވް ކޮށްލާ",
-  "Save Payment Details": "ޕޭމަންޓް ތަފްސީލް ސޭވް ކޮށްލާ",
-  "Save Trip Defaults": "ދަތުރުގެ ޑިފޯލްޓް ސޭވޮ ކޮށްލާ",
-  "Scan Boat QR Code": "ބޯޓުގެ ކިޔު އާރ ކޯޑް",
+  "Request sent. Wait for an owner or manager to approve you and share your PIN.": "ރިކުއެސްޓް ފޮނުވިއްޖެ. ވެރިފަރާތުން ނުވަތަ މެނޭޖަރަކު އެޕްރޫވްކޮށް، ޕިން ޙިއްޞާކުރަންދެން މަޑުކުރައްވާ.",
+  "Request submitted. It will be reviewed once your payment is confirmed.": "ރިކުއެސްޓް ވަނީ ސަބްމިޓް ކުރެވިފައި. ތިބާ ދެއްކި ފައިސާ ކަށަވަރުވުމުން އެޕްރޫވް ކުރެވޭނެއެވެ.",
+  "Revenue by island, trip-by-trip drill-down, and the delivery photo archive.": "ރަށްރަށުން ލިބުނު އާމްދަނީ، ކޮންމެ ދަތުރެއްގެ ވަކިވަކި ތަފްސީލު، އަދި ޑެލިވަރީ ފޮޓޯ އަރކައިވް.",
+  "Revenue Reports": "އާމްދަނީ ރިޕޯޓްތައް",
+  "Save Link": "ލިންކް ސޭވްކުރޭ",
+  "Save Password": "ޕާސްވޯޑް ރައްކާކުރައްވާ",
+  "Save Payment Details": "ފައިސާގެ ތަފްސީލު ރައްކާކުރައްވާ",
+  "Save Trip Defaults": "ދަތުރުގެ ޑިފޯލްޓްތައް ސޭވްކުރޭ",
+  "Scan Boat QR Code": "ދޯނީގެ ކިއުއާރް ކޯޑު ސްކޭން ކުރައްވާ",
   "SeaFare": "ސީފެއަރ",
   "Search": "ހޯދާ",
-  "Search & tap an item to add it": "އެޑް ކުރުމަށް ސާރޗް ކުރރުމަށްފަހު ފިތާލާ",
-  "Search all shipments — name, mobile, or tracking code": "ނާލު ހޯދާ - ނަން، ފޯނު ނަންބަރު ނުވަތަ ޓްރެކިންގް ނަންބަރ",
-  "Search by tracking code, sender mobile, or receiver mobile.": "ނަން، ފޯނު ނަންބަރު ނުވަތަ ޓްރެކިންގް ނަންބަރ ޖައްސަވައިގެން ނާލު ހޯއްދަވާ",
-  "Select the text in the box and copy manually.": "ގޮޅީގައިވާ ލިޔުންކޮޅަށް ފިތާލުމަށްފަހު ކޮޕީ ކޮށްލައްވާ",
-  "Sender mobile number": "ފޮނުވާ ފަރާތުގެ ފޯނު ނަންްބަރު",
+  "Search & tap an item to add it": "އައިޓަމެއް ހޯދުމަށްފަހު އޭގައި ފިތާލައިގެން އިތުރުކުރައްވާ",
+  "Search all shipments — name, mobile, or tracking code": "ހުރިހާ ޝިޕްމަންޓެއް ހޯއްދަވާ — ނަން، މޯބައިލް ނުވަތަ ޓްރެކިންގ ކޯޑު",
+  "Search by tracking code, sender mobile, or receiver mobile.": "ޓްރެކިންގ ކޯޑު، ފޮނުވާ ފަރާތުގެ މޯބައިލް، ނުވަތަ ލިބޭ ފަރާތުގެ މޯބައިލް ނަންބަރުން ހޯއްދަވާ.",
+  "Select the text in the box and copy manually.": "ގޮޅީގައިވާ ލިޔުންކޮޅު ސިލެކްޓްކުރެއްވުމަށްފަހު އަމިއްލައަށް ކޮޕީކުރައްވާ.",
+  "Sender mobile number": "ފޮނުވާ ފަރާތުގެ މޯބައިލް ނަންބަރު",
   "Sender name": "ފޮނުވާ ފަރާތުގެ ނަން",
-  "Set Active": "އެކްޓިވް ކޮށްލާ",
-  "Set New PIN": "އާ ޕިން އެއް ޖައްސަވާ",
+  "Set Active": "އެކްޓިވް ކުރައްވާ",
+  "Set New PIN": "އައު ޕިން އެއް ހަމަޖައްސަވާ",
   "Settings": "ސެޓިންގްސް",
-  "Share": "ފޮނުވާ",
-  "Share as Image": "ފޮޓޯއެއްގޮތަށް ފޮނުވާ",
-  "Share Invoice": "ބިލް ފޮނުވާ",
-  "Share the sign-in link with staff. Use the \"Add to Home Screen\" link specifically when saving an icon on a phone — iOS doesn't reliably remember the # link for that.": "ސްޓާފުންނަށް ސައިން އިން ލިންކް ފޮނުވާ. ފޯނަށް ސޭވްކުރާނަމަ \" އެޑް ޓު ހޯމް ސްކްރީން \" އަށް ދީފައިވާ ލިންކުން ސޭވްކުރަށްވާ.",
-  "Share this only with people you've personally added as a manager below — it's not a self-request link.": "ހަމައެކަނި މެނޭޖަރުންނާ މި ލިންކް ހިއްސާ ކުރަށްވާ",
-  "Share via Viber": "ވައިބަރ އިން ފޮނުވާ",
-  "Share via WhatsApp": "ވަޓްސް އެޕް އިން ފޮނުވާ",
-  "Shipments": "ނާލުތަށް",
-  "Shown on shared invoice images so customers know where to send bank transfers. Pre-filled from your account signup, but editable separately for this boat. Leave blank to hide this from invoices.": "ޓްރާންސްފާރ ކުރަންވީ އެކައުންޓް ބިލްގެ ތިރީގައި ލިޔެވިފައި، އެކައުންޓް ނަންބަރު ސެޓިންގްސް ތެރޭން ބަދަލު ކޮށްލެވޭނެއެވެ.",
-  "Sign In": "ލޮގްއިން",
-  "Sign in with your boat name (username) and PIN. Keep this link private to yourself.": "ލޮގް އިން ކުރުމަށް ބޯޓުގެ ނަމާއި ޕާސްވޯޑްބޭނުން ކުރައްވާ. މި ލިންކް ރައްކާތެރިކަމާއެކު އެހެން ބޭފުޅުންނާ ހިއްސާ ނުކޮށް ގެންގުޅުއްވާ.",
-  "Sign in, or request access if you're new": "ލޮގްއިން، ނުވަތަ އަލަށް ރަޖިސްޓަރ ކޮށްލާނަމަ ރިކުއެސްޓް ފޮނުވުމަށް",
-  "Sign Up": "ރަޖިސްޓަރ ކުރުމަށަް",
-  "Something went wrong adding this customer. Please try again.": "ތި ކަސްޓަމަރ އެޑްކުރުމުގައި މައްސަލައެއް އުޅޭ. އަލުން މަސައްކަތް ކޮށްލައްވާ",
-  "Staff Links": "ސްޓާފް ލިންކްތަށް",
-  "Staff Management": "ސްޓާފް މްނޭޖްމަންޓް",
-  "Staff member name": "ސްޓާފް މެންބަރގެ ނަން",
-  "Staff Sign-In": "ސްޓާފް ލޮގިން",
-  "Submit Check-In": "ޗެކްއިން ސަބްމިޓް",
-  "Submit Request": "ރިކުއެސްޓް ސަބްމިޓް",
-  "Tap a boat above to open its full dispatch app — Dashboard, Trips, Invoices, Reports, and Settings, private to that boat.": "ބޯޓް އެޕް ހުޅުވުމަށް ބޯޓުގެ ނަމަށް ފިތާލާ",
-  "The routes this boat mainly ferries. Once set, picking an origin on the New Trip form fills in destinations and the loading location automatically.": "ބޯޓް ދަތުރު ކުރާ ރޫޓް ސޭވް ކުރެއްވުމުން، ފަހުން ބޯޓް ދަތުރު ޕްލޭން ކުރަށްވާ ފޯމް ފުރާއިރު ފުރާ ރަށް ޖެއްސެވުމުން ދަތުރު ކުރާ ރަށްތަށް އަދި މުދާ ލޯޑް ކުރާ ތަން އަމިއްލައަކަށް ފުރިގެންދާނެއެވެ.",
-  "The start date is after the end date.": "ފެށޭ ތާރީހް ނިމޭ ތާރީހް އަށްވުރެ އަވަސް",
-  "This boat has been suspended and can't be opened right now.": "މި ބޯޓް ވަނީ ސަސްޕެންޑް ކުރެވިފައި، މިވަގުތު ހުޅުވޭކަށް ނެތް.",
-  "This feature isn't set up on the server yet. Ask your developer to add Google API credentials.": "ސާރވާގައި މި ފީޗާރ ނެތް، ޑިވަލޮޕަރ އާ މަޝްވަރާ ކޮށްލައްވާ",
-  "This is what your senders and receivers use to check in cargo and track shipments for THIS boat specifically.": "މިއީ މިބޯޓުން މުދާ ފޮނުވާ ފަރާތުންނާއި ހަވާލުވާ ފަރާތުން ނާލު ފޮނުވުމަށާއި ޓްރެކް ކުރުމަށް ބޭނުން ކުރާނެ ޕޭޖެވެ.",
+  "Share": "ޝެއަރ",
+  "Share as Image": "ފޮޓޯއެއްގެ ގޮތުގައި ޝެއަރ ކުރޭ",
+  "Share Invoice": "އިންވޮއިސް ޝެއަރ ކުރޭ",
+  "Share the sign-in link with staff. Use the \"Add to Home Screen\" link specifically when saving an icon on a phone — iOS doesn't reliably remember the # link for that.": "ސްޓާފުންނާ ސައިން-އިން ލިންކް ހިއްސާކުރައްވާ. ފޯނުގައި އައިކަން ސޭވްކުރާއިރު ޚާއްޞަކޮށް \"އެޑް ޓު ހޯމް ސްކްރީން\" ލިންކް ބޭނުންކުރައްވާ — އައިއޯއެސް (އައިފޯން) އިން އެކަމަށްޓަކައި # ލިންކް ރަނގަޅަށް ހަނދާނެއް ނުބަހައްޓައެވެ.",
+  "Share this only with people you've personally added as a manager below — it's not a self-request link.": "މިއީ އަމިއްލައަށް އެދެވޭ ލިންކެއް ނޫނެވެ، މިއީ ހަމައެކަނި ތިރީގައި ތިޔަބޭފުޅާ މެނޭޖަރެއްގެ ގޮތުގައި އިތުރުކޮށްފައިވާ ފަރާތްތަކާ އެކަނި ހިއްސާކުރަންވީ ލިންކެކެވެ.",
+  "Share via Viber": "ވައިބަރ މެދުވެރިކޮށް ހިއްސާކުރޭ",
+  "Share via WhatsApp": "ވަޓްސްއެޕް މެދުވެރިކޮށް ހިއްސާކުރޭ",
+  "Shipments": "ޝިޕްމަންޓްތައް",
+  "Shown on shared invoice images so customers know where to send bank transfers. Pre-filled from your account signup, but editable separately for this boat. Leave blank to hide this from invoices.": "ކަސްޓަމަރުން ބޭންކް ޓްރާންސްފަރ ހަދަންވީ އެކައުންޓް އެނގޭނޭހެން އިންވޮއިސް އިމޭޖުގައި ދައްކާނެއެވެ. މިއީ އެކައުންޓް ސައިންއަޕްއިން އޮޓޯއިން ނަގާފައިވާ މައުލޫމާތެކެވެ. ނަމަވެސް މި ދޯންޏަށް ވަކިން ބަދަލުކުރެވިދާނެއެވެ. އިންވޮއިސްތަކުގައި މި މައުލޫމާތު ނުދައްކަން ބޭނުންނަމަ ހުސްކޮށް ބާއްވާށެވެ.",
+  "Sign In": "ސައިން އިން",
+  "Sign in with your boat name (username) and PIN. Keep this link private to yourself.": "ތިބާގެ ދޯނީގެ ނަން (ޔޫޒަރނޭމް) އަދި ޕިން ނަންބަރު ޖައްސަވައިގެން ސައިން އިން ވެލައްވާ. މި ލިންކު އެހެން މީހުންނާ ހިއްސާނުކުރައްވާ ސިއްރެއްގެ ގޮތުގައި ބަހައްޓަވާ.",
+  "Sign in, or request access if you're new": "ސައިން އިން ވެވަޑައިގަންނަވާ، ނުވަތަ އަލަށް ބޭނުންކުރައްވާނަމަ އެކްސެސް އަށް އެދިވަޑައިގަންނަވާ",
+  "Sign Up": "ސައިން އަޕް",
+  "Something went wrong adding this customer. Please try again.": "މި ކަސްޓަމަރު އިތުރުކުރުމުގައި މައްސަލައެއް ދިމާވެއްޖެ. އަލުން މަސައްކަތްކުރައްވާ.",
+  "Staff Links": "ސްޓާފް ލިންކްތައް",
+  "Staff Management": "މުވައްޒަފުންގެ މެނޭޖްމަންޓް",
+  "Staff member name": "ސްޓާފް މެންބަރުގެ ނަން",
+  "Staff Sign-In": "މުވައްޒަފުންގެ ސައިން-އިން",
+  "Submit Check-In": "ޗެކް-އިން ސަބްމިޓް ކުރައްވާ",
+  "Submit Request": "ރިކުއެސްޓް ސަބްމިޓް ކުރައްވާ",
+  "Tap a boat above to open its full dispatch app — Dashboard, Trips, Invoices, Reports, and Settings, private to that boat.": "މަތީގައިވާ ދޯންޏަކަށް ފިއްތާލުމުން އެ ދޯންޏެއްގެ ފުރިހަމަ ޑިސްޕެޗް އެޕް ހުޅުވޭނެއެވެ — ޑޭޝްބޯޑް، ދަތުރުތައް، އިންވޮއިސްތައް، ރިޕޯޓްތައް، އަދި ސެޓިންގްސް ހިމެނެނީ ހަމައެކަނި އެ ދޯންޏަށެވެ.",
+  "The routes this boat mainly ferries. Once set, picking an origin on the New Trip form fills in destinations and the loading location automatically.": "މި ދޯނި މައިގަނޑު ގޮތެއްގައި ދަތުރުކުރާ ރޫޓުތައް. އެއްފަހަރު ސެޓްކުރުމުން، އާ ދަތުރު ފޯމުގައި ފުރާ ރަށް ނެގުމުން ދާނެ މަންޒިލްތަކާއި މުދާ އަރުވާ ތަން އޮޓޯއިން ފުރޭނެއެވެ.",
+  "The start date is after the end date.": "ފެށޭ ތާރީޚު އުޅެނީ ނިމޭ ތާރީޚަށް ވުރެ ފަހުންނެވެ.",
+  "This boat has been suspended and can't be opened right now.": "މި ދޯނި ވަނީ ސަސްޕެންޑްކޮށްފައެވެ، މިވަގުތު ހުޅުވައެއް ނުލެވޭނެއެވެ.",
+  "This feature isn't set up on the server yet. Ask your developer to add Google API credentials.": "މި ފީޗަރ އަދި ސާވަރގައި ސެޓަޕް ކުރެވިފައެއް ނެތެވެ. ތިބާގެ ޑިވެލޮޕަރ ގާތު ގޫގުލް އޭޕީއައި (Google API) ކްރެޑެންޝަލްސް އަޅައިދިނުމަށް އެދޭށެވެ.",
+  "This is what your senders and receivers use to check in cargo and track shipments for THIS boat specifically.": "މިއީ މުދާ ފޮނުވާ އަދި ލިބޭ ފަރާތްތަކުން ޚާއްޞަކޮށް މި ބޯޓަށް މުދާ ޗެކް-އިން ކުރުމަށާއި ޝިޕްމަންޓްތައް ޓްރެކްކުރުމަށް ބޭނުންކުރާ ލިންކެވެ.",
   "This Month": "މި މަސް",
-  "This trip has already departed and is no longer accepting check-ins. Please check back once the next trip is announced.": "ބޯޓް ވަނީ ފުރާފައި،  މިވަގުތު މުދާ ބަލައި ނުގަންނާނެ. އާ ދަތުރެއް އިއުލާން ކޮށްލުމުން ޗެކް ކޮށްލައްވާ",
-  "This Week": "ނިމުނު ހަފްތާ",
+  "This trip has already departed and is no longer accepting check-ins. Please check back once the next trip is announced.": "މި ދަތުރު މިހާރު ވަނީ ފުރާފައެވެ. އަދި މިހާރު ޗެކް-އިން އެއް ބަލައެއް ނުގަނެއެވެ. ދެން އޮންނަ ދަތުރު އިޢުލާންކުރުމުން ޗެކްކޮށްލައްވާށެވެ.",
+  "This Week": "މި ހަފްތާ",
   "Today": "މިއަދު",
   "Track": "ޓްރެކް",
-  "Track a Shipment": "ނާލު ޓްރެކް ކޮށްލައްވާ",
-  "Tracking link": "ޓްރެކް ކުރާ ލިންކް",
-  "Tracking link (optional)": "ޓްރެކް ކުރާ ލިންކް ( ބޭނުންފުޅުނަމަ )",
-  "Trip (which route is this for?)": "ދަތުރު ( މީ ކޮން ރޫޓަކަށްތޯ؟ )",
-  "Trip date": "ދަތުރުކުރާ ތާރީހް",
-  "Trip Defaults": "ދަތުރުގެ ޑިފޯލްޓް",
-  "Trip Manifest File": "ދަތުރުގެ ތަފްސީލް",
-  "Trip Reports": "ދަތުރުގެ ރިޕޯޓް",
-  "Type destination": "ދަތުރު ކުރާ ރަށް ލިޔުއްވާ",
-  "Type to search & add an island…": "ރަށް ހޯދުމަށްފަހު އެޑް ކޮށްލާ",
-  "Type to search islands…": "ރަށް ހޯދުމަށް ރަށުގެ ނަން ލިޔުއްވާ",
-  "Use Selected Islands": "ހިޔާރު ކޮށްފައިވާ ރަށްތަށް ބޭނުން ކުރައްވާ",
-  "Verify Code": "ކޯޑް ވެރިފައި ކޮށްލާ",
-  "Viber group link": "ވައިބަރ ގްރޫޕް ލިނކް",
-  "Viber group link (optional)": "ވައިބަރ ގްރޫޕް ލިނކް ( ބޭނުންފުޅުނަމަ )",
-  "View & Copy Announcement": "އިއުލާން ކޮޕީ ކޮށްލާ",
-  "View Detailed Reports →": "ތަފްސީލް ރިޕޯޓް ބައްލަވާ",
-  "Void": "ފުހެލާ",
-  "When a trip is marked in transit, a file listing every loaded shipment (sender, receiver, items, totals, and loading photos) is downloaded automatically to the phone of whoever marked it — owner or manager. Opens right in the browser. No setup needed.": "ދަތުރު ފެށުމުން ބޯޓަށް އެރުވިފަިވާ ހުރިހާ ނާލެއްގެ ތަފްސީލް ދަތުރު ފެށުނު ކަމަށް ލިސްޓްކުރި ފަރާތުގެ ފޯނަށް ޑައުންލޯޑް ވާނެއެވެ. މި ލިސްޓް ކޮންމެވެސް ބްރައުޒަރ އެއް ބޭނުންކޮށްގެން ހުޅުވާ ބެލޭނެ އެވެ.",
-  "Wrong Island Detected": "ހިޔާރު ކޮށްފައިވާ ރަށް ރަނގަޅެއް ނޫން",
-  "Wrong tap? Mark as Undelivered": "ޑެލިވަރީކުރެވުނުކަމަށް ޖެހިފައިވަނީ ނުބައިކޮށް؟ އަލުން ދެލިވަރީ ނުކުރެވޭކަމަށް ލިސްޓް ކޮށްލާ.",
-  "Wrong tap? Mark as Unpaid": "އަދި ފައިސާ ނުލިބޭ",
-  "You can also add a staff member directly here without waiting for a request. No email is actually sent — a sign-in PIN is generated instantly for you to share with them.": "ސްޓާފް ރިކުއެސްޓެއް ނެތްކަމުގައި ވިޔަސް މިތަނުން ސްޓާފުން އެޑް ކޮށްލެވޭނެ - ސްޓާފުން އެޑްކޮށްލުމުން އެ ބޭފުޅުންނާ ހިއްސާކުރުމަށް ޕިން އަދި ލޮގިން ވާން ބޭނުން ކުރާނެ ޔޫ އާރް އެލް ލިބިލައްވާނެ",
-  "You don't have a boat yet — your first one is free, no approval needed.": "ބޯޓެއް އެޑްކުރެވިފައި ނެޠް - ފުރަތަމަ ބޯޓް ހިލޭ އެޑްކޮށްލެވޭނެ",
-  "You'll log in later with your boat name as your username and this PIN.": "ފަހުން ލޮގް  އިން ކުރައްވާއިރު ބޯޓުގެ ނަމާއި ޕިން ބޭނުން ކުރަށްވާ",
-  "Your mobile number": "ފޯނު ނަންބަރު",
-  "Your name": "ނަން",
-  "Your name (sender)": "ނަން ( މުދާ ފޮނުވާ ފަރާތް )",
-  "← Back": "ފަހަތަށް",
-  "← Back to all shipments": "ފަހަތަށް ( ނާލުތަށް )",
-  "← Back to Islands": "ފަހަތަށް ( ރަށްތަށް )",
-  "← Back to Organizations": "ފަހަތަށް ( އޯގަނައިޒޭޝަންސް )",
-  "← Back to Reports": "ފަހަތަށް ( ރިޕޯޓުތަށް )",
-  "← Back to search results": "ފަހަތަށް ( ސަރޗް ކޮށްފައިވާ )",
-  "← Back to Settings": "ފަހަތަށް ( ސެޓިންގްސް )",
-  "✕ Close": "✕ ކްލޯސް",
+  "Track a Shipment": "ޝިޕްމަންޓް ޓްރެކްކުރޭ",
+  "Tracking link": "ޓްރެކިންގ ލިންކު",
+  "Tracking link (optional)": "ޓްރެކިންގ ލިންކް (އިޚްތިޔާރީ)",
+  "Trip (which route is this for?)": "ދަތުރު (މިއީ ކޮން ދަތުރެއްގެ ރޫޓެއް؟)",
+  "Trip date": "ދަތުރުގެ ތާރީޚު",
+  "Trip Defaults": "ދަތުރުގެ ޑިފޯލްޓްތައް",
+  "Trip Manifest File": "ދަތުރުގެ މެނިފެސްޓް ފައިލް",
+  "Trip Reports": "ދަތުރުގެ ރިޕޯޓްތައް",
+  "Type destination": "ދާންވީ ރަށް ލިޔުއްވާ",
+  "Type to search & add an island…": "ހޯއްދެވުމަށް އަދި ރަށެއް އިތުރުކުރެއްވުމަށް ލިޔުއްވާ…",
+  "Type to search islands…": "ރަށް ހޯއްދެވުމަށް ލިޔުއްވާ…",
+  "Use Selected Islands": "ޚިޔާރުކުރެވުނު ރަށްތައް ބޭނުންކުރޭ",
+  "Verify Code": "ކޯޑު ކަށަވަރު ކުރައްވާ",
+  "Viber group link": "ވައިބަރ ގްރޫޕް ލިންކު",
+  "Viber group link (optional)": "ވައިބަރ ގްރޫޕް ލިންކް (އިޚްތިޔާރީ)",
+  "View & Copy Announcement": "އިޢުލާން ބައްލަވާލައްވާ އަދި ކޮޕީކުރައްވާ",
+  "View Detailed Reports →": "ތަފްސީލީ ރިޕޯޓްތައް ބައްލަވާ →",
+  "Void": "ބާޠިލު",
+  "When a trip is marked in transit, a file listing every loaded shipment (sender, receiver, items, totals, and loading photos) is downloaded automatically to the phone of whoever marked it — owner or manager. Opens right in the browser. No setup needed.": "ދަތުރު ފެށިފައިވާ ކަމަށް (in transit) މާކް ކުރުމުން، އަރުވާފައިވާ ހުރިހާ މުދަލެއްގެ ލިސްޓު (ފޮނުވާ ފަރާތް، ބަލައިގަންނަ ފަރާތް، މުދަލުގެ ތަފްސީލު، ޖުމްލަ އަދަދު، އަދި މުދާ އެރުވި ފޮޓޯތައް) ހިމެނޭ ފައިލެއް، އެ ދަތުރު މާކްކުރި ފަރާތެއްގެ (ވެރިފަރާތް ނުވަތަ މެނޭޖަރުގެ) ފޯނަށް އޮޓޯއިން ޑައުންލޯޑް ވާނެއެވެ. ސީދާ ބްރައުޒަރއިން ހުޅުވޭނެއެވެ. އިތުރު ސެޓަޕެއް ބޭނުމެއް ނުވާނެއެވެ.",
+  "Wrong Island Detected": "ނުބައި ރަށެއް ދެނެގަނެވިއްޖެ",
+  "Wrong tap? Mark as Undelivered": "ނުބައިކޮށް ފިތާލެވުނީތަ؟ ޑެލިވަރ ނުކުރެވޭ ކަމަށް ފާހަގަކުރޭ",
+  "Wrong tap? Mark as Unpaid": "ނުބައިކޮށް ފިތާލެވުނީތަ؟ ފައިސާ ނުދައްކާ ކަމަށް ފާހަގަކުރޭ",
+  "You can also add a staff member directly here without waiting for a request. No email is actually sent — a sign-in PIN is generated instantly for you to share with them.": "ރިކުއެސްޓަކަށް އިންތިޒާރުނުކޮށް ސީދާ މިތަނުންވެސް ސްޓާފަކު އިތުރުކުރެވިދާނެއެވެ. އެއްވެސް އީމެއިލެއް ނުފޮނުވޭނެއެވެ — އެމީހުންނާ ހިއްސާކުރުމަށްޓަކައި ވަގުތުން ސައިން-އިން ޕިންއެއް ޖެނެރޭޓްވާނެއެވެ.",
+  "You don't have a boat yet — your first one is free, no approval needed.": "ތިބާގެ އަދި ދޯންޏެއް ނެތް — ފުރަތަމަ ދޯނި މުޅިން ހިލޭ، އެޕްރޫވަލްއެއް ބޭނުމެއް ނުވާނެ.",
+  "You'll log in later with your boat name as your username and this PIN.": "ފަހުން ލޮގިން ވެވޭނީ ދޯނީގެ ނަން ޔޫޒަރނޭމްގެ ގޮތުގައި އަދި މި ޕިން ބޭނުންކުރައްވައިގެންނެވެ.",
+  "Your mobile number": "ތިބާގެ މޯބައިލް ނަންބަރު",
+  "Your name": "ތިޔަބޭފުޅާގެ ނަން",
+  "Your name (sender)": "ތިބާގެ ނަން (ފޮނުވާ ފަރާތް)",
+  "← Back": "← ފަހަތަށް",
+  "← Back to all shipments": "← އެނބުރި ހުރިހާ ޝިޕްމަންޓްތަކަށް",
+  "← Back to Islands": "← އެނބުރި ރަށްރަށަށް",
+  "← Back to Organizations": "← އެނބުރި އޮގަނައިޒޭޝަންތަކަށް",
+  "← Back to Reports": "← އެނބުރި ރިޕޯޓްތަކަށް",
+  "← Back to search results": "← އެނބުރި ހޯދި ނަތީޖާތަކަށް",
+  "← Back to Settings": "← އެނބުރި ސެޓިންގްސްއަށް",
+  "✕ Close": "✕ ލައްޕާލާ",
+  "1 boat": "1 ދޯނި",
+  "6-digit code": "6 އަކުރުގެ ކޯޑު",
+  "A new account starts on the free plan, not Pro.": "އައު އެކައުންޓެއް ފެށޭނީ ޕްރޯ ޕްލޭނަކުން ނޫނެވެ، ހިލޭ ޕްލޭނުންނެވެ.",
+  "Account Name": "އެކައުންޓްގެ ނަން",
+  "Account Number": "އެކައުންޓް ނަންބަރު",
+  "Add a boat route above first — islands to set locations for will show up here.": "ފުރަތަމަ މަތިން ދޯނީގެ ރޫޓެއް އިތުރުކުރައްވާ — ލޮކޭޝަން ކަނޑައަޅަންވީ ރަށްތައް މިތަނުން ފެންނާނެއެވެ.",
+  "Add Boat": "ބޯޓު އިތުރުކުރޭ",
+  "Added": "އިތުރުކުރެވިއްޖެ",
+  "Adding a manager is a Pro feature. Upgrade to Pro to give someone manager access.": "މެނޭޖަރަކު އިތުރުކުރުމަކީ ޕްރޯ ފީޗާއެކެވެ. މީހަކަށް މެނޭޖަރު އެކްސެސް ދިނުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "Adding more than 2 staff is a Pro feature. Upgrade to Pro to add up to 10 staff per boat.": "2 މުވައްޒަފުންނަށްވުރެ ގިނައިން އިތުރުކުރުމަކީ ޕްރޯ ފީޗާއެކެވެ. ކޮންމެ ދޯންޏަކަށް 10 މުވައްޒަފުންނާ ހަމައަށް އިތުރުކުރުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "Adding more than one route or destination is a Pro feature. Upgrade to Pro to add more.": "އެކަކަށްވުރެ ގިނަ ރޫޓު ނުވަތަ މަންޒިލް އިތުރުކުރުމަކީ ޕްރޯ ފީޗާއެކެވެ. އިތުރު ރޫޓުތައް އިތުރުކުރުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "Additional Setup Information": "އިތުރު މަޢުލޫމާތު",
+  "Additional Setup Information (optional)": "އިތުރު މަޢުލޫމާތު (އިޚްތިޔާރީ)",
+  "All optional — you can add or change any of this later from Settings.": "ހުރިހާ ބައެއްވެސް އިޚްތިޔާރީ — ފަހުން ސެޓިންގްސް އިން މީގެ ކޮންމެ އެއްޗެއްވެސް އިތުރުކުރެވޭނެ ނުވަތަ ބަދަލުކުރެވޭނެ.",
+  "Amount": "އަދަދު",
+  "Attach a screenshot of the transfer": "ޓްރާންސްފަރގެ ސްކްރީންޝޮޓެއް އެޓޭޗްކުރައްވާ",
+  "Attach a screenshot of the transfer first.": "ފުރަތަމަ ޓްރާންސްފަރގެ ސްކްރީންޝޮޓެއް އެޓޭޗްކުރައްވާ.",
+  "BML Account": "ބީއެމްއެލް އެކައުންޓް",
+  "Boat added.": "ބޯޓު އިތުރުކުރެވިއްޖެ.",
+  "Boat contact number(s) (optional — can be added later in Settings)": "ބޯޓާ ގުޅޭނެ ނަންބަރު (އިޚްތިޔާރީ — ފަހުން ސެޓިންގްސް އިން އިތުރުކުރެވިދާނެ)",
+  "by crypto. Pro activates automatically once payment is confirmed — no need to notify the Super Admin for this option.": "ކްރިޕްޓޯ އިން. ފައިސާ ދެއްކުން ކަށަވަރުވުމާއެކު އޮޓޮމެޓިކުން ޕްރޯ އެކްޓިވޭޓް ވާނެއެވެ — މި ގޮތް އިޚްތިޔާރުކުރައްވާނަމަ ސުޕަރ އެޑްމިނަށް އެންގުމުގެ ބޭނުމެއް ނެތެވެ.",
+  "Can't mark this delivered yet — the boat hasn't arrived at any destination island for this trip.": "އަދި 'ޑެލިވަރޑް' ކަމަށް މާކެއް ނުކުރެވޭނެ — ބޯޓު އަދި މި ދަތުރުގެ އެއްވެސް މަންޒިލަކަށް ނުލަފާ.",
+  "Check Now": "މިހާރު ޗެކްކުރޭ",
+  "Check-in received. Save this tracking code:": "ޗެކް-އިން ވެއްޖެ. މި ޓްރެކިންގް ކޯޑު ރައްކާކުރައްވާ:",
+  "Checked In": "ޗެކް-އިން ވެއްޖެ",
+  "Checking slip…": "ސްލިޕް ޗެކްކުރަނީ…",
+  "Checking…": "ޗެކްކުރަނީ…",
+  "Choose a file format.": "ފައިލް ފޯމެޓެއް ޚިޔާރުކުރައްވާ.",
+  "Choose a payment method above.": "މަތިން ފައިސާ ދައްކާނެ ގޮތެއް ޚިޔާރުކުރައްވާ.",
+  "Choose a Plan": "ޕްލޭނެއް ޚިޔާރުކުރައްވާ",
+  "Code sent to": "ކޯޑު ފޮނުވިފައިވަނީ",
+  "Confirming…": "ޔަގީންކުރަނީ…",
+  "Continue": "ކުރިއަށްދޭ",
+  "Continue with Free": "ހިލޭ ޕްލޭނާއެކު ކުރިއަށްދޭ",
+  "Continue with Free Version": "ހިލޭ ވާޝަނާއެކު ކުރިއަށްދޭ",
+  "Continue with my previous account": "ކުރީގެ އެކައުންޓާއެކު ކުރިއަށްދޭ",
+  "Continue with Pro": "ޕްރޯ އާއެކު ކުރިއަށްދޭ",
+  "Copied!": "ކޮޕީވެއްޖެ!",
+  "Could not add this manager. Try again.": "މި މެނޭޖަރު އިތުރެއް ނުކުރެވުނު. އަލުން މަސައްކަތްކުރައްވާ.",
+  "Could not add this staff member. Try again.": "މި މުވައްޒަފު އިތުރެއް ނުކުރެވުނު. އަލުން މަސައްކަތްކުރައްވާ.",
+  "Could not approve this staff member. Try again.": "މި މުވައްޒަފު އެޕްރޫވް ނުކުރެވުނު. އަލުން މަސައްކަތްކުރައްވާ.",
+  "Could not check payment status.": "ޕޭމަންޓްގެ ސްޓޭޓަސް ޗެކެއް ނުކުރެވުނު.",
+  "Could not copy": "ކޮޕީއެއް ނުކުރެވުނު",
+  "Could not copy — tap and hold to select instead.": "ކޮޕީއެއް ނުކުރެވުނު — ސެލެކްޓް ކުރުމަށް ފިތައިގެން ހިފަހައްޓާލައްވާ.",
+  "Could not create a payment link right now. Try again in a moment.": "މިވަގުތު ޕޭމަންޓް ލިންކެއް ނުހެދުނު. އިރުކޮޅަކުން އަލުން މަސައްކަތްކުރައްވާ.",
+  "Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.": "މިވަގުތު ޕޭމަންޓް ލިންކެއް ނުއުފެއްދުނު. އޭގެ ބަދަލުގައި ބޭންކް ޓްރާންސްފަރ ބޭނުންކުރައްވާ، ނުވަތަ އިރުކޮޅަކުން އަލުން މަސައްކަތްކުރައްވާ.",
+  "Could not create the Excel file. Check your connection and try again.": "އެކްސެލް ފައިލް ނުއުފެއްދުނު. އިންޓަނެޓް ކަނެކްޝަން ޗެކްކުރުމަށްފަހު އަލުން މަސައްކަތްކުރައްވާ.",
+  "Could not find coordinates in that — paste a Google Maps link or a \"lat, lng\" pair.": "އޭގެއިން ކޯޑިނޭޓްސްއެއް ނުފެނުނު — ގޫގުލް މެޕްސް ލިންކެއް ނުވަތަ \"lat, lng\" ޕޭސްޓްކުރައްވާ.",
+  "Could not read that file -- make sure it's a rates list (JSON or Excel) with Name and Price columns.": "އެ ފައިލް ކިޔައެއް ނުގަނެވުނު -- އެއީ ނަމާއި އަގު ހިމެނޭ ރޭޓް ލިސްޓެއް (JSON ނުވަތަ Excel) ކަން ޔަޤީންކުރައްވާ.",
+  "Could not send that. Check your connection and try again.": "އެ ފޮނުވައެއް ނުލެވުނު. ކަނެކްޝަން ޗެކްކުރެއްވުމަށްފަހު އަލުން މަސައްކަތްކުރައްވާ.",
+  "Couldn’t read the date/time on the slip.": "ސްލިޕްގައިވާ ތާރީޚް/ގަޑި ކިޔަން ނޭނގުނު.",
+  "Couldn’t read the transfer slip image. Try a clearer photo/screenshot.": "ޓްރާންސްފަރ ސްލިޕްގެ ފޮޓޯ ކިޔަން ނޭނގުނު. މިއަށްވުރެ ސާފު ފޮޓޯއެއް/ސްކްރީންޝޮޓެއް އަޅުއްވާ.",
+  "Dark mode and light mode switching is a Pro feature. Upgrade to Pro to change your theme.": "ޑާކް މޯޑް އަދި ލައިޓް މޯޑަށް ބަދަލުކުރުމަކީ ޕްރޯ ފީޗާއެކެވެ. ތީމް ބަދަލުކުރުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "day(s) left on your Pro subscription.": "ތިޔަބޭފުޅާގެ ޕްރޯ ސަބްސްކްރިޕްޝަނަށް ބާކީ އޮތީ ދުވަސް.",
+  "Delivered": "ޑެލިވަރ ކުރެވިއްޖެ",
+  "Destination": "މަންޒިލް",
+  "Dismiss": "ދޫކޮށްލާ",
+  "Download": "ޑައުންލޯޑް",
+  "Download as Excel": "Excel ގޮތުގައި ޑައުންލޯޑް ކުރޭ",
+  "Download as JSON": "JSON ގޮތުގައި ޑައުންލޯޑް ކުރޭ",
+  "Download Item List": "އައިޓަމް ލިސްޓް ޑައުންލޯޑް ކުރޭ",
+  "e.g. Maalhos": "މިސާލަކަށް: މާޅޮސް",
+  "Email address (optional, for future PIN reset)": "އީމެއިލް އެޑްރެސް (އިޚްތިޔާރީ، ފަހުން ޕިން ރީސެޓް ކުރުމަށް)",
+  "Email address verified": "އީމެއިލް އެޑްރެސް ވެރިފައި ކުރެވިއްޖެ",
+  "Email verification is currently unavailable — you can continue without it.": "އީމެއިލް ވެރިފިކޭޝަން މިވަގުތު ލިބޭކަށް ނެތް — ވެރިފައި ނުކޮށްވެސް ކުރިއަށް ގެންދެވިދާނެ.",
+  "Enter it below.": "ތިރީގައި ޖައްސަވާ.",
+  "Enter the code sent to your email.": "އީމެއިލަށް ފޮނުވި ކޯޑު ޖައްސަވާ.",
+  "Enter the code sent to your number.": "ފޯނު ނަންބަރަށް ފޮނުވި ކޯޑު ޖައްސަވާ.",
+  "field(s)": "ފީލްޑް(ތައް)",
+  "for": "އަށްޓަކައި",
+  "Free": "ހިލޭ",
+  "Free plan is limited to 1 route with 1 destination island. Upgrade to Pro to add more routes and destinations.": "ހިލޭ ޕްލޭންގައި ބޭނުންކުރެވޭނީ 1 މަންޒިލް ރަށާއެކު 1 ރޫޓެވެ.އިތުރު ރޫޓުތަކާއި މަންޒިލްތައް އިތުރުކުރުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "Free plan: 1 origin, 1 destination. Upgrade to Pro for multiple routes and destinations.": "ހިލޭ ޕްލޭން: ފުރާ 1 ރަށް، ދާ 1 މަންޒިލް. ގިނަ ރޫޓުތަކާއި މަންޒިލްތައް އިތުރުކުރުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "Generating a payment link…": "ޕޭމަންޓް ލިންކެއް ތައްޔާރުކުރަނީ…",
+  "GPS detected arrival at": "ޖީ.ޕީ.އެސް އިން ދެނެގަތީ ލެފިކަން:",
+  "GPS detected departure — trip marked in transit automatically.": "ފުރިކަން ޖީ.ޕީ.އެސް އަށް ދެނެގަނެވިއްޖެ — ދަތުރު އޮޓޮމެޓިކުން ވަނީ 'ދަތުރުމަތީގައި' ކަމަށް ބަދަލުކުރެވިފައި.",
+  "In Transit": "ދަތުރުމަތީގައި",
+  "Incorrect code.": "ކޯޑު ނުބައި.",
+  "Invoice": "އިންވޮއިސް",
+  "Island Locations (GPS Auto-Tracking)": "ރަށްރަށުގެ ލޮކޭޝަން (ޖީޕީއެސް އޮޓޯ-ޓްރެކިންގ)",
+  "Item": "އައިޓަމް",
+  "Items": "އައިޓަމްތައް",
+  "I’ve Paid — Notify Admin": "ފައިސާ ދައްކައިފިން — އެޑްމިނަށް އަންގާ",
+  "Leave blank to use your mobile number as the boat's contact number for now — you can change it anytime in Settings.": "މިވަގުތަށް ބޯޓާ ގުޅޭނެ ނަންބަރަކަށް ތިބާގެ މޯބައިލް ނަންބަރު ބަހައްޓަން ހުސްކޮށް ދޫކޮށްލައްވާ — ފަހުން ސެޓިންގްސް އިން ކޮންމެ ވަގުތަކުވެސް ބަދަލުކުރެވޭނެ.",
+  "Less than a day left on your Pro subscription.": "ތިޔަބޭފުޅާގެ ޕްރޯ ސަބްސްކްރިޕްޝަނަށް ބާކީ އެއް ދުވަހަށްވުރެ ކުޑަ ވަގުތުކޮޅެއް.",
+  "Live GPS tracking is a Pro feature. Upgrade to Pro to automatically track this trip.": "ލައިވް ޖީ.ޕީ.އެސް ޓްރެކިންގް އަކީ ޕްރޯ ފީޗާއެކެވެ. މި ދަތުރު އޮޓޮމެޓިކުން ޓްރެކް ކުރުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "Loaded": "ބަރުކޮށްފި",
+  "Loading…": "ލޯޑްވަނީ…",
+  "Location Needed": "ލޮކޭޝަން ބޭނުންވޭ",
+  "Logging more than 500 shipments is a Pro feature. Upgrade to Pro to remove this limit.": "500 އަށް ވުރެ ގިނަ ޝިޕްމަންޓް އެންޓަރ ކުރުމަކީ ޕްރޯ ފީޗާއެކެވެ. މި ލިމިޓް އުނިކުރުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "Managing more than one boat is a Pro feature. Upgrade to Pro to access this boat.": "އެކަކަށް ވުރެ ގިނަ ބޯޓު ބެލެހެއްޓުމަކީ ޕްރޯ ފީޗާއެކެވެ. މި ބޯޓު ބޭނުންކުރުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "Managing more than one boat is a Pro feature. Upgrade to Pro to add another boat.": "އެކަކަށް ވުރެ ގިނަ ބޯޓު ބެލެހެއްޓުމަކީ ޕްރޯ ފީޗާއެކެވެ. އިތުރު ބޯޓެއް އިތުރުކުރުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "Mark as Delivered?": "'ޑެލިވަރޑް' ކަމަށް މާކް ކުރަންތަ؟",
+  "MIB Account": "އެމްއައިބީ އެކައުންޓް",
+  "mo": "މަހަކު",
+  "Mobile number verified": "މޯބައިލް ނަންބަރު ވެރިފައި ކުރެވިއްޖެ",
+  "Mobile verification is currently unavailable — you can continue without it.": "މޯބައިލް ވެރިފިކޭޝަން މިވަގުތު ލިބޭކަށް ނެތް — ވެރިފައި ނުކޮށްވެސް ކުރިއަށް ގެންދެވިދާނެ.",
+  "Most Popular": "އެންމެ މަޤްބޫލު",
+  "Needs Pro": "ޕްރޯ ބޭނުންވޭ",
+  "New Items Uploaded": "އައު އައިޓަމްތައް އަޕްލޯޑް ކުރެވިއްޖެ",
+  "Next trip:": "ދެން އޮތް ދަތުރު:",
+  "No": "ނޫން",
+  "No location set": "ލޮކޭޝަނެއް ކަނޑައަޅާފައެއް ނެތް",
+  "No managers": "މެނޭޖަރުންނެއް ނުހިމެނޭ",
+  "No shipment found for": "މިއަކަށް އެއްވެސް ޝިޕްމަންޓެއް ނުފެނުނު:",
+  "Not a Valid Transfer Slip": "ޞައްޙަ ޓްރާންސްފަރ ސްލިޕެއް ނޫން",
+  "Not Delivered": "ޑެލިވަރ ނުކުރެވޭ",
+  "Not Yet": "އަދި ނުލިބޭ",
+  "Nothing added yet — all optional, can be filled in later from Settings.": "އަދި އެއްވެސް އެއްޗެއް އިތުރެއް ނުކުރޭ — ހުރިހާ ބައެއްވެސް އިޚްތިޔާރީ، ފަހުން ސެޓިންގްސް އިން ފުރިހަމަކުރެވޭނެ.",
+  "Notifying…": "އަންގަނީ…",
+  "OK": "އޯކޭ",
+  "Open Payment Link": "ޕޭމަންޓް ލިންކް ހުޅުވާ",
+  "Other": "އެހެނިހެން",
+  "Owner Settings": "ވެރިޔާގެ ސެޓިންގްސް",
+  "Paid": "ފައިސާ ދައްކާފައި",
+  "Paste Google Maps link or lat, lng": "ގޫގުލް މެޕްސް ލިންކް ނުވަތަ lat, lng ޕޭސްޓްކުރޭ",
+  "Pay by Crypto": "ކްރިޕްޓޯ އިން ފައިސާ ދައްކަވާ",
+  "Pay by Swipe": "ސްވައިޕް އިން ފައިސާ ދައްކަވާ",
+  "Payment Collected Too?": "ފައިސާވެސް ލިބިއްޖެތަ؟",
+  "Payment confirmed. What would you like to do?": "ފައިސާ ދެއްކިކަން ކަށަވަރުވެއްޖެ. ކުރިއަށްދާން ބޭނުންވަނީ ކިހިނެއް؟",
+  "Payment Noted": "ފައިސާ ދެއްކިކަން ނޯޓުކުރެވިއްޖެ",
+  "Payment noted — waiting for the Super Admin to confirm it.": "ފައިސާ ދެއްކިކަން ނޯޓުކުރެވިއްޖެ — ސުޕަރ އެޑްމިން އެކަން ކަށަވަރުކުރުމުގެ އިންތިޒާރުގައި.",
+  "Payment Successful": "ފައިސާ ކާމިޔާބުކަމާއެކު ދެއްކިއްޖެ",
+  "Payment was just collected — has this package also been delivered?": "ފައިސާ ބަލައިގަނެވިއްޖެ — މި ޕެކޭޖް ޑެލިވަރ ވެސް ކުރެވިއްޖެތަ؟",
+  "Please upload a valid transfer slip.": "ދެއްކެވުމަށް، ޞައްޙަ ޓްރާންސްފަރ ސްލިޕެއް އަޕްލޯޑްކުރައްވާ.",
+  "Preparing…": "ތައްޔާރުކުރަނީ…",
+  "Pro": "ޕްރޯ",
+  "Pro Feature": "ޕްރޯ ފީޗަރ",
+  "Pro is now active for your organization.": "މިހާރު ތިޔަބޭފުޅުންގެ އޮގަނައިޒޭޝަނަށް ޕްރޯ އެކްޓިވް ވެއްޖެ.",
+  "Pro Subscription Ending Soon": "ޕްރޯ ސަބްސްކްރިޕްޝަން ވަރަށް އަވަހަށް ހަމަވަނީ",
+  "Pro will be granted once the Super Admin reviews your payment. Until then, you’ll continue on the Free plan.": "ސުޕަރ އެޑްމިން ތިޔަބޭފުޅާގެ ޕޭމަންޓް ބަލައި ޗެކްކުރުމުން ޕްރޯ ދެވޭނެއެވެ. އެހާތަނަށް ތިޔަބޭފުޅާ ކުރިއަށްދާނީ ހިލޭ ޕްލޭންގައެވެ.",
+  "Rates & Setup": "އަގުތަކާއި ސެޓަޕް",
+  "Receiver:": "ލިބޭ ފަރާތް:",
+  "Renew Subscription": "ސަބްސްކްރިޕްޝަން އައުކުރައްވާ",
+  "Reports": "ރިޕޯޓްތައް",
+  "Resend code": "އަލުން ކޯޑު ފޮނުވާ",
+  "Reset PIN": "ޕިން ރީސެޓް ކުރޭ",
+  "Save": "ސޭވް",
+  "Select destination": "މަންޒިލް ޚިޔާރުކުރައްވާ",
+  "Send Verification Code": "ވެރިފިކޭޝަން ކޯޑު ފޮނުވާ",
+  "Sender:": "ފޮނުވާ ފަރާތް:",
+  "Sending…": "ފޮނުވަނީ…",
+  "Set island locations for this route in Trip Settings first, so GPS tracking knows what to check distance against.": "ޖީ.ޕީ.އެސް ޓްރެކިންގް އަށް ދުރުމިން ބަލާނެ ގޮތް އެނގޭނީ، ފުރަތަމަ 'ޓްރިޕް ސެޓިންގްސް' އިން މި ރޫޓުގެ ރަށްރަށުގެ ލޮކޭޝަން ކަނޑައެޅުމުންނެވެ.",
+  "Share it with": "މިއާ ޙިއްޞާކުރައްވާ:",
+  "shipment(s) updated.": "ޝިޕްމަންޓް(ތައް) އަޕްޑޭޓް ކުރެވިއްޖެ.",
+  "so they can track it too.": "އެމީހުންނަށްވެސް ޓްރެކް ކުރެވޭނެ ގޮތް ހެދުމަށް.",
+  "Something went wrong. Try again.": "ކޮންމެވެސް މައްސަލައެއް ދިމާވެއްޖެ. އަލުން މަސައްކަތްކޮށްލައްވާ.",
+  "Start a new account instead": "އޭގެ ބަދަލުގައި އައު އެކައުންޓެއް ފަށާ",
+  "Start GPS Tracking": "ޖީ.ޕީ.އެސް ޓްރެކިންގް ފަށާ",
+  "Status": "ސްޓޭޓަސް",
+  "Stop GPS Tracking": "ޖީ.ޕީ.އެސް ޓްރެކިންގް ހުއްޓާލާ",
+  "Tap below to pay": "ފައިސާ ދެއްކެވުމަށް ތިރިއަށް ފިއްތާލައްވާ",
+  "Tap below to pay ރ": "ފައިސާ ދެއްކެވުމަށް ތިރިއަށް ފިއްތާލައްވާ: ރ.",
+  "Tap for trip details & actions": "ދަތުރުގެ ތަފްޞީލާއި ފިޔަވަޅުތަކަށް ފިތާލައްވާ",
+  "Tap Open Google Maps, find the island and drop a pin on it, copy the coordinates there (tap the pin, then Copy), then paste them into the box below and tap Save. Once an island has a saved location, \"Start GPS Tracking\" on the Home screen can auto-mark a trip in transit when the boat moves 500m from its origin, and auto-detect which island it has arrived at.": "\"ގޫގުލް މެޕްސް ހުޅުވާ\" އަށް ފިއްތާލުމަށްފަހު، ރަށް ހޯދައި އެ ރަށަށް ޕިން ވައްޓާލާށެވެ. އަދި އެތަނުގެ ކޯޑިނޭޓްސް ކޮޕީކުރުމަށްފަހު (ޕިން އަށް ފިއްތާލުމަށްފަހު ކޮޕީ ކުރޭ)، ތިރީގައިވާ ގޮޅިއަށް ޕޭސްޓްކޮށް، \"ސޭވް\" އަށް ފިއްތާލާށެވެ. ރަށެއްގެ ލޮކޭޝަން ސޭވްކުރެވުމުން، ހޯމް ސްކްރީނުގައިވާ \"ޖީޕީއެސް ޓްރެކިންގ ފަށާ\" އިން، ދޯނި ފުރި ރަށާ 500 މީޓަރު ދުރަށް ދިއުމުން ދަތުރު ފެށިފައިވާ ކަމަށް އޮޓޮމެޓިކުން ފާހަގަކުރާނެއެވެ. އަދި ދޯނި ދެވުނީ ކޮން ރަށަކަށްކަންވެސް އަމިއްލައަށް ދެނެގަންނާނެއެވެ.",
+  "Tap the account number to copy it. After transferring, tap \"I’ve Paid\" below so the Super Admin can confirm it.": "ކޮޕީ ކުރުމަށްޓަކައި އެކައުންޓް ނަންބަރަށް ފިއްތާލާށެވެ. ފައިސާ ޓްރާންސްފަރ ކުރުމަށްފަހު، ސުޕަރ އެޑްމިން އެކަން ކަށަވަރުކުރުމަށްޓަކައި ތިރީގައިވާ \"ފައިސާ ދައްކައިފިން\" އަށް ފިއްތާލާށެވެ.",
+  "Tap the code to copy it": "ކޯޑު ކޮޕީކުރުމަށް ފިތާލައްވާ",
+  "The amount on the slip doesn’t match the required amount.": "ސްލިޕްގައިވާ ޢަދަދު، ދައްކަންޖެހޭ ޢަދަދާ ދިމަލެއް ނުވެއެވެ.",
+  "The date/time on the slip is outside the allowed 15-minute window.": "ސްލިޕްގައިވާ ތާރީޚް/ގަޑި އިނީ ހުއްދަކުރެވިފައިވާ 15 މިނެޓުގެ ވަގުތުން ބޭރުގައެވެ.",
+  "The destination account number on the slip doesn’t match.": "ސްލިޕްގައިވާ ޖަމާކުރި އެކައުންޓް ނަންބަރު ދިމަލެއް ނުވެއެވެ.",
+  "This device/browser can't get GPS location.": "މި ޑިވައިސް/ބްރައުޒާއަށް ޖީ.ޕީ.އެސް ލޮކޭޝަން ނުހޯދޭ.",
+  "This doesn’t look like a supported transfer slip.": "މިއީ ބަލައިގަނެވޭ ފަދަ ޓްރާންސްފަރ ސްލިޕެއް ކަމަކަށް ނުފެނޭ.",
+  "This list belongs to this boat only — other boats in your organization keep their own separate list and prices, even after you download/upload between them.": "މި ލިސްޓަކީ ހަމައެކަނި މި ދޯންޏަށް ޚާއްޞަ ލިސްޓެކެވެ — ތިޔަބޭފުޅުންގެ އޮގަނައިޒޭޝަންގެ އެހެން ދޯނިތަކުގައި ވަކި ލިސްޓުތަކާއި އަގުތައް ހުންނާނެއެވެ. އެއީ އެ ދޯނިތަކުގެ މެދުގައި ޑައުންލޯޑް/އަޕްލޯޑް ކުރި ކަމުގައި ވިޔަސްމެއެވެ.",
+  "This package was just marked delivered — was payment collected as well?": "މި ޕެކޭޖް ދެންމެ ވަނީ ޑެލިވަރޑް ކަމަށް މާކްކުރެވިފައި — ފައިސާވެސް ބަލައިގަނެވިއްޖެތަ؟",
+  "This slip isn’t a transfer into the correct account.": "މި ސްލިޕަކީ ރަނގަޅު އެކައުންޓަށް ފޮނުވާފައިވާ ޓްރާންސްފަރ އެއް ނޫނެވެ.",
+  "To": "އަށް",
+  "To Upgrade to pro version pay ރ500 by transfer or Swipe, or pay by crypto.": "ޕްރޯ ވާރޝަނަށް އަޕްގްރޭޑް ކުރުމަށް ޓްރާންސްފަރ ނުވަތަ ސްވައިޕް މެދުވެރިކޮށް 500ރ ދައްކަވާ، ނުވަތަ ކްރިޕްޓޯ އިން ފައިސާ ދައްކަވާ.",
+  "Total Due": "ދައްކަންޖެހޭ ޖުމްލަ",
+  "Trip ended": "ދަތުރު ނިމިއްޖެ",
+  "Trip Ended": "ދަތުރު ނިމިއްޖެ",
+  "Trip Settings": "ދަތުރުގެ ސެޓިންގްސް",
+  "Unpaid": "ފައިސާ ނުދައްކާ",
+  "Up to 2 staff": "2 މުވައްޒަފުންނާ ހަމައަށް",
+  "Up to 500 shipments total": "ޖުމްލަ 500 މުދަލާ ހަމައަށް",
+  "Upgrade": "އަޕްގްރޭޑް ކުރޭ",
+  "Upgrade to Pro": "ޕްރޯ އަށް އަޕްގްރޭޑް ކުރޭ",
+  "Upload List": "ލިސްޓް އަޕްލޯޑް ކުރޭ",
+  "Using the app in Dhivehi is a Pro feature. Upgrade to Pro to switch languages.": "އެޕް ދިވެހިބަހުން ބޭނުންކުރުމަކީ ޕްރޯ ފީޗާއެކެވެ. ބަސް ބަދަލުކުރުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "Verify": "ވެރިފައި ކުރޭ",
+  "Verifying…": "ވެރިފައި ކުރަނީ…",
+  "via the Swipe app. Pro activates automatically once payment is confirmed — no need to notify the Super Admin for this option.": "ސްވައިޕް އެޕް މެދުވެރިކޮށް. ފައިސާ ދެއްކުން ކަށަވަރުވުމާއެކު އޮޓޮމެޓިކުން ޕްރޯ އެކްޓިވޭޓް ވާނެއެވެ — މި ގޮތް އިޚްތިޔާރުކުރައްވާނަމަ ސުޕަރ އެޑްމިނަށް އެންގުމުގެ ބޭނުމެއް ނެތެވެ.",
+  "View Items": "އައިޓަމްތައް ބައްލަވާ",
+  "View photo": "ފޮޓޯ ބައްލަވާ",
+  "Waiting for the boat to arrive at a destination island before this can be marked delivered.": "'ޑެލިވަރޑް' ކަމަށް މާކް ކުރެވޭނީ ބޯޓު މަންޒިލް ރަށަކަށް ލެފުމުންނެވެ.",
+  "Working…": "ޕްރޮސެސްކުރަނީ…",
+  "Yes, Mark Delivered": "އާނ، ޑެލިވަރޑް ކަމަށް މާކްކުރޭ",
+  "You can upgrade to Pro anytime later from Settings.": "ފަހުން ކޮންމެ ވަގުތެއްގައިވެސް ސެޓިންގްސް އިން ޕްރޯ އަށް އަޕްގްރޭޑް ކުރެވިދާނެއެވެ.",
+  "You're clear to sign up with these numbers now. Please submit the form again.": "މިހާރު މި ނަންބަރުތަކުން ސައިން އަޕް ކުރެވޭނެއެވެ. ފޯމު އަލުން ސަބްމިޓް ކުރައްވާ.",
+  "You're on Pro — additional boats are granted instantly, no payment or approval needed.": "ތިޔަ ބޭނުންކުރައްވަނީ ޕްރޯ — އިތުރު ފައިސާއެއް ނުވަތަ ހުއްދައަކާ ނުލައި ވަގުތުން އިތުރު ބޯޓުތައް ލިބޭނެ.",
+  "You've reached the 500-shipment limit on the Free plan. You can keep logging shipments, but upgrading to Pro removes this limit entirely.": "ހިލޭ ޕްލޭންގައި ދެވިފައިވާ 500 ޝިޕްމަންޓުގެ ލިމިޓް ހަމަވެއްޖެ. އިތުރަށް ޝިޕްމަންޓް އެންޓަރ ކުރެވޭނެ، ނަމަވެސް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރުމުން މި ލިމިޓް އެއްކޮށް އުނިވާނެ.",
+  "Your account is reactivated. Log in with your boat name and PIN.": "ތިޔަބޭފުޅާގެ އެކައުންޓް އަލުން އެކްޓިވޭޓް ކުރެވިއްޖެ. ދޯނީގެ ނަމާއި ޕިން ބޭނުންކުރައްވައިގެން ލޮގިންވެވަޑައިގަންނަވާ.",
+  "Your Pro subscription has expired.": "ތިޔަބޭފުޅާގެ ޕްރޯ ސަބްސްކްރިޕްޝަންގެ މުއްދަތު ހަމަވެއްޖެ.",
+  "You’ve reached the 10-staff limit for this boat on the Pro plan.": "މި ދޯންޏަށް ޕްރޯ ޕްލޭންގައި ދެވޭ 10 މުވައްޒަފުންގެ ލިމިޓް ހަމަވެއްޖެ.",
+  "You’ve reached the 2-staff limit on the Free plan. Upgrade to Pro for up to 10 per boat.": "ހިލޭ ޕްލޭންގައި ދެވޭ 2 މުވައްޒަފުންގެ ލިމިޓް ހަމަވެއްޖެ. ކޮންމެ ދޯންޏަކަށް 10 މުވައްޒަފުންނާ ހަމައަށް އިތުރުކުރުމަށް ޕްރޯ އަށް އަޕްގްރޭޑް ކުރައްވާ.",
+  "📍 GPS tracking is on — keep this phone on the boat, charged, and this page open.": "📍 ޖީ.ޕީ.އެސް ޓްރެކިންގް އޮތީ އޮންކޮށް — މި ފޯނު ޗާޖަށް ޖަހާފައި ބޯޓުގައި ބާއްވާ، އަދި މި ޕޭޖު ހުޅުވާފައި ބަހައްޓަވާ.",
+  "📍 Open Google Maps": "📍 ގޫގުލް މެޕްސް ހުޅުވާ",
+  "Added {n} new item(s) to this boat's list — your existing items were kept. Edit freely, it won't affect any other boat.": "މި ދޯނީގެ ލިސްޓަށް {n} އައު އައިޓަމް އިތުރުކުރެވިއްޖެ — ކުރިން ހުރި އައިޓަމްތައް ވަނީ ރައްކާތެރިކުރެވިފައެވެ. ބޭނުން ގޮތަކަށް ބަދަލުކުރައްވާ، މީގެ ސަބަބުން އެހެން އެއްވެސް ދޯންޏަކަށް ބަދަލެއް ނާންނާނެއެވެ.",
+  "Couldn't access the camera. Check your browser's camera permission for this site.": "ކެމެރާއަށް އެކްސެސްއެއް ނުލިބުނު. މި ސައިޓަށް ބްރައުޒާގެ ކެމެރާ ޕާމިޝަން ދީފައިވޭތޯ ޗެކްކޮށްލައްވާ.",
+  "Delete this customer entry? This cannot be undone.": "މި ކަސްޓަމަރު އެންޓްރީ ޑިލީޓްކޮށްލަންވީތަ؟ މިއީ އަލުން އަނބުރާ ގެނެވޭނެ ކަމެއް ނޫނެވެ.",
+  "Delete this invoice permanently? This cannot be undone.": "މި އިންވޮއިސް އެއްކޮށް ޑިލީޓްކޮށްލަންވީތަ؟ މިއީ އަލުން އަނބުރާ ގެނެވޭނެ ކަމެއް ނޫނެވެ.",
+  "Delete this trip?": "މި ދަތުރު ޑިލީޓްކޮށްލަންވީތަ؟",
+  "Disconnect this Google account? New trips will stop getting sheets until you reconnect.": "މި ގޫގަލް އެކައުންޓް ވަކިކޮށްލަންވީތަ؟ އަލުން ގުޅުވަންދެން އާ ދަތުރުތަކަށް ޝީޓް ހެދުން ހުއްޓޭނެއެވެ.",
+  "Got it — opening...": "ލިބިއްޖެ — ހުޅުވަނީ...",
+  "Invalid email address.": "އީމެއިލް އެޑްރެސް ރަނގަޅެއް ނޫން.",
+  "Invalid mobile number": "މޯބައިލް ނަންބަރު ރަނގަޅެއް ނޫން",
+  "Mark this invoice as unpaid? Use this if a payment was collected by mistake or needs correcting.": "މި އިންވޮއިސްއަކީ ފައިސާ ނުދައްކާ އޮތް އެއްޗެއްގެ ގޮތުގައި ފާހަގަކުރަންވީތަ؟ މިއަށް ފިއްތާނީ އޮޅުމަކުން ފައިސާ ބަލައިގަނެވިފައިވާނަމަ ނުވަތަ އިސްލާހުކުރަން ޖެހޭނަމައެވެ.",
+  "Mark this shipment as not yet delivered? Use this if it was marked delivered by mistake.": "މި ޝިޕްމަންޓަކީ އަދި ހަވާލުނުކުރާ އެއްޗެއްގެ ގޮތުގައި ފާހަގަކުރަންވީތަ؟ މިއަށް ފިއްތާނީ އޮޅުމަކުން ހަވާލުކުރެވިއްޖެ ކަމަށް ފާހަގަކުރެވިފައިވާނަމައެވެ.",
+  "Mark this trip in transit? Every loaded shipment on this trip will move to \"In Transit\" together, and a manifest file will be saved to this device.": "މި ދަތުރު \"ދަތުރުމަތީގައި\" ގެ ގޮތުގައި ފާހަގަކުރަންވީތަ؟ މި ދަތުރަށް އަރުވާފައިވާ ހުރިހާ މުދަލެއް އެކީގައި \"ދަތުރުމަތީގައި\" އަށް ބަދަލުވާނެ، އަދި މި ޑިވައިސްއަށް މެނިފެސްޓް ފައިލެއް ސޭވްކުރެވޭނެ.",
+  "Marking…": "ފާހަގަކުރަނީ…",
+  "Remove this route?": "މި ރޫޓް އުނިކޮށްލަންވީތަ؟",
+  "Saving…": "ސޭވްކުރަނީ…",
+  "That doesn't look like a SeaFare QR code. Try again.": "ތިޔައީ SeaFare QR ކޯޑެއް ވައްތަރެއް ނުޖަހާ. އަލުން މަސައްކަތްކޮށްލައްވާ.",
+  "Trip marked in transit. {count} shipment(s) updated.": "ދަތުރު \"ދަތުރުމަތީގައި\" ގެ ގޮތުގައި ފާހަގަކުރެވިއްޖެ. {count} ޝިޕްމަންޓް އަޕްޑޭޓްކުރެވިއްޖެ.",
+  "Undoing…": "ކުރީގެ ހާލަތަށް ބަދަލުކުރަނީ…",
+  "Void this invoice? It will be excluded from totals.": "މި އިންވޮއިސް ބާތިލުކުރަންވީތަ؟ މިއީ ޖުމްލަ ހިސާބުތަކުން އުނިކުރެވޭނެ އެއްޗެކެވެ.",
 };
 function t(s){
   return (state.lang === 'dv' && TR[s]) ? TR[s] : s;
@@ -2564,16 +2754,16 @@ function wireInvoicePopupButtons(shipmentId){
     const original = el.textContent;
     try{
       await navigator.clipboard.writeText(number);
-      el.textContent = 'Copied!';
+      el.textContent = t('Copied!');
     }catch(err){
-      el.textContent = 'Could not copy';
+      el.textContent = t('Could not copy');
     }
     setTimeout(() => { el.textContent = original; }, 1200);
   }));
 
   const markDeliveredBtn = document.getElementById('invoice-popup-mark-delivered-btn');
   if(markDeliveredBtn) markDeliveredBtn.addEventListener('click', async () => {
-    markDeliveredBtn.disabled = true; markDeliveredBtn.textContent = 'Marking\u2026';
+    markDeliveredBtn.disabled = true; markDeliveredBtn.textContent = t('Marking\u2026');
     await withFreshShipments(list => {
       const t = list.find(x => x.id === shipmentId);
       if(t){ t.status = 'delivered'; t.deliveredAt = new Date().toISOString(); }
@@ -2589,8 +2779,8 @@ function wireInvoicePopupButtons(shipmentId){
 
   const markUndeliveredBtn = document.getElementById('invoice-popup-mark-undelivered-btn');
   if(markUndeliveredBtn) markUndeliveredBtn.addEventListener('click', async () => {
-    if(!confirm('Mark this shipment as not yet delivered? Use this if it was marked delivered by mistake.')) return;
-    markUndeliveredBtn.disabled = true; markUndeliveredBtn.textContent = 'Undoing\u2026';
+    if(!confirm(t('Mark this shipment as not yet delivered? Use this if it was marked delivered by mistake.'))) return;
+    markUndeliveredBtn.disabled = true; markUndeliveredBtn.textContent = t('Undoing\u2026');
     await withFreshShipments(list => {
       const t = list.find(x => x.id === shipmentId);
       // Back to 'loaded' (not 'in_transit') -- delivery is always the last
@@ -2607,8 +2797,8 @@ function wireInvoicePopupButtons(shipmentId){
 
   const markUnpaidBtn = document.getElementById('invoice-popup-mark-unpaid-btn');
   if(markUnpaidBtn) markUnpaidBtn.addEventListener('click', async () => {
-    if(!confirm('Mark this invoice as unpaid? Use this if a payment was collected by mistake or needs correcting.')) return;
-    markUnpaidBtn.disabled = true; markUnpaidBtn.textContent = 'Undoing\u2026';
+    if(!confirm(t('Mark this invoice as unpaid? Use this if a payment was collected by mistake or needs correcting.'))) return;
+    markUnpaidBtn.disabled = true; markUnpaidBtn.textContent = t('Undoing\u2026');
     await withFreshShipments(list => {
       const t = list.find(x => x.id === shipmentId);
       if(t){ t.paid = false; t.paymentMethod = null; t.paidAt = null; }
@@ -2623,7 +2813,7 @@ function wireInvoicePopupButtons(shipmentId){
 
   const transferBtn = document.getElementById('invoice-popup-transfer-btn');
   if(transferBtn) transferBtn.addEventListener('click', async () => {
-    transferBtn.disabled = true; transferBtn.textContent = 'Confirming\u2026';
+    transferBtn.disabled = true; transferBtn.textContent = t('Confirming\u2026');
     await withFreshShipments(list => {
       const t = list.find(x => x.id === shipmentId);
       if(t){ t.paid = true; t.paymentMethod = 'transfer'; t.paidAt = new Date().toISOString(); }
@@ -2648,7 +2838,7 @@ function wireInvoicePopupButtons(shipmentId){
     // still counts as inside the same tap's activation window on most
     // browsers as long as it's not an excessive delay.
     const btn = document.getElementById('invoice-popup-share-btn');
-    btn.disabled = true; btn.textContent = 'Preparing\u2026';
+    btn.disabled = true; btn.textContent = t('Preparing\u2026');
     const f = await shareFilePromise;
     btn.disabled = false; btn.textContent = t('Share Invoice');
     if(f) shareFileNow(f, s);
@@ -3627,7 +3817,7 @@ function refreshTripDetailsPopupInPlace(){
 function wireActiveTripStripEvents(){
   const markTransitBtn = document.querySelector('[data-home-mark-transit]');
   if(markTransitBtn) markTransitBtn.addEventListener('click', async () => {
-    if(!confirm('Mark this trip in transit? Every loaded shipment on this trip will move to "In Transit" together, and a manifest file will be saved to this device.')) return;
+    if(!confirm(t('Mark this trip in transit? Every loaded shipment on this trip will move to "In Transit" together, and a manifest file will be saved to this device.'))) return;
     const tripId = markTransitBtn.dataset.homeMarkTransit;
     const trip = (state.trips||[]).find(t => t.id === tripId);
     const tripShipments = state.shipments.filter(s => s.tripId === tripId);
@@ -3640,7 +3830,7 @@ function wireActiveTripStripEvents(){
       return;
     }
     if(trip) downloadTripManifest(trip, tripShipments);
-    alert(`Trip marked in transit. ${moved} shipment(s) updated.`);
+    alert(t('Trip marked in transit. {count} shipment(s) updated.').replace('{count}', moved));
     renderDashboard();
   });
 
@@ -4066,7 +4256,7 @@ function renderDashboard(){
       alert(t('Only the Owner or a Manager can delete a shipment once items have been logged.'));
       return;
     }
-    if(!confirm('Delete this customer entry? This cannot be undone.')) return;
+    if(!confirm(t('Delete this customer entry? This cannot be undone.'))) return;
     try{
       await withFreshShipments(list => {
         const idx = list.findIndex(x => x.id === b.dataset.deleteShipment);
@@ -4674,7 +4864,7 @@ function openAnnouncementPopup(tripId){
     const copyBtn = document.getElementById('announcement-copy-btn');
     const finish = () => {
       const original = copyBtn.textContent;
-      copyBtn.textContent = 'Copied!';
+      copyBtn.textContent = t('Copied!');
       setTimeout(() => { if(document.getElementById('announcement-copy-btn')) copyBtn.textContent = original; }, 1200);
     };
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -4687,7 +4877,7 @@ function openAnnouncementPopup(tripId){
 
   document.getElementById('announcement-save-btn').addEventListener('click', async () => {
     const saveBtn = document.getElementById('announcement-save-btn');
-    saveBtn.textContent = 'Saving\u2026';
+    saveBtn.textContent = t('Saving\u2026');
     await persist(textarea.value);
     if(document.getElementById('announcement-save-btn')){ saveBtn.textContent = 'Saved!'; setTimeout(() => { if(document.getElementById('announcement-save-btn')) saveBtn.textContent = 'Save'; }, 1200); }
     renderDashboard();
@@ -4759,7 +4949,7 @@ function wireDeliverOtherPopup(s, routeIslands){
     }
     if(!checkDeliverOtherMobile()) return;
     const btn = document.getElementById('deliver-other-confirm-btn');
-    btn.disabled = true; btn.textContent = 'Saving\u2026';
+    btn.disabled = true; btn.textContent = t('Saving\u2026');
     try{
       await markDeliveredOffIsland(s.id, { island, note, receiverName, receiverMobile });
     }catch(e){
@@ -7410,7 +7600,7 @@ function renderTrips(){
   }).join('');
 
   list.querySelectorAll('[data-mark-transit]').forEach(b => b.addEventListener('click', async () => {
-    if(!confirm('Mark this trip in transit? Every loaded shipment on this trip will move to "In Transit" together, and a manifest file will be saved to this device.')) return;
+    if(!confirm(t('Mark this trip in transit? Every loaded shipment on this trip will move to "In Transit" together, and a manifest file will be saved to this device.'))) return;
     const tripId = b.dataset.markTransit;
     const trip = (state.trips||[]).find(t => t.id === tripId);
     const tripShipments = state.shipments.filter(s => s.tripId === tripId);
@@ -7423,7 +7613,7 @@ function renderTrips(){
       return;
     }
     if(trip) downloadTripManifest(trip, tripShipments);
-    alert(`Trip marked in transit. ${moved} shipment(s) updated.`);
+    alert(t('Trip marked in transit. {count} shipment(s) updated.').replace('{count}', moved));
     renderTrips();
   }));
 
@@ -7457,7 +7647,7 @@ function renderTrips(){
     withFreshTrips(l => { l.forEach(t => t.active = (t.id === targetId)); }).then(() => renderTrips());
   }));
   list.querySelectorAll('[data-del-trip]').forEach(b => b.addEventListener('click', async () => {
-    if(!confirm('Delete this trip?')) return;
+    if(!confirm(t('Delete this trip?'))) return;
     await withFreshTrips(l => { const i = l.findIndex(t => t.id === b.dataset.delTrip); if(i>-1) l.splice(i,1); });
     renderTrips();
   }));
@@ -7629,7 +7819,7 @@ async function renderInvoices(){
     renderInvoices();
   }));
   list.querySelectorAll('[data-inv-void]').forEach(b => b.addEventListener('click', async () => {
-    if(!confirm('Void this invoice? It will be excluded from totals.')) return;
+    if(!confirm(t('Void this invoice? It will be excluded from totals.'))) return;
     await withFreshShipments(list => {
       const s = list.find(x => x.id === b.dataset.invVoid);
       if(s) s.voided = true;
@@ -7899,7 +8089,7 @@ function renderReportIslandDetail(){
       openCashPopup(b.dataset.cashOpen);
     }));
     panel.querySelectorAll('[data-report-inv-delete]').forEach(b => b.addEventListener('click', async () => {
-      if(!confirm('Delete this invoice permanently? This cannot be undone.')) return;
+      if(!confirm(t('Delete this invoice permanently? This cannot be undone.'))) return;
       await withFreshShipments(list => {
         const idx = list.findIndex(x => x.id === b.dataset.reportInvDelete);
         if(idx > -1) list.splice(idx, 1);
@@ -8950,7 +9140,7 @@ function renderTripSettings(){
   byId('routes-upgrade-btn')?.addEventListener('click', () => openProFeatureRequiredPopup(t('Adding more than one route or destination is a Pro feature. Upgrade to Pro to add more.')));
   document.querySelectorAll('[data-del-route]').forEach(b => b.addEventListener('click', async () => {
     const idx = parseInt(b.dataset.delRoute, 10);
-    if(!confirm('Remove this route?')) return;
+    if(!confirm(t('Remove this route?'))) return;
     await withFreshSettings(fresh => {
       if(fresh.routes) fresh.routes.splice(idx, 1);
     });
@@ -8994,7 +9184,7 @@ async function loadGoogleSheetsStatus(){
         <button class="btn btn-ghost" id="google-disconnect-btn" style="width:100%;margin-top:8px;">${t("Disconnect Google Account")}</button>
       `;
       document.getElementById('google-disconnect-btn').addEventListener('click', () => {
-        if(!confirm('Disconnect this Google account? New trips will stop getting sheets until you reconnect.')) return;
+        if(!confirm(t('Disconnect this Google account? New trips will stop getting sheets until you reconnect.'))) return;
         fetch(`${API_BASE}/api/google/disconnect`, {
           method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ boatId: CURRENT_BOAT_ID })
         }).then(() => loadGoogleSheetsStatus());
@@ -9272,7 +9462,7 @@ function renderRatesSetup(){
       await saveRates(state.rates);
       renderRatesList();
       noteEl.style.display = 'block';
-      noteEl.textContent = t(`Added ${cleaned.length} new item(s) to this boat's list \u2014 your existing items were kept. Edit freely, it won't affect any other boat.`);
+      noteEl.textContent = t("Added {n} new item(s) to this boat's list \u2014 your existing items were kept. Edit freely, it won't affect any other boat.").replace('{n}', cleaned.length);
     }catch(err){
       console.error('rates upload failed', err);
       noteEl.style.display = 'block';
@@ -9461,7 +9651,7 @@ async function openQrScanner(){
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = typeof jsQR === 'function' ? jsQR(imageData.data, imageData.width, imageData.height) : null;
       if(code && code.data){
-        statusEl.textContent = 'Got it \u2014 opening...';
+        statusEl.textContent = t('Got it \u2014 opening...');
         try{
           const url = new URL(code.data, location.href);
           if(url.origin === location.origin){
@@ -9470,7 +9660,7 @@ async function openQrScanner(){
             return;
           }
         }catch(e){ /* not a valid URL, fall through */ }
-        statusEl.textContent = "That doesn't look like a SeaFare QR code. Try again.";
+        statusEl.textContent = t("That doesn't look like a SeaFare QR code. Try again.");
       }
     }
     requestAnimationFrame(tick);
@@ -9483,7 +9673,7 @@ async function openQrScanner(){
       requestAnimationFrame(tick);
     })
     .catch(() => {
-      statusEl.textContent = "Couldn't access the camera. Check your browser's camera permission for this site.";
+      statusEl.textContent = t("Couldn't access the camera. Check your browser's camera permission for this site.");
     });
 }
 
@@ -11133,7 +11323,7 @@ async function sendSignupEmailOtp(){
     clearFieldErrors(['su-gmail']);
     markFieldError('su-gmail', false);
     const mainError = document.getElementById('su-error');
-    if(mainError) mainError.textContent = 'Invalid email address.';
+    if(mainError) mainError.textContent = t('Invalid email address.');
     return;
   }
   const btn = document.getElementById('su-email-send-code-btn') || document.getElementById('su-email-resend-code-btn');
@@ -11370,7 +11560,7 @@ async function submitSignup(){
     return;
   }
   if(body.gmail && !isValidEmail(body.gmail)){
-    errorEl.textContent = 'Invalid email address.';
+    errorEl.textContent = t('Invalid email address.');
     return;
   }
 
@@ -11720,7 +11910,7 @@ function renderOrgResetConfirm(){
     const newPasskey = input.value;
     if(newPasskey.length < 6){ errorEl.textContent = 'Password must be at least 6 characters.'; markFieldError('orc-password', true); return; }
     errorEl.textContent = '';
-    btn.disabled = true; btn.textContent = 'Saving\u2026';
+    btn.disabled = true; btn.textContent = t('Saving\u2026');
     try{
       const res = await fetch(`${API_BASE}/api/org-reset/confirm`, {
         method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ token: state.orgResetToken, newPasskey })
@@ -12172,7 +12362,7 @@ document.body.addEventListener('click', (e) => {
     if(!label) return;
     const original = label.dataset.originalText || label.textContent;
     label.dataset.originalText = original;
-    label.textContent = 'Copied!';
+    label.textContent = t('Copied!');
     label.style.color = 'var(--teal)';
     setTimeout(() => { label.textContent = original; label.style.color = ''; }, 1200);
   };
@@ -12893,34 +13083,6 @@ function closeIslandSearchPopup(){
   document.getElementById('island-search-popup-overlay')?.remove();
   _islandSearchExpandedAtoll = null;
   clearAnchoredDropdown();
-}
-
-// Desktop-only wave-background cursor interaction (see body::before /
-// --cursor-x / --cursor-y in the stylesheet). Skipped on touch devices --
-// there's no persistent hover to react to there, and touchmove during a
-// scroll would just make the glow jitter around uselessly. Throttled to
-// one update per animation frame; position updates snap quickly to the
-// cursor while it's moving (see .cursor-active's fast transition), then
-// after a short idle period the class comes off and the slower transition
-// on body::before itself eases the glow back out -- the ambient
-// wave-drift animation underneath never stops or resets, this is purely
-// a highlight layered on top of it.
-if(window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches){
-  let cursorRaf = null, cursorIdleTimer = null, pendingCursorX = 50, pendingCursorY = 30;
-  const applyCursorPos = () => {
-    cursorRaf = null;
-    document.body.style.setProperty('--cursor-x', pendingCursorX + '%');
-    document.body.style.setProperty('--cursor-y', pendingCursorY + '%');
-  };
-  window.addEventListener('mousemove', (e) => {
-    document.body.classList.add('cursor-active');
-    pendingCursorX = (e.clientX / window.innerWidth * 100).toFixed(2);
-    pendingCursorY = (e.clientY / window.innerHeight * 100).toFixed(2);
-    if(cursorRaf === null) cursorRaf = requestAnimationFrame(applyCursorPos);
-    if(cursorIdleTimer) clearTimeout(cursorIdleTimer);
-    cursorIdleTimer = setTimeout(() => document.body.classList.remove('cursor-active'), 700);
-  }, { passive:true });
-  window.addEventListener('mouseleave', () => document.body.classList.remove('cursor-active'));
 }
 
 applyLangDirection();
