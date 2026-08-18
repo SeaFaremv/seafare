@@ -31,14 +31,14 @@
     --teal:#00BFA5;
     --teal-light:#40D9C0;
     --amber:#FFA726;
-    --paper:#F4F9FF;
-    --paper-dark:#E1EEFB;
+    --paper:#E4F1FC;
+    --paper-dark:#D3E7F8;
     --ink:#16283A;
     --ink-soft:#5C7C99;
     --red:#E5473B;
     --green:#22A366;
     --line:#CFE3F5;
-    --surface:#fff;
+    --surface:#EEF6FD;
     /* Slightly shrinks all English UI text app-wide. Dhivehi is kept at
        its original size via the html[lang="dv"] override below, since
        Thaana glyphs need the extra size to stay legible. */
@@ -74,6 +74,13 @@
        with the settings panel/cards rather than introducing a new
        shade. */
     --nav-bg:var(--surface);
+  }
+  /* Same static wave motif as .panel/.stat-card below, just in light
+     strokes instead of navy so it stays visible (barely) against the
+     dark surfaces instead of vanishing into them. */
+  html[data-theme="dark"] .panel,
+  html[data-theme="dark"] .stat-card{
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0,35 Q35,10 70,35 T140,35' stroke='rgba(255,255,255,0.04)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,55 Q35,30 70,55 T140,55' stroke='rgba(64,217,192,0.05)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,15 Q35,-10 70,15 T140,15' stroke='rgba(255,255,255,0.025)' stroke-width='1' fill='none'/%3E%3C/svg%3E");
   }
 
   *{box-sizing:border-box;}
@@ -334,7 +341,10 @@
   nav.tabs button.active .badge{background:var(--navy-deep);color:var(--amber);}
 
   .panel{
-    background:var(--paper);border-radius:12px;padding:26px;
+    background:var(--paper);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0,35 Q35,10 70,35 T140,35' stroke='rgba(11,114,196,0.05)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,55 Q35,30 70,55 T140,55' stroke='rgba(0,191,165,0.05)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,15 Q35,-10 70,15 T140,15' stroke='rgba(11,114,196,0.03)' stroke-width='1' fill='none'/%3E%3C/svg%3E");
+    background-repeat:repeat;background-size:140px 70px;
+    border-radius:12px;padding:26px;
     box-shadow:0 12px 34px rgba(0,0,0,0.28);
   }
   .panel h2{font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.04em;font-size:calc(20px * var(--en-scale));margin:0 0 4px;color:var(--navy-deep);}
@@ -609,9 +619,9 @@
   .settings-block{margin-bottom:26px;}
   .settings-block h3{font-family:'Oswald',sans-serif;text-transform:uppercase;font-size:calc(13.5px * var(--en-scale));letter-spacing:0.04em;color:var(--navy-deep);margin:0 0 12px;}
   .view-field{
-    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    display:inline-flex;justify-content:space-between;align-items:center;gap:10px;
     background:var(--surface);border:1.5px solid var(--line);border-radius:8px;
-    padding:11px 12px;margin-bottom:14px;
+    padding:11px 12px;margin-bottom:14px;width:fit-content;max-width:100%;
   }
   .view-field .vf-value{font-family:'JetBrains Mono',monospace;font-size:calc(13px * var(--en-scale));color:var(--navy-deep);word-break:break-all;}
   .view-field .vf-edit{
@@ -791,8 +801,9 @@
   .note{font-size:calc(11px * var(--en-scale));color:var(--ink-soft);background:var(--paper-dark);border-radius:7px;padding:10px 12px;margin-top:6px;line-height:1.5;}
   .url-box{
     cursor:pointer;
-    display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--surface);
+    display:inline-flex;justify-content:space-between;align-items:center;gap:10px;background:var(--surface);
     border:1.5px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px;flex-wrap:wrap;
+    width:fit-content;max-width:100%;
   }
   .url-box .u{font-family:'JetBrains Mono',monospace;font-size:calc(11px * var(--en-scale));color:var(--navy-deep);word-break:break-all;}
   .url-box .tag-label{font-size:calc(9.5px * var(--en-scale));text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);font-weight:700;}
@@ -842,7 +853,12 @@
   .pin-box input{text-align:center;letter-spacing:0.4em;font-family:'JetBrains Mono',monospace;font-size:calc(18px * var(--en-scale));}
   .pin-error{color:var(--red);font-size:calc(11px * var(--en-scale));margin:-8px 0 12px;min-height:16px;}
   .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:22px;}
-  .stat-card{background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:16px;}
+  .stat-card{
+    background:var(--surface);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0,35 Q35,10 70,35 T140,35' stroke='rgba(11,114,196,0.05)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,55 Q35,30 70,55 T140,55' stroke='rgba(0,191,165,0.05)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,15 Q35,-10 70,15 T140,15' stroke='rgba(11,114,196,0.03)' stroke-width='1' fill='none'/%3E%3C/svg%3E");
+    background-repeat:repeat;background-size:140px 70px;
+    border:1.5px solid var(--line);border-radius:10px;padding:16px;
+  }
   .stat-card .slabel{font-size:calc(10px * var(--en-scale));text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);margin-bottom:6px;}
   .stat-card .sval{font-family:'JetBrains Mono',monospace;font-size:calc(20px * var(--en-scale));font-weight:700;color:var(--navy-deep);}
 
@@ -1186,15 +1202,25 @@ body.admin-mode{
 .admin-shell .btn-danger:hover,
 .admin-popup-panel .btn-danger:hover{ background:rgba(251,69,112,0.12);box-shadow:0 0 20px -8px var(--adm-rose); }
 
-/* Inputs */
+/* Inputs -- previously painted with the dark --adm-bg navy (meant for the
+   console's outer page wash), which put --adm-text's near-black text on a
+   near-black field and made every input hard to read/use. The rest of the
+   console is a light theme (white panels, light raised cards, dark text) --
+   inputs now match that instead of being the one dark element in it. */
 .admin-shell input,
 .admin-shell textarea,
 .admin-shell select,
 .admin-popup-panel input,
 .admin-popup-panel textarea,
 .admin-popup-panel select{
-  background:var(--adm-bg) !important;border:1px solid var(--adm-border) !important;
+  background:var(--adm-panel-raised) !important;border:1px solid var(--adm-border) !important;
   color:var(--adm-text) !important;border-radius:8px;
+}
+.admin-shell input::placeholder,
+.admin-shell textarea::placeholder,
+.admin-popup-panel input::placeholder,
+.admin-popup-panel textarea::placeholder{
+  color:var(--adm-text-soft);opacity:1;
 }
 .admin-shell input:focus,
 .admin-shell textarea:focus,
@@ -1674,8 +1700,8 @@ function escapeHtml(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'
 const TR = {
   "+ Add Route": "ދަތުރު އެޑް ކޮށްލާ",
   "+ Add Your Free Boat": "ބޯޓް އެޑް ކުރުމަށް",
-  "+ Invite Staff Member": "ސްޓާފް މެމްބަރެއް އެޑްކޮށްލާ",
-  "+ Manager": "މެނޭޖަރ އެއް ލުމަށް",
+  "+ Add Manager": "މެނޭޖަރ އެއް ލުމަށް",
+  "+ Add Staff": "ސްޓާފް މެމްބަރެއް އެޑްކޮށްލާ",
   "Account Details": "އެކައުންޓް ޑީޓެއިލްސް",
   "Account name": "އެކައުންޓް ނަން",
   "Account number": "އެކައުންޓް ނަންބަރ",
@@ -8060,7 +8086,7 @@ function renderStaffManagement(){
         <div class="note" style="margin-top:10px;">${state.settings.isPro ? t('You\u2019ve reached the 10-staff limit for this boat on the Pro plan.') : t('You\u2019ve reached the 2-staff limit on the Free plan. Upgrade to Pro for up to 10 per boat.')}</div>
         ${!state.settings.isPro ? `<button class="btn btn-amber" id="staff-section-upgrade-btn" style="width:100%;margin-top:8px;">${t('Upgrade to Pro')}</button>` : ''}
       ` : `
-        <button class="btn btn-primary" id="open-invite-btn" style="margin-top:10px;">${t("+ Invite Staff Member")}</button>
+        <button class="btn btn-primary" id="open-invite-btn" style="margin-top:10px;">${t("+ Add Staff")}</button>
       `}
       <div id="invite-modal-wrap"></div>
     </div>
@@ -8077,12 +8103,7 @@ function renderStaffManagement(){
       <h3>${t("Manager Access")}</h3>
       <p class="sub" style="margin-bottom:14px;">${t("Give someone full run of this boat \u2014 Dashboard, Trips, Invoices, Reports, and Settings (Staff & Trip Settings only) \u2014 without letting them see or edit your account details or item prices. Only you can add or remove managers.")}</p>
       <div id="manager-list"></div>
-      ${(state.settings.planLimitsEnabled && !state.settings.isPro) ? `
-        <div class="note" style="margin-top:10px;">${t('Managers require the Pro plan.')}</div>
-        <button class="btn btn-amber" id="manager-section-upgrade-btn" style="width:100%;margin-top:8px;">${t('Upgrade to Pro')}</button>
-      ` : `
-        <button class="btn btn-primary" id="open-manager-invite-btn" style="margin-top:10px;">${t("+ Manager")}</button>
-      `}
+      <button class="btn btn-primary" id="open-manager-invite-btn" style="margin-top:10px;">${t("+ Add Manager")}</button>
       <div id="manager-invite-modal-wrap"></div>
     </div>
 
@@ -8342,8 +8363,11 @@ function renderStaffManagement(){
 
     function closeManagerInviteModal(){ document.getElementById('manager-invite-modal-wrap').innerHTML = ''; }
 
-    document.getElementById('manager-section-upgrade-btn')?.addEventListener('click', () => openProFeatureRequiredPopup(t('Adding a manager is a Pro feature. Upgrade to Pro to give someone manager access.')));
     document.getElementById('open-manager-invite-btn')?.addEventListener('click', () => {
+      if(state.settings.planLimitsEnabled && !state.settings.isPro){
+        openProFeatureRequiredPopup(t('Adding a manager is a Pro feature. Upgrade to Pro to give someone manager access.'));
+        return;
+      }
       document.getElementById('manager-invite-modal-wrap').innerHTML = `
         <div class="settings-block" style="border:1.5px solid var(--line);border-radius:10px;padding:16px;margin-top:12px;background:var(--surface);">
           <h3 style="margin-bottom:12px;">${t("Add Manager")}</h3>
