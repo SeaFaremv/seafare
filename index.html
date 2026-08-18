@@ -5172,6 +5172,224 @@ function compressImageToDataUrl(file, maxDim, quality){
   });
 }
 
+// ---------------- Transfer slip verification ----------------
+// Every place in the app where an owner/org attaches a bank-transfer
+// screenshot as proof of payment (Upgrade to Pro's BML/MIB tabs, and the
+// Request Additional Boat screenshot) runs the uploaded image through this
+// same check before it's ever sent to the server. It OCRs the slip image
+// client-side (Tesseract.js, lazy-loaded only the first time it's actually
+// needed) and confirms three things against what's configured on this
+// device/org: the amount is exactly the required MVR 500, the "To" account
+// number on the slip matches the relevant BML/MIB account set by the Super
+// Admin, and the slip's own transaction date/time is within 15 minutes of
+// the moment the person pressed to start that particular transfer (BML/MIB
+// tab tap, or opening the Request Additional Boat form) -- not just "recent"
+// in general, since a stale but real slip from days ago shouldn't pass either.
+// Recognizes the three real slip layouts in use: the BML app's own
+// confirmation screen, an MIB-to-MIB "Transfer Successful" screenshot, and
+// an MIB "Favara" cross-bank transfer screenshot (whose own "Bank" field
+// says which bank the money actually landed in). Dark-mode screenshots of
+// any of these are read the same way -- only the colours differ, not the
+// text OCR reads.
+let _tesseractLoadPromise = null;
+function loadTesseractLib(){
+  if(window.Tesseract) return Promise.resolve(window.Tesseract);
+  if(_tesseractLoadPromise) return _tesseractLoadPromise;
+  _tesseractLoadPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js';
+    s.onload = () => resolve(window.Tesseract);
+    s.onerror = () => reject(new Error('Failed to load OCR library'));
+    document.head.appendChild(s);
+  });
+  return _tesseractLoadPromise;
+}
+async function ocrTransferSlipImage(file){
+  const Tesseract = await loadTesseractLib();
+  const { data } = await Tesseract.recognize(file, 'eng');
+  return (data && data.text) || '';
+}
+// Turns raw OCR text into {format, slipBank, amount, toAccount, dateObj},
+// or null if it doesn't look like any of the three recognized slip layouts.
+function parseTransferSlipText(rawText){
+  const text = String(rawText || '').replace(/\r/g, '');
+  const upper = text.toUpperCase();
+  // The MIB app stamps every slip it produces with its own "MALDIVES
+  // ISLAMIC BANK" footer/logo -- regardless of which bank the money
+  // actually lands in (a same-bank "MIB Transfer", a cross-bank "Favara"
+  // transfer, or a cross-bank "Quick Transfer" all carry that same
+  // footer). So the footer only tells us the slip came from the MIB app,
+  // never the destination bank -- that's only ever trustworthy from the
+  // slip's own "Bank" row, read below, regardless of what the
+  // Transaction Type label says.
+  const isMibApp = upper.includes('MALDIVES ISLAMIC BANK');
+  const isBmlApp = !isMibApp && (upper.includes('BANK OF MALDIVES') || (upper.includes('REFERENCE') && upper.includes('TRANSACTION DATE')));
+  let format = null;
+  if(isMibApp) format = 'mib_app';
+  else if(isBmlApp) format = 'bml_app';
+  if(!format) return null;
+
+  let slipBank = null;
+  if(format === 'bml_app'){
+    slipBank = 'bml';
+  } else if(format === 'mib_app'){
+    const bankMatch = text.match(/Bank\s*[:\-]?\s*([A-Za-z .]+)/i);
+    if(bankMatch){
+      const b = bankMatch[1].toUpperCase();
+      if(b.includes('ISLAMIC')) slipBank = 'mib';
+      else if(b.includes('BML') || b.includes('MALDIVES')) slipBank = 'bml';
+    }
+  }
+
+  let amount = null;
+  const amtMatch = text.match(/MVR\s*[:\-]?\s*([\d,]+\.\d{2})/i) || text.match(/([\d,]+\.\d{2})\s*MVR/i);
+  if(amtMatch) amount = parseFloat(amtMatch[1].replace(/,/g, ''));
+
+  let toAccount = null;
+  const toIdx = text.search(/\bTo\b/i);
+  if(toIdx !== -1){
+    const windowText = text.slice(toIdx, toIdx + 150);
+    const digitMatch = windowText.match(/\d[\d\s]{6,20}\d/);
+    if(digitMatch) toAccount = digitMatch[0].replace(/\s+/g, '');
+  }
+
+  let dateObj = null;
+  let m = text.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/);
+  if(m){
+    dateObj = new Date(parseInt(m[3],10), parseInt(m[2],10)-1, parseInt(m[1],10), parseInt(m[4],10), parseInt(m[5],10));
+  } else {
+    m = text.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})/);
+    if(m) dateObj = new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10), parseInt(m[4],10), parseInt(m[5],10), parseInt(m[6],10));
+  }
+
+  return { format, slipBank, amount, toAccount, dateObj };
+}
+// Draws the image onto a canvas and inverts every pixel's RGB -- turns a
+// light-text-on-dark-background screenshot into dark-text-on-light, which
+// OCR reads far more reliably. Only used as a fallback (see readTransferSlip
+// below) since it costs an extra OCR pass.
+function invertImageColorsToBlob(file){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      img.onerror = reject;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width; canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = imgData.data;
+        for(let i = 0; i < d.length; i += 4){
+          d[i] = 255 - d[i];
+          d[i+1] = 255 - d[i+1];
+          d[i+2] = 255 - d[i+2];
+        }
+        ctx.putImageData(imgData, 0, 0);
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('toBlob failed')), 'image/png');
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+async function readTransferSlip(file){
+  let text;
+  try{ text = await ocrTransferSlipImage(file); }
+  catch(e){ console.error('Transfer slip OCR failed', e); return null; }
+  let parsed = parseTransferSlipText(text);
+  if(!parsed){
+    // Dark-mode screenshots (light text on a dark panel -- e.g. the MIB
+    // app's dark theme) often read poorly for OCR, which is trained on
+    // dark text on a light background. Before giving up, retry once with
+    // the image's colors inverted.
+    try{
+      const inverted = await invertImageColorsToBlob(file);
+      const text2 = await ocrTransferSlipImage(inverted);
+      parsed = parseTransferSlipText(text2);
+    }catch(e){
+      console.error('Inverted-image OCR retry failed', e);
+    }
+  }
+  return parsed;
+}
+// Pure comparison against an already-known expected bank -- used once we
+// know which account (BML or MIB) the slip is supposed to be proving payment
+// into.
+function validateParsedTransferSlip(parsed, opts){
+  if(!parsed || !parsed.slipBank){
+    return { valid:false, reason: t('This doesn\u2019t look like a supported transfer slip.') };
+  }
+  if(parsed.slipBank !== opts.expectedBank){
+    return { valid:false, reason: t('This slip isn\u2019t a transfer into the correct account.') };
+  }
+  if(parsed.amount == null || Math.abs(parsed.amount - opts.expectedAmount) > 0.001){
+    return { valid:false, reason: t('The amount on the slip doesn\u2019t match the required amount.') };
+  }
+  const expectedDigits = String(opts.expectedAccountNumber || '').replace(/\D/g, '');
+  const slipDigits = String(parsed.toAccount || '').replace(/\D/g, '');
+  if(!expectedDigits || !slipDigits || slipDigits !== expectedDigits){
+    return { valid:false, reason: t('The destination account number on the slip doesn\u2019t match.') };
+  }
+  if(!parsed.dateObj){
+    return { valid:false, reason: t('Couldn\u2019t read the date/time on the slip.') };
+  }
+  const diffMinutes = Math.abs(parsed.dateObj.getTime() - opts.referenceTime) / 60000;
+  if(diffMinutes > (opts.windowMinutes || 15)){
+    return { valid:false, reason: t('The date/time on the slip is outside the allowed 15-minute window.') };
+  }
+  return { valid:true };
+}
+// Used where the expected bank is already fixed (the person picked the BML
+// or MIB tab before uploading).
+async function checkTransferSlip(file, opts){
+  const parsed = await readTransferSlip(file);
+  if(!parsed) return { valid:false, reason: t('Couldn\u2019t read the transfer slip image. Try a clearer photo/screenshot.') };
+  return validateParsedTransferSlip(parsed, opts);
+}
+// Used where no bank was picked up front (the Request Additional Boat form)
+// -- accepts either BML or MIB, whichever the slip itself turns out to be.
+async function checkTransferSlipAnyBank(file, opts){
+  const parsed = await readTransferSlip(file);
+  if(!parsed) return { valid:false, reason: t('Couldn\u2019t read the transfer slip image. Try a clearer photo/screenshot.') };
+  const expectedAccountNumber = parsed.slipBank === 'mib' ? opts.mibAccountNumber : opts.bmlAccountNumber;
+  return validateParsedTransferSlip(parsed, { expectedBank: parsed.slipBank, expectedAccountNumber, expectedAmount: opts.expectedAmount, referenceTime: opts.referenceTime, windowMinutes: opts.windowMinutes });
+}
+// Themed error popup for a rejected slip -- auto-dismisses after 6 seconds
+// on its own, same as tapping the X or outside the panel does manually.
+// Whichever way it closes, onDismiss() runs once to reset that upload area
+// back to a fresh, empty state (no stale file left attached) rather than
+// leaving the person to re-open the form themselves.
+function showTransferSlipErrorPopup(reason, onDismiss){
+  lockBodyScroll();
+  const overlay = document.createElement('div');
+  overlay.id = 'slip-error-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2400;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="panel" style="max-width:380px;width:100%;margin:0;position:relative;animation:invoice-pop-in 0.18s ease-out;">
+      <button type="button" class="btn btn-ghost" id="slip-error-close-btn" style="position:absolute;top:10px;right:10px;padding:6px 11px;">\u2715</button>
+      <h3 style="margin-bottom:6px;color:var(--red);">${t('Not a Valid Transfer Slip')}</h3>
+      <p class="sub" style="margin-bottom:4px;">${escapeHtml(reason)}</p>
+      <p class="sub" style="margin-bottom:0;">${t('Please upload a valid transfer slip.')}</p>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  let closed = false;
+  const close = () => {
+    if(closed) return;
+    closed = true;
+    clearTimeout(timer);
+    overlay.remove();
+    unlockBodyScroll();
+    if(onDismiss) onDismiss();
+  };
+  const timer = setTimeout(close, 6000);
+  document.getElementById('slip-error-close-btn').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
+}
+
 async function completeLoadConfirm(id){
   const draft = state.loadingDraft[id];
   if(!draft) return;
@@ -5516,6 +5734,13 @@ let _proBankAccounts = null;
 // BML or MIB tab -- see the comments there and on the popup markup for why
 // this isn't rendered immediately on open anymore.
 let _proAlreadyRequested = false;
+// Timestamp of the moment the person actually tapped the BML or MIB tab
+// (see wireUpgradeToProAccountTabs) -- the transfer slip's own date/time
+// must land within 15 minutes of this, not just "recently".
+let _proTransferSelectedAt = null;
+// Same idea for the Request Additional Boat form's screenshot -- set the
+// moment that form is opened (see the request-boat-toggle-btn handler).
+let _boatRequestOpenedAt = null;
 async function fetchProBankAccounts(){
   try{
     const res = await fetch(`${API_BASE}/api/pro-bank-accounts`);
@@ -5706,6 +5931,9 @@ function wireUpgradeToProAccountTabs(){
     stopRedotPayPaymentPolling();
     document.querySelectorAll('#upgrade-pro-account-tabs [data-pro-account-tab]').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
+    if(b.dataset.proAccountTab === 'bml' || b.dataset.proAccountTab === 'mib'){
+      _proTransferSelectedAt = Date.now();
+    }
     renderUpgradeToProAccountBody(b.dataset.proAccountTab);
   }));
 }
@@ -5764,7 +5992,7 @@ function renderUpgradeToProAccountBody(which){
   // "I've Paid" form -- it wasn't rendered on popup open anymore (see
   // openUpgradeToProPopup), so this is where it actually appears now,
   // the moment one of these two tabs is picked.
-  renderUpgradeToProRequestArea(_proAlreadyRequested);
+  renderUpgradeToProRequestArea(_proAlreadyRequested, which);
 }
 
 // "Pay by Swipe" tab -- creates a real payment link via the server (which
@@ -6159,7 +6387,7 @@ function showProPendingReviewPopup(){
   });
 }
 
-function renderUpgradeToProRequestArea(alreadyRequested){
+function renderUpgradeToProRequestArea(alreadyRequested, which){
   const area = document.getElementById('upgrade-pro-request-area');
   if(!area) return;
   if(alreadyRequested){
@@ -6185,7 +6413,22 @@ function renderUpgradeToProRequestArea(alreadyRequested){
   submitBtn.addEventListener('click', async () => {
     const file = fileInput.files && fileInput.files[0];
     if(!file){ themedAlert(t('Attach a screenshot of the transfer first.')); return; }
-    submitBtn.disabled = true; submitBtn.textContent = t('Notifying\u2026');
+    submitBtn.disabled = true; submitBtn.textContent = t('Checking slip\u2026');
+    const expectedAccount = (_proBankAccounts && _proBankAccounts[which]) ? _proBankAccounts[which].number : '';
+    const check = await checkTransferSlip(file, {
+      expectedBank: which,
+      expectedAccountNumber: expectedAccount,
+      expectedAmount: SWIPE_PRO_DISPLAY_AMOUNT,
+      referenceTime: _proTransferSelectedAt || Date.now(),
+      windowMinutes: 15
+    });
+    if(!check.valid){
+      showTransferSlipErrorPopup(check.reason, () => {
+        renderUpgradeToProRequestArea(false, which);
+      });
+      return;
+    }
+    submitBtn.textContent = t('Notifying\u2026');
     try{
       const screenshot = await compressImageToDataUrl(file, 800, 0.55);
       await submitProRequest(screenshot);
@@ -11636,6 +11879,14 @@ function renderOrgDashboard(){
   document.getElementById('request-boat-toggle-btn')?.addEventListener('click', () => {
     const opening = !state.boatRequestOpen;
     state.boatRequestOpen = opening; state.orgError = '';
+    if(opening){
+      _boatRequestOpenedAt = Date.now();
+      // Needed to validate the transfer slip's "To" account against the
+      // right BML/MIB number -- fetched here (rather than only from the
+      // Upgrade-to-Pro popup) since this form can be reached without ever
+      // opening that popup.
+      if(!_proBankAccounts) fetchProBankAccounts().then(accounts => { _proBankAccounts = accounts; });
+    }
     renderOrgDashboard();
     // The free plan covers one boat; requesting another is normally a
     // Pro-gated action -- but an organization that's already Pro doesn't
@@ -11712,6 +11963,30 @@ function renderOrgDashboard(){
     // markup above) -- optional chaining so this doesn't throw there.
     const file = document.getElementById('req-boat-screenshot')?.files[0];
     if(!name){ markFieldError('req-boat-name', false); errorEl.textContent = 'Enter a name for the new boat.'; return; }
+    if(!isOrgPro()){
+      // Pro orgs skip payment entirely (see the markup above -- no
+      // screenshot field is even rendered for them), so the slip check
+      // only applies to the paid path.
+      if(!file){ errorEl.textContent = 'Attach a screenshot of the transfer.'; return; }
+      errorEl.textContent = '';
+      btn.disabled = true; btn.textContent = t('Checking slip\u2026');
+      if(!_proBankAccounts) _proBankAccounts = await fetchProBankAccounts();
+      const check = await checkTransferSlipAnyBank(file, {
+        bmlAccountNumber: _proBankAccounts.bml ? _proBankAccounts.bml.number : '',
+        mibAccountNumber: _proBankAccounts.mib ? _proBankAccounts.mib.number : '',
+        expectedAmount: SWIPE_PRO_DISPLAY_AMOUNT,
+        referenceTime: _boatRequestOpenedAt || Date.now(),
+        windowMinutes: 15
+      });
+      if(!check.valid){
+        btn.disabled = false; btn.textContent = t(submitLabel);
+        showTransferSlipErrorPopup(check.reason, () => {
+          const screenshotInput = document.getElementById('req-boat-screenshot');
+          if(screenshotInput) screenshotInput.value = '';
+        });
+        return;
+      }
+    }
     errorEl.textContent = '';
     btn.disabled = true; btn.textContent = isOrgPro() ? 'Adding\u2026' : 'Submitting\u2026';
     try{
