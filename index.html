@@ -125,10 +125,40 @@
     background-repeat: no-repeat, no-repeat, repeat;
     background-position: 0 0, 0 0, 0 0;
     background-size: auto, auto, 140px 70px;
-    animation: wave-drift 100s linear infinite;
+    /* Same drift speed as the Super Admin console's wave (see
+       body.admin-mode below) -- both were the same art at different
+       speeds (100s vs 35s) for no real reason; now the ordinary app and
+       the console read as the same living background. */
+    animation: wave-drift 35s linear infinite;
     color:var(--ink);
     font-family:'Inter',sans-serif;
     min-height:100vh;
+    position:relative;
+  }
+  /* Desktop-only cursor interaction with the wave background (see the
+     mousemove listener further down): a soft highlight follows the
+     pointer while it moves, then fades back out on its own once it
+     stops -- the ambient wave-drift animation above never pauses, this
+     just layers a temporary glow on top of it. --cursor-x/--cursor-y are
+     registered via @property so browsers can animate them smoothly
+     instead of jumping between values. Skipped entirely on touch
+     devices, where there's no persistent hover to react to. */
+  @property --cursor-x{ syntax:'<percentage>'; inherits:true; initial-value:50%; }
+  @property --cursor-y{ syntax:'<percentage>'; inherits:true; initial-value:30%; }
+  body{ --cursor-x:50%; --cursor-y:30%; }
+  body::before{
+    content:'';
+    position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:radial-gradient(circle at var(--cursor-x) var(--cursor-y), rgba(255,255,255,0.10), transparent 32%);
+    opacity:0;
+    transition:opacity 0.6s ease, --cursor-x 1.1s cubic-bezier(.22,.61,.36,1), --cursor-y 1.1s cubic-bezier(.22,.61,.36,1);
+  }
+  body.cursor-active::before{
+    opacity:1;
+    transition:opacity 0.25s ease, --cursor-x 0.15s linear, --cursor-y 0.15s linear;
+  }
+  @media (prefers-reduced-motion: reduce){
+    body::before{ display:none; }
   }
   @keyframes wave-drift{
     from{ background-position: 0 0, 0 0, 0 0; }
@@ -612,8 +642,15 @@
      A fixed two-line shape looks identical regardless of name length or
      language, in both directions. */
   .staff-row-info{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-  .staff-row-actions{display:flex;align-items:center;gap:8px;}
-  .staff-row-actions .btn{flex:1;}
+  /* Buttons pack to their natural width and sit left-aligned instead of
+     each stretching to fill an equal share of the row -- a "Remove"
+     button doesn't need to be as wide as "Reset PIN" just because they're
+     neighbors. See the matching admin-console fix further down for the
+     same shape (Grant/Revoke Pro, Suspend/Delete, Approve/Reject) --
+     these are list-row action buttons, not modal Cancel/Confirm footers,
+     which still split 50/50 on purpose. */
+  .staff-row-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .staff-row-actions .btn{padding:9px 14px;}
   .staff-row .sname{font-weight:600;color:var(--navy-deep);font-size:calc(14px * var(--en-scale));}
   .staff-empty{font-size:calc(11px * var(--en-scale));color:var(--ink-soft);padding:8px 2px 12px;}
   .settings-block{margin-bottom:26px;}
@@ -8088,7 +8125,6 @@ function renderStaffManagement(){
       ` : `
         <button class="btn btn-primary" id="open-invite-btn" style="margin-top:10px;">${t("+ Add Staff")}</button>
       `}
-      <div id="invite-modal-wrap"></div>
     </div>
 
     <div class="settings-block">
@@ -8104,7 +8140,6 @@ function renderStaffManagement(){
       <p class="sub" style="margin-bottom:14px;">${t("Give someone full run of this boat \u2014 Dashboard, Trips, Invoices, Reports, and Settings (Staff & Trip Settings only) \u2014 without letting them see or edit your account details or item prices. Only you can add or remove managers.")}</p>
       <div id="manager-list"></div>
       <button class="btn btn-primary" id="open-manager-invite-btn" style="margin-top:10px;">${t("+ Add Manager")}</button>
-      <div id="manager-invite-modal-wrap"></div>
     </div>
 
     <div class="settings-block">
@@ -8251,12 +8286,17 @@ function renderStaffManagement(){
   };
   renderStaffList();
 
-  function closeInviteModal(){ document.getElementById('invite-modal-wrap').innerHTML = ''; }
+  function closeInviteModal(){ document.getElementById('add-staff-popup-overlay')?.remove(); unlockBodyScroll(); }
 
   document.getElementById('staff-section-upgrade-btn')?.addEventListener('click', () => openProFeatureRequiredPopup(t('Adding more than 2 staff is a Pro feature. Upgrade to Pro to add up to 10 staff per boat.')));
   document.getElementById('open-invite-btn')?.addEventListener('click', () => {
-    document.getElementById('invite-modal-wrap').innerHTML = `
-      <div class="settings-block" style="border:1.5px solid var(--line);border-radius:10px;padding:16px;margin-top:12px;background:var(--surface);">
+    closeInviteModal();
+    lockBodyScroll();
+    const overlay = document.createElement('div');
+    overlay.id = 'add-staff-popup-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2200;display:flex;align-items:center;justify-content:center;padding:20px;';
+    overlay.innerHTML = `
+      <div class="panel" style="max-width:400px;width:100%;margin:0;animation:invoice-pop-in 0.18s ease-out;">
         <h3 style="margin-bottom:12px;">${t("Invite Staff Member")}</h3>
         <label>${t("Staff member name")}</label>
         <input type="text" id="invite-name" placeholder="${t("e.g. Ahmed")}">
@@ -8268,6 +8308,8 @@ function renderStaffManagement(){
         </div>
       </div>
     `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if(e.target === overlay) closeInviteModal(); });
     document.getElementById('invite-cancel-btn').addEventListener('click', closeInviteModal);
     document.getElementById('invite-create-btn').addEventListener('click', async () => {
       const name = document.getElementById('invite-name').value.trim();
@@ -8361,15 +8403,20 @@ function renderStaffManagement(){
     };
     renderManagerList();
 
-    function closeManagerInviteModal(){ document.getElementById('manager-invite-modal-wrap').innerHTML = ''; }
+    function closeManagerInviteModal(){ document.getElementById('add-manager-popup-overlay')?.remove(); unlockBodyScroll(); }
 
     document.getElementById('open-manager-invite-btn')?.addEventListener('click', () => {
       if(state.settings.planLimitsEnabled && !state.settings.isPro){
         openProFeatureRequiredPopup(t('Adding a manager is a Pro feature. Upgrade to Pro to give someone manager access.'));
         return;
       }
-      document.getElementById('manager-invite-modal-wrap').innerHTML = `
-        <div class="settings-block" style="border:1.5px solid var(--line);border-radius:10px;padding:16px;margin-top:12px;background:var(--surface);">
+      closeManagerInviteModal();
+      lockBodyScroll();
+      const overlay = document.createElement('div');
+      overlay.id = 'add-manager-popup-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2200;display:flex;align-items:center;justify-content:center;padding:20px;';
+      overlay.innerHTML = `
+        <div class="panel" style="max-width:400px;width:100%;margin:0;animation:invoice-pop-in 0.18s ease-out;">
           <h3 style="margin-bottom:12px;">${t("Add Manager")}</h3>
           <label>${t("Manager's name")}</label>
           <input type="text" id="manager-invite-name" placeholder="${t("e.g. Ahmed")}">
@@ -8381,6 +8428,8 @@ function renderStaffManagement(){
           </div>
         </div>
       `;
+      document.body.appendChild(overlay);
+      overlay.addEventListener('click', (e) => { if(e.target === overlay) closeManagerInviteModal(); });
       document.getElementById('manager-invite-cancel-btn').addEventListener('click', closeManagerInviteModal);
       const checkManagerMobile = wireMobileValidation('manager-invite-mobile');
       document.getElementById('manager-invite-create-btn').addEventListener('click', async () => {
@@ -8541,7 +8590,7 @@ function renderTripSettings(){
       <p class="sub" style="margin-bottom:12px;">${t("The routes this boat mainly ferries. Once set, picking an origin on the New Trip form fills in destinations and the loading location automatically.")}</p>
       <div id="routes-list">
         ${routes.length === 0 ? '<div class="empty">${t("No routes set up yet.")}</div>' : routes.map((r, idx) => `
-          <div class="item-result-row" style="margin-bottom:6px;flex-wrap:wrap;">
+          <div class="item-result-row" style="display:inline-flex;width:fit-content;max-width:100%;margin-bottom:6px;flex-wrap:wrap;">
             <span>${escapeHtml(r.origin)} \u2192 ${escapeHtml((r.destinations||[]).join(', '))}</span>
             <button class="btn btn-danger" data-del-route="${idx}" style="padding:6px 10px;font-size:calc(12px * var(--en-scale));">${t("Remove")}</button>
           </div>
@@ -8576,8 +8625,8 @@ function renderTripSettings(){
         ${allIslandsForCoords.length === 0 ? `<div class="empty">${t('Add a boat route above first \u2014 islands to set locations for will show up here.')}</div>` : allIslandsForCoords.map(isl => {
           const c = islandCoords[isl];
           return `
-            <div class="item-result-row" style="margin-bottom:6px;flex-wrap:wrap;align-items:flex-start;gap:8px;">
-              <div style="flex:1;min-width:160px;">
+            <div class="item-result-row" style="display:inline-flex;width:fit-content;max-width:100%;margin-bottom:6px;flex-wrap:wrap;align-items:flex-start;gap:8px;">
+              <div style="min-width:160px;">
                 <div style="font-weight:700;">${escapeHtml(isl)}</div>
                 <div class="tag-meta" data-island-coord-display="${escapeHtml(isl)}">${c ? `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}` : t('No location set')}</div>
               </div>
@@ -8762,13 +8811,13 @@ function renderCustomerDirectory(){
       <h3>${t("Customers")}</h3>
       <p class="sub" style="margin-bottom:12px;">${t("Everyone who has sent cargo on this boat, one entry per mobile number (in case two senders share a name).")}</p>
       <label>${t("Filter by island")}</label>
-      <select id="customer-island-filter">
+      <select id="customer-island-filter" style="width:auto;min-width:160px;max-width:100%;">
         <option value="">All islands</option>
         ${islands.map(isl => `<option value="${escapeHtml(isl)}" ${selectedIsland===isl?'selected':''}>${escapeHtml(isl)}</option>`).join('')}
       </select>
       <div style="margin-top:14px;">
         ${customers.length === 0 ? '<div class="empty">${t("No customers yet.")}</div>' : customers.map(c => `
-          <div class="item-result-row" style="margin-bottom:6px;">
+          <div class="item-result-row" style="display:inline-flex;width:fit-content;max-width:100%;margin-bottom:6px;">
             <span>${escapeHtml(c.name)} \u2014 ${escapeHtml(c.mobile)}</span>
             <span class="rprice">${escapeHtml(Array.from(c.islands).join(', '))}</span>
           </div>
@@ -9778,8 +9827,8 @@ function renderAdminOrgProBlock(orgId){
       ${lapsed ? `<span class="tag-meta" style="color:var(--red);">(expired)</span>` : ''}
     </div>
     <div style="display:flex;gap:6px;width:100%;margin-top:6px;">
-      <button class="btn btn-primary" style="flex:1;padding:7px 10px;font-size:calc(12px * var(--en-scale));" data-admin-approve-pro="${orgId}">${active ? 'Renew Pro (+30 days)' : 'Grant Pro (30 days)'}</button>
-      ${active ? `<button class="btn btn-ghost" style="flex:1;padding:7px 10px;font-size:calc(12px * var(--en-scale));" data-admin-revoke-pro="${orgId}">Revoke Pro</button>` : ''}
+      <button class="btn btn-primary" style="padding:7px 10px;font-size:calc(12px * var(--en-scale));" data-admin-approve-pro="${orgId}">${active ? 'Renew Pro (+30 days)' : 'Grant Pro (30 days)'}</button>
+      ${active ? `<button class="btn btn-ghost" style="padding:7px 10px;font-size:calc(12px * var(--en-scale));" data-admin-revoke-pro="${orgId}">Revoke Pro</button>` : ''}
     </div>
   `;
 }
@@ -9859,16 +9908,16 @@ function openAdminOrgPopup(orgId){
             ${b.contact_number ? `<div class="tag-meta" style="width:100%;">${telLink(b.contact_number)}</div>` : ''}
             ${b.status==='suspended' && b.suspension_note ? `<div class="note" style="border-color:var(--red);color:var(--red);width:100%;margin:6px 0 0;">Reason: ${escapeHtml(b.suspension_note)}</div>` : ''}
             <div style="display:flex;gap:6px;width:100%;margin-top:6px;">
-              <button class="btn btn-ghost" style="flex:1;padding:7px 10px;font-size:calc(12px * var(--en-scale));" data-boat-toggle-suspend="${b.id}" data-suspended="${b.status==='suspended'}">${b.status==='suspended' ? 'Unsuspend' : 'Suspend'}</button>
-              <button class="btn btn-danger" style="flex:1;padding:7px 10px;font-size:calc(12px * var(--en-scale));" data-boat-delete="${b.id}">${t("Delete")}</button>
+              <button class="btn btn-ghost" style="padding:7px 10px;font-size:calc(12px * var(--en-scale));" data-boat-toggle-suspend="${b.id}" data-suspended="${b.status==='suspended'}">${b.status==='suspended' ? 'Unsuspend' : 'Suspend'}</button>
+              <button class="btn btn-danger" style="padding:7px 10px;font-size:calc(12px * var(--en-scale));" data-boat-delete="${b.id}">${t("Delete")}</button>
             </div>
           </div>
         `).join('') || '<div class="empty">No boats yet.</div>'}
       </div>
 
       <div style="display:flex;gap:8px;margin-top:14px;">
-        <button class="btn btn-ghost" style="flex:1;" data-org-toggle-suspend="${o.id}" data-suspended="${o.status==='suspended'}">${o.status==='suspended' ? 'Unsuspend Organization' : 'Suspend Organization'}</button>
-        <button class="btn btn-danger" style="flex:1;" data-org-delete="${o.id}">${t("Delete Organization")}</button>
+        <button class="btn btn-ghost" data-org-toggle-suspend="${o.id}" data-suspended="${o.status==='suspended'}">${o.status==='suspended' ? 'Unsuspend Organization' : 'Suspend Organization'}</button>
+        <button class="btn btn-danger" data-org-delete="${o.id}">${t("Delete Organization")}</button>
       </div>
     </div>
   `;
@@ -10412,8 +10461,8 @@ function renderAdminTabBody(){
           ${r.payment_screenshot ? `<img src="${r.payment_screenshot}" style="max-width:100%;border-radius:8px;border:1px solid var(--line);margin-bottom:10px;">` : `<p class="sub" style="margin-bottom:10px;">${t("No payment screenshot attached.")}</p>`}
           ${r.status === 'pending' ? `
             <div style="display:flex;gap:8px;">
-              <button class="btn btn-primary" data-approve="${r.id}" ${state.adminBusyId===r.id?'disabled':''} style="flex:1;">${t("Approve")}</button>
-              <button class="btn btn-danger" data-reject="${r.id}" ${state.adminBusyId===r.id?'disabled':''} style="flex:1;">${t("Reject")}</button>
+              <button class="btn btn-primary" data-approve="${r.id}" ${state.adminBusyId===r.id?'disabled':''}>${t("Approve")}</button>
+              <button class="btn btn-danger" data-reject="${r.id}" ${state.adminBusyId===r.id?'disabled':''}>${t("Reject")}</button>
             </div>
           ` : r.admin_note ? `<p class="sub">Note: ${escapeHtml(r.admin_note)}</p>` : ''}
         </div>
@@ -12569,6 +12618,34 @@ function closeIslandSearchPopup(){
   document.getElementById('island-search-popup-overlay')?.remove();
   _islandSearchExpandedAtoll = null;
   clearAnchoredDropdown();
+}
+
+// Desktop-only wave-background cursor interaction (see body::before /
+// --cursor-x / --cursor-y in the stylesheet). Skipped on touch devices --
+// there's no persistent hover to react to there, and touchmove during a
+// scroll would just make the glow jitter around uselessly. Throttled to
+// one update per animation frame; position updates snap quickly to the
+// cursor while it's moving (see .cursor-active's fast transition), then
+// after a short idle period the class comes off and the slower transition
+// on body::before itself eases the glow back out -- the ambient
+// wave-drift animation underneath never stops or resets, this is purely
+// a highlight layered on top of it.
+if(window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches){
+  let cursorRaf = null, cursorIdleTimer = null, pendingCursorX = 50, pendingCursorY = 30;
+  const applyCursorPos = () => {
+    cursorRaf = null;
+    document.body.style.setProperty('--cursor-x', pendingCursorX + '%');
+    document.body.style.setProperty('--cursor-y', pendingCursorY + '%');
+  };
+  window.addEventListener('mousemove', (e) => {
+    document.body.classList.add('cursor-active');
+    pendingCursorX = (e.clientX / window.innerWidth * 100).toFixed(2);
+    pendingCursorY = (e.clientY / window.innerHeight * 100).toFixed(2);
+    if(cursorRaf === null) cursorRaf = requestAnimationFrame(applyCursorPos);
+    if(cursorIdleTimer) clearTimeout(cursorIdleTimer);
+    cursorIdleTimer = setTimeout(() => document.body.classList.remove('cursor-active'), 700);
+  }, { passive:true });
+  window.addEventListener('mouseleave', () => document.body.classList.remove('cursor-active'));
 }
 
 applyLangDirection();
