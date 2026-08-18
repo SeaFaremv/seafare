@@ -261,46 +261,29 @@
   .app-toast.show{ opacity:1; transform:translate(-50%,0); }
   .brand h1{font-size:calc(18px * var(--en-scale));color:#F4F9FF;margin:0;font-weight:600;letter-spacing:0.06em;}
   .brand span{display:block;font-family:'JetBrains Mono',monospace;font-size:calc(9px * var(--en-scale));color:#B8D4EC;letter-spacing:0.14em;text-transform:uppercase;margin-top:2px;}
-  /* Small "PRO" badge shown while this boat's Pro subscription is active
-     (see updateHeaderProBadge). Positioned relative to .brand (the logo +
-     name group as a whole, not just the name) so it can sit near the name
-     normally and slide over to sit near the logo once the header
-     collapses and the name fades out but the logo stays visible. Unlike
-     the rest of the header (which is fully scroll-linked via --tp), this
-     one still just toggles a class at the halfway point -- smoothly
-     interpolating a badge between a right-anchored and a left-anchored
-     position isn't something calc() can do in one step, and a short
-     transition on this one small secondary element doesn't cost the
-     "moves with your finger" feel the main header needed. Outline only
-     (transparent fill, amber pill border) rather than a solid/tinted
-     fill, and tucked right up against the name. */
-  /* Small "PRO" badge shown while this boat's Pro subscription is active
-     (see updateHeaderProBadge). Sits as a normal inline flex item right
-     next to "SeaFare" by default -- no manual positioning needed for
-     that, flexbox just places it there and vertically centers it against
-     the text automatically. Once the header collapses partway (see
-     .badge-tucked, toggled by the scroll listener), it switches to
-     position:absolute -- at that point its containing block becomes
-     .brand (the nearest positioned ancestor), letting it detach from the
-     name and tuck in next to the logo instead, which stays visible while
-     the name fades out. A short transition covers that one discrete
-     jump; see the header collapse comment further down for why the rest
-     of the header doesn't use transitions at all. */
+  /* Small crown badge shown while this boat's Pro subscription is active
+     (see updateHeaderProBadge). Sits absolutely positioned in the top
+     corner of .brand-name-wrap (the small wrapper directly around the
+     app name, sized to hug the name's text since it has no other in-
+     flow siblings) so it lands right over the last letter of the name --
+     top-right, tilted right, in English; top-left, tilted left, in
+     Dhivehi, since RTL text ends on the left. Kept as a sibling of <h1>
+     rather than a child of it, since h1.textContent gets reassigned on
+     every language switch/render (see applyStaticTranslations), which
+     would wipe out a child element. */
+  .brand-name-wrap{ position:relative; }
   .pro-badge{
-    display:inline-block;
-    background:transparent;color:var(--amber);
-    border:1.2px solid var(--amber);
-    font-family:'Oswald',sans-serif;font-size:calc(6.5px * var(--en-scale));font-weight:700;
-    letter-spacing:0.04em;padding:1px 4px;border-radius:999px;
-    transition:top 0.3s ease-in-out, right 0.3s ease-in-out, left 0.3s ease-in-out, transform 0.3s ease-in-out;
+    position:absolute;top:-6px;right:-6px;margin:0;
+    width:15px;height:12px;color:var(--amber);
+    transform:rotate(18deg);
+    pointer-events:none;
   }
-  .shell.badge-tucked .pro-badge{
-    position:absolute;top:-3px;left:20px;
-    transform:scale(0.8);
+  .pro-badge svg{ display:block;width:100%;height:100%; }
+  html[lang="dv"] .pro-badge{
+    right:auto;left:-6px;
+    transform:rotate(-18deg);
   }
-  html[lang="dv"] .shell.badge-tucked .pro-badge{
-    left:auto;right:20px;
-  }
+
 
   .role-pill{
     display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.08);
@@ -930,15 +913,17 @@
        --tp ("transition progress", 0 to 1) is set directly on .shell by
        the scroll listener below, in real time as the finger moves --
        every value here reads off that one variable via calc(), so the
-       header shrinks and fades at the exact same rate the page scrolls
-       instead of snapping to a "collapsed" class partway down and
-       animating on its own separate timer. That's what made it feel like
-       it was catching up to the scroll instead of moving with it. Only
-       happens on Home (the listener only ever sets --tp there; it's
-       forced back to 0 everywhere else), and there's deliberately no
-       transition on any of these -- a transition here would fight the
-       per-frame scroll updates and reintroduce the exact lag this
-       replaced. */
+       header shrinks and fades at the same rate the page scrolls instead
+       of snapping to a "collapsed" class partway down and animating on
+       its own separate timer. The header box itself (padding, above) and
+       the panel below it (margin/radius, above) already carry a
+       transition, which is what gives this its smooth feel; the header's
+       own text/buttons and .mode-toggle now carry a matching transition
+       too, so they fade and shrink at the same smooth pace as the boxes
+       around them instead of snapping straight to each new --tp value
+       every scroll frame (which read as "too fast" next to the smoothly-
+       moving boxes). Only happens on Home (the listener only ever sets
+       --tp there; it's forced back to 0 everywhere else). */
     header.app-head{
       padding-top:calc(env(safe-area-inset-top) + 14px - (8px * var(--tp, 0)));
       padding-bottom:calc(12px - (6px * var(--tp, 0)));
@@ -954,13 +939,16 @@
       max-width:calc(400px * (1 - var(--tp, 0)));
       margin-top:calc(2px * (1 - var(--tp, 0)));
       overflow:hidden;
+      transition:opacity 0.45s ease-in-out, max-height 0.45s ease-in-out, max-width 0.45s ease-in-out, margin-top 0.45s ease-in-out;
     }
     .mode-toggle{
       max-height:calc(100px * (1 - var(--tp, 0)));
+      margin-top:calc(10px * (1 - var(--tp, 0)));
       padding-top:calc(8px * (1 - var(--tp, 0)));
       padding-bottom:calc(8px * (1 - var(--tp, 0)));
       opacity:calc(1 - var(--tp, 0));
       overflow:hidden;
+      transition:opacity 0.45s ease-in-out, max-height 0.45s ease-in-out, margin-top 0.45s ease-in-out, padding-top 0.45s ease-in-out, padding-bottom 0.45s ease-in-out;
     }
   }
 
@@ -1324,9 +1312,9 @@ body.admin-mode{
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l1.5-6h15L21 17"/><path d="M5 17v2a1 1 0 001 1h12a1 1 0 001-1v-2"/><path d="M12 3v8"/><path d="M8 6l4-3 4 3"/></svg>
       </div>
       <div>
-        <div style="display:flex;align-items:center;gap:5px;">
+        <div class="brand-name-wrap" style="display:flex;align-items:center;gap:5px;">
           <h1>SeaFare</h1>
-          <span id="pro-badge" class="pro-badge" style="display:none;">PRO</span>
+          <span id="pro-badge" class="pro-badge" style="display:none;"><svg viewBox="0 0 24 18" fill="currentColor"><path d="M2 16 L2 8 L7 12.5 L12 3 L17 12.5 L22 8 L22 16 Z"/></svg></span>
         </div>
         <span id="clock">--</span>
       </div>
@@ -5700,7 +5688,10 @@ function isGpsTrackingThisDevice(tripId){
 function startGpsTracking(tripId){
   if(!navigator.geolocation){ alert(t('This device/browser can\'t get GPS location.')); return; }
   const trip = (state.trips||[]).find(x => x.id === tripId);
-  if(!trip) return;
+  if(!trip){
+    showMessageBox(t('No Trip Found'), t("This trip couldn't be found, so GPS tracking can't start. Add or select a trip first."));
+    return;
+  }
   const coords = state.settings.islandCoords || {};
   const hasOrigin = !!coords[trip.origin];
   const hasAnyDest = (trip.destinations||[]).some(isl => coords[isl]);
