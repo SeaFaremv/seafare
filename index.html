@@ -1251,6 +1251,31 @@ body.admin-mode{
 @media (prefers-reduced-motion: reduce){
   .admin-shell h2::before{ animation:none; }
 }
+
+/* RedotPay "Pay by Crypto" wallet-logo strip -- small same-size icons,
+   name tooltip on hover (desktop) or tap/press-and-hold (touch). See
+   renderRedotPayWalletIcons() / wireRedotPayWalletTooltips(). */
+.redotpay-wallets{
+  display:flex;flex-wrap:wrap;gap:14px;justify-content:center;
+  padding:4px 0 14px;margin-bottom:10px;border-bottom:1px solid var(--line,rgba(0,0,0,0.08));
+}
+.redotpay-wallet{
+  position:relative;width:30px;height:30px;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+}
+.redotpay-wallet img{
+  width:30px;height:30px;object-fit:contain;border-radius:7px;display:block;
+}
+.redotpay-wallet .redotpay-wallet-name{
+  position:absolute;top:calc(100% + 5px);left:50%;transform:translateX(-50%);
+  white-space:nowrap;font-size:11px;line-height:1;padding:3px 6px;border-radius:4px;
+  background:var(--ink,#1a1a1a);color:#fff;opacity:0;pointer-events:none;
+  transition:opacity 0.15s ease;z-index:1;
+}
+.redotpay-wallet:hover .redotpay-wallet-name,
+.redotpay-wallet.show-name .redotpay-wallet-name{
+  opacity:1;
+}
 </style>
 </head>
 <body>
@@ -2004,7 +2029,7 @@ function wireHeaderThemeToggle(){
   const btn = document.getElementById('header-theme-toggle-btn');
   btn.addEventListener('click', () => {
     if(!isProAccount()){
-      openUpgradeToProPopup();
+      openProFeatureRequiredPopup(t('Dark mode and light mode switching is a Pro feature. Upgrade to Pro to change your theme.'));
       return;
     }
     // Flip the icon face-down, swap it once it's edge-on (so the change
@@ -3590,7 +3615,7 @@ function wireActiveTripStripEvents(){
 
   const gpsStartBtn = document.querySelector('[data-home-gps-start]');
   if(gpsStartBtn) gpsStartBtn.addEventListener('click', () => {
-    if(!isProAccount()){ openUpgradeToProPopup(); return; }
+    if(!isProAccount()){ openProFeatureRequiredPopup(t('Live GPS tracking is a Pro feature. Upgrade to Pro to automatically track this trip.')); return; }
     startGpsTracking(gpsStartBtn.dataset.homeGpsStart);
   });
   const gpsStopBtn = document.querySelector('[data-home-gps-stop]');
@@ -5499,6 +5524,38 @@ async function submitProRequest(screenshotDataUrl){
   }
 }
 
+// Small "here's what this feature is" nudge shown when a free-plan
+// account taps something Pro-gated (dark mode, more than 2 staff, GPS
+// tracking, etc.), instead of dropping straight into the payment popup.
+// One shared popup, one shared shape -- the only thing that changes per
+// call site is the sentence naming that specific feature. "Upgrade to
+// Pro" here just closes this and opens the real payment popup above.
+function openProFeatureRequiredPopup(featureText){
+  lockBodyScroll();
+  const overlay = document.createElement('div');
+  overlay.id = 'pro-feature-required-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2200;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="panel" style="max-width:380px;width:100%;margin:0;animation:invoice-pop-in 0.18s ease-out;position:relative;text-align:center;">
+      <button type="button" class="btn btn-ghost" id="pro-feature-required-close-btn" style="position:absolute;top:14px;right:14px;padding:6px 11px;">\u2715</button>
+      <div class="plan-tier-icon pro" style="margin:0 auto 14px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS.crown}</svg>
+      </div>
+      <h3 style="margin-bottom:8px;">${t('Pro Feature')}</h3>
+      <p class="sub" style="margin-bottom:18px;">${escapeHtml(featureText)}</p>
+      <button class="btn btn-primary" id="pro-feature-required-upgrade-btn" style="width:100%;">${t('Upgrade to Pro')}</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); unlockBodyScroll(); };
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
+  document.getElementById('pro-feature-required-close-btn').addEventListener('click', close);
+  document.getElementById('pro-feature-required-upgrade-btn').addEventListener('click', () => {
+    close();
+    openUpgradeToProPopup();
+  });
+}
+
 // Same themed overlay+panel every other popup in this app uses (invoice,
 // cash payment, announcement, etc.) so this doesn't look like a bolted-on
 // paywall -- and the BML/MIB switcher reuses .sub-tabs, the same
@@ -5535,7 +5592,7 @@ function openUpgradeToProPopup(){
         <div class="plan-tier-icon pro" style="margin-bottom:14px;">
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS.crown}</svg>
         </div>
-        <p class="sub" style="margin-bottom:16px;">${t('To Upgrade to pro version pay \u0783500 by transfer or Swipe, or pay by crypto.')}</p>
+        <p class="sub" style="margin-bottom:16px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.02em;">${t('To Upgrade to pro version pay \u0783500 by transfer or Swipe, or pay by crypto.')}</p>
         <div class="sub-tabs" id="upgrade-pro-account-tabs">
           <button data-pro-account-tab="bml"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAQnUlEQVR42q1aa6wkxXU+51T19J334+7CwvWL2KwdwBBBQrDkxA/IAyTstWSWQEAyBoOFEkfIDmAB5uVY/LAiY1uJgpU4OIoBJ8LghMhYgVhISCgGGTZgwATM4gXv7tw7j55+TlfVyY+e6dvT3TO74LSudmu6q0+fOvXVdx5VsLm56XkeMw8HA2c8ZubRaDQajZjZnUwGgwEz+76/tbnJzFEUbfb7WisVx/1+fzqdaq03N/thGDLz1lzUYDBwHGcmajhkZsdxElGe521ubjJzGAT9fl9rPZ1O+4cPx3GslOr3+2EYGmM2+/2ZqK2tieMw83A4TLQaj8eJKNd1+/0+ep6HiIiolUJEQjTMCIBEzMzMlGsYQ0IAs0kaAEZrJEJEYwwiIqAxGhARkZmBgQgNMzMLIsMMc1GGmYgAwBiTa7BhQEBENmZbFEDaICGY2RgDzBwEQX9z0zBPmTcnjmLWzFvuJGZm5oHnhmyYeeh7noqZeRwGkyhi5sk0GgUBM3tKDX2PmUM2W+4kK0oxb06cKTMzb7mT0JhEZiJqFPhOFDKzE4WjwGdmN44HnsvMgdFb7oTnonRGlGbu9/tBEDAzDra2qq2WOXjw5cs/jUozIgIAAAMsNBCYIXnGPLszf4zzW/Ons26MiMDAwAgIiMw8F5XcAWYGwEQAAGctvS0hIwqItOc1PvqRE269LfT9KI6lEAKI1GTiP/pjVDEQJcLKr/mntn9mPgPMAAiYbQAAb7+1bYDljfQrZTJRChXH1o4dBhEBpJSy1W5HzJ7nyXaLlUoGMPs0QLHx1q5f8/V0YEgkxmOq1ydKVYmatZocj0Z2q9VstYzWoBQKkcwrzAGSa7xFBQozycbM0Xo0+s+xBABag9YtKaMochxH8pxzUuQlLyx+Lk8CS/BV/jT/OiLMpxpWCkxfTxXLIiLRkzrdLhJNxmNMZyrzDmYorDiwnPTETtkXs0bZ/smGjj02VaPYP3eVInKsFBG1221yJxNmrjUa2zomjMB5TshqXBSNi2y9sLhTCYgmDO3d713/zBXa91GKEqrJmKlorxklMjSkNMa4rivj6dRitiyZskSqR3Yky0BS/Fi2/0JnBBJSxfFxX7xeK2WMgeVroDiq3HKSiDFzrBR119eRyBmNMcOMuUks2mY1XrPzsI0NEtp1a6eeuuOTF+jhEOfScrOUs9dSCMUxCdHtdinwPGC2q1XOrAHOAKlUxYWFtbhaSo03e6rijZtvRgBWKp3P3Bxm7VWuAAAwVIVIYgjyg4CZ19bWth3NIjxyi4EzV67bAtxzcoTQjtP4gz/csWcPAIAQWOhcZIsiflIWsomMMb7v0/r6OiCOR0OEBVnZGSzaMtcht3Jyo0VEMIaltXHLrQlf56Z02Z2SJZdhISHE+vo6RVGEAJZVKV1JxdlIVcxOS5EKtx8BoJTacboXXtj5wFk8naaq5AZcSkclwwMABgsxCe9psk2jvIJbSkeV61lKREDEcUyt9vE33QAF/7hMeJG+sxBi5poQxpjJZEK9bhcQJ6NREUK5xrKbuYWb5RNmBiLlujuvurJx4m42BuYQwoIrLDayRlmEEDpKCaJer0cmE0qsjkZSR1uqbu7Ds59EHEXWxtuO+8IXYBEPpRAqUl/pJCAAAXCSACUpX7PVKkKoiPJSt5UjxAViEaSD4NjPf94+5pis+Zct2aIC5VEtc+KJR6MRtTsdQJw4TjYWWm3+YnyWnZPtBUBkPH/t5JN3XXUlFLTHMhdWHFWeWJM2oqc1EXU6HRJJXmsMAEKZMXIfWMUPOQgRqun0+BtvlLUaJ8krLDXQMslFSk1+a2YEICIaDAbA3Op0SlloGRaLEWgOQiiEcibN3/+9nXv3zsxPhIyrCS0X/JYYKInnmFtSamMGgwE1Gw0A8D03SVFLU5ciz+TYOkemSZLLCBu33ppUN5Bo9PjjRsWItB1XLpq8NG4vJXRGDLQmomazSfbaGiDG0XQeSuCKdZalzvTfolcGIdR43N3zie6HP8KxQiL3hecPfu1Osiw2ukijK+YhByGeLR6YMiOibdu0tbUFzK1utxSgRWZYtgC2bY8IWmG9fvzNXwIAYAOIb/zVV/SvfgUAYMwyt5U1x+oQA5jbUmqtt7a2qFqtAuI0DFfH5TmgL4tSmRmlVBN3/bLLmqe8n+MYKxX3Z89t3XOv7HVz8WIRQqvTjG1PDBgZg4jVapVqtRoABL5f6olT02YdwrJ0caZfFMljjjn++uvT0siB225jrUCI7Hi54G1KQ9o81c75NzCGiGq1Gg0GAzamyEJLVVzprUlK5fvH/sXnqhsbHMco5fDH/+Xc/4AkAq2zfXG5lqvLMwks26kjs6QERKXUapbMTkURRXPiJ+P79ntOPO7P/hyMASHY6AM33wJgitzAR7LFMkJPFFTMSWGLmu02InqTCS5ZlCsik3wqQ6SjaNcXr5etFiuFQvT/5V+9xx4TrXZKPsVRlOq6bE5ShLlKIVGj0UhiIdNst3k5BWX9wNLgkUi7bu3MM4+99FLWGqVUvv/G7V8WlUpphIKLZZWjRGkKoZaUxhjHcQgXSLk8xsoScxFIqeWM1hs330KWBUoD0cG/uyt87lmq11nrFbW6o3ReS0bC1O52EXFW2FrEzxGZYdshCKEdp33eeb3zzmWl0LKm/f6hv/6qqNVY61LbYsGllIQ9y8IKxLHWRNRqtynZ/2g0m7zc9RbRmfc4xoBtb9x6CwKwMUD4xle/Gh94nWybM57rTRSDV+OKuSFEsklDcRwDM0lR6r9yHqdYgEgrDr2LL26d8dscx2RZ3ksv9e+6SzYarHUaga1W9M1eEpGZlVLU6/WQaDIaI+ARiSzndGY0FcfU7W7ceENaBH/9y7eb0QgtK3m5FAa8PPJdEbFuQ0ipWT6Q7KWt1apZR1aaf5VXYaXUnrfz6qtrJ/wGxzFa1viJJ4b33SdaraR6lfjjo1kDb2qKqkSzwlYYBMBs22ulIWGx/rzQQDRBYL3jHcdfc00S9DPAgVtuwVhtJ+/LIXRE7ZduNTDY6QB6s9roCI/CKS7MDDMKocJw17V/WVlfZ6VQyq1/+8HkRz8SrRYrvZoNuSyTPBoIYaa83uv1KIoiYLYqlRUJQHnNVQjjebXTTtt1+RVsDAihp9M3br2dpEyQv60fwlIIHWkdl0w+AABUiGaFrdn+QL3OR8FrC7MBoKfT4264Qdg2RxEKcfjuu/2nnqRGHTLbR8nO8Yy8jEn+IE0A3gKxAgBzsgZc152xkLNY2Cp1tGloNA/6J+3zzz/mggsAkarVeDI5eMcdoroGhgEREDndxkw+LCUS0doaEqFtMwDOwgCEI5XoCqMhRyki6na7UmsNYlabWOFHFvwxMygFQrTPPdd9+hmeRmjbh79zd/TKK7LdZqUwu686ZzA1HLrPPMPRFO1K9MovEBG0Sdxcun+zGkJZsAnEZKceDx861Fxfh9de+5/TT8d0721FhZUZpAQpwRgGMLGafVpptG0EhsV98uyLRpsEBEnRLrOLjmAMaH1kIAmhRqP23gved9/3fNcNokh2Oh2TFrbKCK5oA2Z49333Vt91AhuN6dTl9sCPnha1JmkNH/nP1668SjSbYExug2OhmDkPY12tBWK73ZZEZGb+tTz+yS7fBP1mNBo9+IPenXfC/99lv+3tvJjvl5e35v8lHWaFLTZJPrA0T0/9GiKC1qLZ3PzWtyb79oExHMfJzvNb/uPplLXmKMpmCCuCucSQTSmNMcPhkFrNJiJ6nosr84EFRhKCg+CNr3yFicCyQIhf669SQSFwbW3JMi5zIIiB1ojYbDZlpVKZIqppfMRdzvlsAGotmk3nof947kMfQtsGY4znac9nNqJaFfU6CAHGaNc1YQiIolajRgMAWCnjOCaOAVE0GlSrzW76vhkO09SnWD8ugAqnzDZipVKRW4NBo9drdbu8WC3LlZkWZCW1DUHuY49pAASovuuE3kV/ItvtzXvucX7ykwSL9dNPP+bTlyPhr752Z/DEE4nxeuef393zifDnL/a//e3o8OFEevMDZ7X3fHzzG98EIWAJ+21rMq9K+GE4GAxkrVYDxCgIjljNXaiQxjHu2PHue74b7Xu2dsbp3XPO0Z6nxqPjrrsuOnAg/N+XKsdv1Hfvjg4dRMva9bnPDR58MNz/aufc86onnhj8/MXeRRe+/Y47Bg88oAaD5gc/WN+9+9A/fUeHobW2luafy0KMZKksFLYQMQyCnCdeEU0gAFqWGQ5JmY3rrrXWey987GP/3Wg8tfG2fe8/1fnhDyvrO+L9+5/96Eef2nXck+s7Xr7iiupJJ+246OLxww8/tWPnT9/7vifrjZcvudR+5zva55wd7tv37Nln/+KKz8hWKwuhZZltokowH4AcDAa1TicpbBVdQW7zOVudJMt6+dJLXgpDnk7bf/xHJz38sOj1Dv7N3756zTXG86la7e395KlPPw3A+6+97qe7dwOAqFY3brppx969wUsvvX777ftOPwMBqGLvvOxT65f86S+v/CzVqlDmgooQ6kjph+FwOJSWZQGiiuPVocTChCbnZVqt33z0UX3gwNopJ9vH7nIefzw6cOCd3/zme/7h7+PBpuztAIDhQw9hpXLyww+H+1+LDvyyfubvxIf740ceqe7efcrjj4f79+vRsHrabwmA/V+6iY1GIj6SP04gFDMjgGVZstlqRcye65bFvEtSEGaQ0gyHo/vv7+35+OjfHzr09a8H+/YxgLVrV3fPnvqZv6v6hzb/8e7g+ecRoPmhD+/87JWyt/7q1VcP/vm7OggQoHHWWeufuszauXPrvu8Nv//96IUXRavJRxFNzApbWteIqrUaDre21jpt/fIrPzvzTFSK38wxKu26TATGCCmp0QBEDkMdBAlaRaVC9Towa8cxSdAGIBoNtKwZyc7VFZUKVatHU7+Yx0J7d997b+R5U61lspfOWbZZfhgs5x9Eu43MkJwnTbSxLGnbsyjamCQtpmZTpAhObzYagmi2Y2TM0Vdf0qOASTIk291uxDwZj9PNnyPuGUMa/TIbANAaM+Gn0Xqh2p45RJW/mQVMzmTFA41pN0QgcpSqEdUaDemMx5Vms95schxnw+nSE4fpeUjktFQPyeZjkrovhoSFZL70DizvVuzPhplBqaaU8XTquq5USlWYhSWh1yWltofLAJhM8EIDyuL99Chs4UzskRrLCg/L+pMgElhvCICYQakYmTkMQ3fstIi0VhNn0uq0EXE0HDZbLUvK4XBYrdWq1epwMKhUKvVGYzwaEVGz1Zo4jjGm3en4nhdFUbfbDcPQ9/1Ot6uUcp1Ju9sB5vFo3Gw1pZTD4bBWq61Vq8PBwLbtWr0+Ho2EEI1mM6lwttptz3XjOO50u0EQhH7Q6XbiOHZdt9PpGGZnPG42mrJem2hdr9Vs20bXdRGRhGCiWQ1nvlvBzMCMxcPf84PaSIS5RnI+InV/maPbiQRgNsyCiAGM0USz4+MkBAJorWm+8T4L5ksPfxuDST5oDCVHqNdsO5xMYt+3pZz6fuR5thAqCILJxBaCp1N/PLaJUClvPLYQBbM3HgtjLERvPEalbCF8xzHTqS1EOJmoILCFiDwvct1EVDiZ2ELoKPLH4woRxLE3GlcQhTGJKAkwE0Xkj8c8ndpCBKko1516ni1E7Puh59lra0lh6/8A/xsgRiLRNtQAAAAASUVORK5CYII=" alt="" style="height:1em;width:1em;object-fit:contain;vertical-align:-0.15em;margin-right:5px;border-radius:2px;">${t('BML Account')}</button>
           <button data-pro-account-tab="mib"><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAALfUlEQVR42u2aeXBcxZ3HP9393hvdso1kW/KB7RhfMuaIMcZkgyAxKRab9SKYcCSVY7NxCAnUbiWwVGpXUm1li2wllElCZV0BksAWUDJgs7B2YLNYjoFgkigGMZZP+dZhHbauOd687t4/ZiRkl8Va1sjO1s63qqtmqt/r1/3t39n9gyyyyCKLLLLIIoss/n9CZHpAa62sr6+Xg//rxzhe5bDf9fX1pra21vxZMllXV6fGg9CzECzS38oInLEOUF1dLWtqaqwQQgO8snnzEhPYZUk/Md8YO9FYI8ckolJopZwuVzm73VxvhxCiCdDDvmsvmgrU1dWpcDisAV7a9Oq9Wgf3+76/PD8/X7iui5QyI7ukjSHpJ4nFooHrem8ppX5ctWb1xkGVE0KYC07A4OKfeeaZ2QVFE9dbwcqQ51FyySTKy8qCoqJCXNcds05YIOn7nOrpES2t7aqru5uE7yMQmxLRvm/cc8897WMhQZyvoRNCmBdeeOlqJ+S8ppRTNr28LFi0cL7My8uT42kC+vsHTGMkQntHp9JBcACdvOWOO+7YV11dLc/HQMrz0XkhhN24ceMs5aktUsqyK5csDpZ+8ionLy9PWmsZxyYKCvLVddcuU4sXLkhKKT9hhXp98+bNpYNzG3cJsNbKDRs2CCvUNi8Uuv7qK68IZs6Y7hhjEFKOuxtIEQFSCvY3H0xGdjW5iXj81c/fWXXb+ajCqBir3rrVEUIY6Ya+6IVC18+cMX1o8fICLB5ACIGUAmMMc+fMdqdMLg0c11394sb/WC2EMKN1kaMioKayUm/dutVJJBLf9TzPXl6xSFhrM2btR0sEwJLLFwvP86zvxx8GiEQidlwIqKurU0II293bu1RKuahsymTruu6o2DbWYuzI8zPm4/vPJMBaS15uriq5ZBLGsHzTli3za2trzWhswTk/WFpaKgB00nw6Ny+P8vIyM7rFG6QQSCEw1px18VKm+83oYptp5eU6Ly9XJWOJ6wEqKyszT8BgTK+1XuC5LkWFhec8wcAYpJDs62hl74kWpJBo8xEJWhukFDTubeFo20mkFGh97vwWFRXieR5a6wXj5gYrOjpseicnKaVQjiOG6+LIi9c4UvLuob1c9+iDLH/0Qd45uBslJYHRBNqglOTX25u4dtX3+VTVvxLZ34pS8pxJ8NJRp9b6knGPAyC14nOx+NoYHKnY3tzEyh89RHd0gFOxKDc/9jC/PRDBkQpHSV55s5HVX1yHby1HjnVxU/iHfLC3JUWCMaMxjGK0Gei4mW9jDUpKPmw9wurHv8dAkMQajdWaaBCwat332N/dwh92HiX8tZ9iXYWO+SAFJ7r6uOUL6zjc0o2SctQ2gYtNgLUWEJyKDbDmZ7X0xKNYP85nF1/DysuvwSbi9Plxbn78n/irB58gqUH3xViz+hquWzoXAk1LSze3f+PfiCeSWGx6zP8jBBhrkUKw9vknOHD8EBjDDYs+yZZv1rDl/loqFy+FQHOwu4WWkmZsNGDNmmVs/Nlatjz9La68YhYoScOOvXzn0ZfHVQoyToA2KdF/eec71L39Brge88ovZdM3q3GUQknJq9+qZeHMOUgNcnIPy++czoafrEUbQ3FhLq/98gHKp05A5oV44snfsO29faMyiheNAEtq56N+gu9u/AVSKULK5YW/fYQJufkktcZYS3LAEt1RDEZiraB/ZgdJkgghSAaaaZOLefbxr4EFYS1//y8vobX5Xz3ORSdAm9Qkf7Xjv2k+1ozRAQ//5V1cNX0OgdEIUoHOj371Xxx+6wSmuRjrKT6MRHjy7TeQQiAkBIHhpuXzWPvlG7Ha0PD7fbz8xk6kFAQZloKMEqCEJKk1P6l/DWktM8tm8tDK29NRoMRRkt7+OE/VvYPIEyz2FnBZyXSkI/nptv/E1wFKyFSyYy21D6xiUvkkRGBY98s3UxOW4mMz1fTp6YUnYHD3t+1vpOlYMwa4/4ZV5Hs5qRwgbcRefbORtkMdWCyPPlDFP9xyO8ZY9h4/SP3exlSMT+r50kkFfDW8AmstO/54gD/tOooUAj2yQUx1VFZeeAJs+tsvNrwN8RiFE0r4wrIbsYAUkkH1fXFLAyKRZOonprLyhvmsXrScoksmIxJxNjS8dZotsRa+UrUCd2IBuifKS6/vTPWPQIA4j4Q8YwQ4UhEYzfb9EbCGT82toLx4EtYaBKCkpG8gzrvvH8Jay+euX4QXUpTmF/MXly3GWsP2AxGSWuNIlSbMsmjuVK5ecikEmq3v7kmpmhJ/XjZgMIU92NnO/s5WkJIb512OPSMF/nBvK+1tJ8Fz+MyKj/KWz8xfAlLR3NlOc2frkCxrnXrv09fMBSHYtb+NE119Q6nwWUTAXhQCBifT1H4Uf6AfvFyumDY7vfspUQaI7GvBDsSRhbksnlc29P6SabMhlEMy2k9T27GhUBqRsi1XLZwBIZdT3X3sO3ziNNLP0ENxcQhIE3+4qwOCJG4oh4VTZyCFxFgzREDz0U5IaiZOLGDOjBKsTZE3b/I0Qrn5EPg0d7YNkWrSQdXCy8ogx4V4kiMtJ9P9mVlNRt3gib5TqbNBa/j6s+v4sPUIrnJwpMRay4mufmTIpa+rlzd37EWIVDr9elMDQSyKVA4d/T1Ya3GVwnMd3vvgEA/843O4roO0lo6uvuH2/uw7cbEIOBUbwCTi+Mbw6z/8liU1a3lk0y84Ge9HCMGp3gFMIomfCPjy3z1NV1eU5u5W7nv2cTQW4yc4FR1ACEFbZx/frn6ea2/5Z7ZvbSRpDCaaoKc/ltFAaPR3g2LktGxK0QRmlc1E5RfB5HICrfn59i18cOQgP773PmZPK2XW7Ml4JUXEOnp47Onf0DvnOOV5heQWTyTR083MklIie9r4dvW/8/7uFmbNK09JlbDo4jxKJhSMfKCfDhIrgdpMExCJRNIHIaJHG4PW2rqui027QIBHbr6Thz5bNTQ5gUi5v3gUJSU/eHgN3//O6lSflMTiPkJZHvvrr6cMqQVXKfoGErzy5P3k5+egtRmm7xZHpb7lKDlkfJNBgDEGqTg5bipQmY6ulOPsSfq+7evr50xrpKTEcxw8lWquUkghKM7NpyCUi5QCz3XwXAdXSYrycyjMycWVKvWO4yCEoKggh8KCXKQQuI7Ccwebc9ZQuLe3Dz+ZRLrOnnEjoCN9JqiUeCsWi4uWtjY5kkewaRv1UbPDXOYZ7bR3PuY5O4LlB1paW1UsGjXKcd5JpQKVJuMEhMNhY60Vxvff1UGwv6W1TQRBYM4Wjoq0in7UxGkniqe10975mOcEDM+GB8U/kUjojs4ugIbbV62KpC5JhRkPL2Dr6+tVOBz2Pc9bl0j4omn3HiNE6prqQsNaixCCxsgu6/u+CIXcH6aKJSpH5dlGGzmJ6upqUVFR4Wjkezk5OVcsX7Y0mDplytD94IXA4LcOHzka/On9RicRj9V//s6qm9IHw+N3OQrYmpoawuGw7wh7bxDovt/t+L3T2tYWDC5++HV2Jnd7+JhSSg4fPRo07HzfCYJku8T7EkBNTc3ovfr5TGiwOuT5DRsqXcfbpJQqnjPr0mDB/HnS87xxFYN4PG52Ne02R44dd4zRbcl4cOtdd1U1nG+VyJhLZJ57bsMSLzf0lFJyaSgUomzKFFNWNtUUFRaglDPmYzxrLUGgbW9fL8ePt6r2jg6R8H2s0dv8WPRv7r777gPDa5UuGAHDSVi/fr1bMqXsPq2DtcayKDcnB9d1USoz1Wxaa/xkklgshpJqp3LlE1W33fYUYMey+DETAKmylMHanPXr17tlM2as8OPJFYEO5llrJhgztnxDCIzjqC6pnD3KkW+vufXW3w2Wxp1vXdB4IKPFi+cieRmb+DgQIUtLS0V9fT0VFRUZcQWR0lJRmY5Gw+GwGSEZziKLLLLIIossssgii1HgfwCvr9vZFCcjYQAAAABJRU5ErkJggg==" alt="" style="height:1em;width:1em;object-fit:contain;vertical-align:-0.15em;margin-right:5px;border-radius:2px;">${t('MIB Account')}</button>
@@ -5774,6 +5831,56 @@ async function checkSwipeProPaymentStatus(isAutoPoll){
 // payment link server-side, shows it with an Open + status line, and
 // checks status when the person comes back to this tab rather than on a
 // timer), just talking to the RedotPay endpoints instead of Swipe's.
+// Small same-size "which wallets can I pay from" strip shown above the
+// RedotPay tab's content (loading / success / error states all get it --
+// see the three body.innerHTML assignments below). Real logo art isn't
+// bundled for these, so each wallet renders as a flat initials badge in
+// its usual brand color rather than a copied logo -- still instantly
+// recognizable, same footprint, and needs no network request. RedotPay's
+// own tab icon (already embedded above) is reused as the first badge.
+const REDOTPAY_LOGO_DATA_URI = "data:image/png;base64,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";
+const REDOTPAY_WALLET_LOGOS = [
+  { name: 'RedotPay', img: REDOTPAY_LOGO_DATA_URI, bg: '#fff' },
+  { name: 'Bitget Wallet', initials: 'B', bg: '#0b1520', color: '#4de3d1' },
+  { name: 'Phantom', initials: 'P', bg: '#ab9ff2', color: '#1a1a1a' },
+  { name: 'Tronlink', initials: 'T', bg: '#e6001a', color: '#fff' },
+  { name: 'MetaMask', initials: 'M', bg: '#f6851b', color: '#1a1a1a' },
+  { name: 'Base', initials: 'B', bg: '#0052ff', color: '#fff' },
+  { name: 'TokenPocket', initials: 'TP', bg: '#2980fe', color: '#fff' },
+  { name: 'ImToken', initials: 'I', bg: '#11c4d1', color: '#fff' },
+  { name: 'Rainbow', initials: 'R', bg: '#001e59', color: '#fff' },
+  { name: 'Binance Wallet', initials: 'B', bg: '#0b0e11', color: '#f0b90b' },
+  { name: 'Trust Wallet', initials: 'T', bg: '#3375bb', color: '#fff' },
+  { name: 'OKX Wallet', initials: 'OKX', bg: '#111', color: '#fff' },
+];
+function renderRedotPayWalletIcons(){
+  return `<div class="redotpay-wallets">${REDOTPAY_WALLET_LOGOS.map(w => `
+    <div class="redotpay-wallet" tabindex="0" aria-label="${escapeHtml(w.name)}">
+      ${w.img
+        ? `<img src="${w.img}" alt="" style="background:${w.bg};">`
+        : `<div style="width:30px;height:30px;border-radius:7px;background:${w.bg};color:${w.color};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;">${escapeHtml(w.initials)}</div>`}
+      <span class="redotpay-wallet-name">${escapeHtml(w.name)}</span>
+    </div>`).join('')}</div>`;
+}
+// Hover shows/hides the name via pure CSS (:hover). Touch needs JS: a tap
+// shows the name for 5s, and holding the icon down keeps it visible for as
+// long as the finger stays -- the 5s countdown only starts once released.
+function wireRedotPayWalletTooltips(container){
+  container.querySelectorAll('.redotpay-wallet').forEach(el => {
+    let hideTimer = null;
+    const show = () => {
+      if(hideTimer){ clearTimeout(hideTimer); hideTimer = null; }
+      el.classList.add('show-name');
+    };
+    const scheduleHide = () => {
+      if(hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => el.classList.remove('show-name'), 5000);
+    };
+    el.addEventListener('touchstart', show, { passive: true });
+    el.addEventListener('touchend', scheduleHide);
+    el.addEventListener('touchcancel', scheduleHide);
+  });
+}
 let _redotpayProPaymentRef = null;
 let _redotpayProReturnHandler = null;
 function stopRedotPayPaymentPolling(){
@@ -5787,7 +5894,8 @@ function stopRedotPayPaymentPolling(){
 async function renderRedotPayAccountBody(){
   const body = document.getElementById('upgrade-pro-account-body');
   if(!body) return;
-  body.innerHTML = `<div class="note">${t('Generating a payment link\u2026')}</div>`;
+  body.innerHTML = `${renderRedotPayWalletIcons()}<div class="note">${t('Generating a payment link\u2026')}</div>`;
+  wireRedotPayWalletTooltips(body);
   try{
     const res = await fetch(`${API_BASE}/api/pro/redotpay-payment-link`, {
       method: 'POST',
@@ -5796,17 +5904,20 @@ async function renderRedotPayAccountBody(){
     });
     const data = await res.json().catch(() => ({}));
     if(!res.ok || !data.ok || !data.paymentUrl){
-      body.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.')}</div>`;
+      body.innerHTML = `${renderRedotPayWalletIcons()}<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.')}</div>`;
+      wireRedotPayWalletTooltips(body);
       return;
     }
     _redotpayProPaymentRef = data.orderSn;
     markProAckPending();
     body.innerHTML = `
+      ${renderRedotPayWalletIcons()}
       <div class="note">${t('Tap below to pay')} ${REDOTPAY_PRO_DISPLAY_AMOUNT} ${REDOTPAY_PRO_DISPLAY_CURRENCY} ${t('by crypto. Pro activates automatically once payment is confirmed \u2014 no need to notify the Super Admin for this option.')}</div>
       <a href="${escapeHtml(data.paymentUrl)}" target="_blank" rel="noopener" class="btn btn-primary" style="width:100%;margin-top:10px;display:block;text-align:center;text-decoration:none;">${t('Open Payment Link')}</a>
       <button type="button" class="btn btn-ghost" id="redotpay-payment-check-btn" style="width:100%;margin-top:8px;">${t('Check Now')}</button>
       <div id="redotpay-payment-status" class="tag-meta" style="margin-top:8px;">${t('Status')}: ${escapeHtml(data.status || 'PENDING')}</div>
     `;
+    wireRedotPayWalletTooltips(body);
     document.getElementById('redotpay-payment-check-btn').addEventListener('click', () => checkRedotPayProPaymentStatus(false));
     // Check automatically the moment the person comes back to this tab --
     // not on a timer running the whole time they're away. Cleared by
@@ -5819,7 +5930,8 @@ async function renderRedotPayAccountBody(){
     window.addEventListener('focus', _redotpayProReturnHandler);
   }catch(e){
     console.error('renderRedotPayAccountBody failed', e);
-    body.innerHTML = `<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.')}</div>`;
+    body.innerHTML = `${renderRedotPayWalletIcons()}<div class="note" style="border-color:var(--red);color:var(--ink-soft);">${t('Could not create a payment link right now. Use the bank transfer option instead, or try again in a moment.')}</div>`;
+    wireRedotPayWalletTooltips(body);
   }
 }
 async function checkRedotPayProPaymentStatus(isAutoPoll){
@@ -7081,7 +7193,7 @@ function renderShipmentsTab(){
       </button>
     </div>
   `;
-  document.getElementById('shipments-cap-upgrade-btn')?.addEventListener('click', openUpgradeToProPopup);
+  document.getElementById('shipments-cap-upgrade-btn')?.addEventListener('click', () => openProFeatureRequiredPopup(t('Logging more than 500 shipments is a Pro feature. Upgrade to Pro to remove this limit.')));
   if(delivered.length){
     document.getElementById('delivered-stat-card').addEventListener('click', () => openInvoiceListPopup(
       'Delivered Shipments', delivered,
@@ -7855,7 +7967,7 @@ function renderSettings(){
     // Switching back to English is always free -- only switching into
     // Dhivehi is the Pro-gated direction.
     if(switchingToDhivehi && !isProAccount()){
-      openUpgradeToProPopup();
+      openProFeatureRequiredPopup(t('Using the app in Dhivehi is a Pro feature. Upgrade to Pro to switch languages.'));
       return;
     }
     setLang(switchingToDhivehi ? 'dv' : 'en');
@@ -8120,7 +8232,7 @@ function renderStaffManagement(){
 
   function closeInviteModal(){ document.getElementById('invite-modal-wrap').innerHTML = ''; }
 
-  document.getElementById('staff-section-upgrade-btn')?.addEventListener('click', openUpgradeToProPopup);
+  document.getElementById('staff-section-upgrade-btn')?.addEventListener('click', () => openProFeatureRequiredPopup(t('Adding more than 2 staff is a Pro feature. Upgrade to Pro to add up to 10 staff per boat.')));
   document.getElementById('open-invite-btn')?.addEventListener('click', () => {
     document.getElementById('invite-modal-wrap').innerHTML = `
       <div class="settings-block" style="border:1.5px solid var(--line);border-radius:10px;padding:16px;margin-top:12px;background:var(--surface);">
@@ -8230,7 +8342,7 @@ function renderStaffManagement(){
 
     function closeManagerInviteModal(){ document.getElementById('manager-invite-modal-wrap').innerHTML = ''; }
 
-    document.getElementById('manager-section-upgrade-btn')?.addEventListener('click', openUpgradeToProPopup);
+    document.getElementById('manager-section-upgrade-btn')?.addEventListener('click', () => openProFeatureRequiredPopup(t('Adding a manager is a Pro feature. Upgrade to Pro to give someone manager access.')));
     document.getElementById('open-manager-invite-btn')?.addEventListener('click', () => {
       document.getElementById('manager-invite-modal-wrap').innerHTML = `
         <div class="settings-block" style="border:1.5px solid var(--line);border-radius:10px;padding:16px;margin-top:12px;background:var(--surface);">
@@ -8508,7 +8620,7 @@ function renderTripSettings(){
       ? destsInput.value.split('\n').map(s=>s.trim()).filter(Boolean)
       : [destsInput.value.trim()].filter(Boolean);
     if(!isProAccount()){
-      if((state.settings.routes||[]).length >= 1){ openUpgradeToProPopup(); return; }
+      if((state.settings.routes||[]).length >= 1){ openProFeatureRequiredPopup(t('Adding more than one route or destination is a Pro feature. Upgrade to Pro to add more.')); return; }
       destinations = destinations.slice(0, 1);
     }
     const location = byId('route-location-input').value.trim();
@@ -8519,7 +8631,7 @@ function renderTripSettings(){
     });
     renderTripSettings();
   });
-  byId('routes-upgrade-btn')?.addEventListener('click', () => openUpgradeToProPopup());
+  byId('routes-upgrade-btn')?.addEventListener('click', () => openProFeatureRequiredPopup(t('Adding more than one route or destination is a Pro feature. Upgrade to Pro to add more.')));
   document.querySelectorAll('[data-del-route]').forEach(b => b.addEventListener('click', async () => {
     const idx = parseInt(b.dataset.delRoute, 10);
     if(!confirm('Remove this route?')) return;
@@ -11446,7 +11558,7 @@ function renderOrgDashboard(){
     const orgBoats = state.orgBoats || [];
     const primaryBoat = orgBoats.find(x => x.is_primary) || orgBoats[0];
     if(primaryBoat) CURRENT_BOAT_ID = primaryBoat.id;
-    openUpgradeToProPopup();
+    openProFeatureRequiredPopup(t('Managing more than one boat is a Pro feature. Upgrade to Pro to access this boat.'));
   }));
   document.getElementById('request-boat-toggle-btn')?.addEventListener('click', () => {
     const opening = !state.boatRequestOpen;
@@ -11467,7 +11579,7 @@ function renderOrgDashboard(){
       const orgBoats = state.orgBoats || [];
       const primaryBoat = orgBoats.find(b => b.is_primary) || orgBoats[0];
       if(primaryBoat) CURRENT_BOAT_ID = primaryBoat.id;
-      openUpgradeToProPopup();
+      openProFeatureRequiredPopup(t('Managing more than one boat is a Pro feature. Upgrade to Pro to add another boat.'));
       // If they back out of the popup (X, or tapping outside it) without
       // ever actually submitting the request below (Submit Request sets
       // state.boatRequestOpen = false itself on success), collapse back to
