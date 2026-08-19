@@ -9138,12 +9138,12 @@ function renderOwnerSettings(){
 
 }
 // Owner-facing "delete this boat" confirmation -- same re-enter-your-
-// password pattern as confirmAdminAction, but checked against this
-// boat's own owner PIN (state.settings.ownerPin) rather than an admin
-// passkey, since the person doing this is the boat owner, not Super
-// Admin. A deliberately heavy, hard-to-misclick action: red panel,
-// explicit warning, and the PIN re-entry is the only thing that unlocks
-// the Confirm button actually doing anything.
+// password pattern as confirmAdminAction, but verifies this boat's own
+// owner PIN (via /api/owner-pin-login, the same endpoint the sign-in
+// gate uses) rather than an admin passkey, since the person doing this
+// is the boat owner, not Super Admin. A deliberately heavy, hard-to-
+// misclick action: red panel, explicit warning, and the PIN re-entry is
+// the only thing that unlocks the Confirm button actually doing anything.
 function openDeleteBoatPopup(){
   const overlay = document.createElement('div');
   overlay.id = 'delete-boat-popup-overlay';
@@ -9169,16 +9169,31 @@ function openDeleteBoatPopup(){
   overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
   const go = async () => {
     const errorEl = document.getElementById('delete-boat-error');
-    if(input.value !== state.settings.ownerPin){
-      errorEl.textContent = t('Incorrect PIN.');
-      return;
-    }
     const btn = document.getElementById('delete-boat-confirm');
-    btn.disabled = true; btn.textContent = t('Deleting\u2026');
+    const pin = input.value;
+    if(!pin){ errorEl.textContent = t('Enter your owner PIN.'); return; }
+    errorEl.textContent = '';
+    btn.disabled = true; btn.textContent = t('Verifying\u2026');
     try{
+      // The real owner PIN only ever lives server-side (see the sign-in
+      // gate's /api/owner-pin-login call, the same endpoint used here) --
+      // state.settings.ownerPin on the client is just a placeholder, not
+      // the actual credential, so this has to be verified the same way
+      // normal owner sign-in verifies it rather than compared locally.
+      const verifyRes = await fetch(`${API_BASE}/api/owner-pin-login/${CURRENT_BOAT_ID}`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ pin })
+      });
+      const verifyData = await verifyRes.json().catch(() => ({}));
+      if(!verifyRes.ok || !verifyData.ok){
+        errorEl.textContent = (verifyData && verifyData.error) || t('Incorrect PIN.');
+        btn.disabled = false; btn.textContent = t('Delete Boat');
+        return;
+      }
+      btn.textContent = t('Deleting\u2026');
       const res = await fetch(`${API_BASE}/api/boats/${CURRENT_BOAT_ID}`, {
         method: 'DELETE', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ passkey: input.value })
+        body: JSON.stringify({ pin })
       });
       const data = await res.json().catch(() => ({}));
       if(!res.ok || !data.ok){
