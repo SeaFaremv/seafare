@@ -9223,10 +9223,34 @@ function openDeleteBoatPopup(){
         return;
       }
       close();
-      // The boat this session was pointed at no longer exists -- send the
-      // owner back to the sign-in gate rather than leaving them sitting
-      // on a now-deleted boat's dashboard.
-      logoutInternal();
+      if(usingOrgPasskey){
+        // Came from the org dashboard's boat list -- drop straight back
+        // to it with this boat already gone from state.orgBoats, instead
+        // of a full logout. The dashboard re-fetches nothing here; the
+        // deleted boat is removed from the in-memory list immediately so
+        // it can't still be tapped while a fresh org-login round trip is
+        // pending.
+        state.orgBoats = (state.orgBoats || []).filter(b => b.id !== CURRENT_BOAT_ID);
+        state.role = null; state.gateStage = 'pick'; state.tab = null; state.staffName = null;
+        state.entryMode = 'org';
+        history.replaceState(null, '', '#org');
+        renderOrgArea();
+        // Best-effort refresh in the background in case anything else
+        // about the org (boat count vs Pro limits, etc) changed as a
+        // result -- doesn't block the list from already looking right.
+        fetch(`${API_BASE}/api/org-login`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ boatName: state.orgData.boatName, passkey: state.orgPasskey })
+        }).then(r => r.json()).then(refreshed => {
+          if(refreshed && refreshed.ok){ state.orgBoats = refreshed.boats || []; if(state.orgAuthed) renderOrgArea(); }
+        }).catch(() => {});
+      } else {
+        // Legacy single-boat sign-in has no boat list to return to -- the
+        // boat this session was pointed at no longer exists, so send the
+        // owner back to the sign-in gate instead of leaving them sitting
+        // on a now-deleted boat's dashboard.
+        logoutInternal();
+      }
     }catch(e){
       console.error('delete boat failed', e);
       errorEl.textContent = t('Something went wrong. Try again.');
@@ -12236,7 +12260,12 @@ const BOAT_TAB_COLORS = [
 // it's never shown at all once the cap is hit) and again right before
 // actually submitting a request, in case the boat count changed in
 // between (another tab, a stale render, etc).
-const MAX_BOATS_PER_ORG = 20;
+// Even a Pro organization can only run this many boats -- matches the
+// server's own boatCapReached() limit (see server.js) exactly, so the
+// client blocks the request form before it ever opens instead of letting
+// it through only to be rejected server-side with a different, plainer
+// error message once submitted.
+const MAX_BOATS_PER_ORG = 15;
 // Warning popup for hitting that cap -- same frosted-glass wave-pattern
 // treatment as the app's other themed panels, just in a translucent red
 // instead of navy, since this is a hard stop rather than a normal action.
