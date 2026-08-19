@@ -259,7 +259,7 @@
     transition:opacity 0.25s ease, transform 0.25s ease;
   }
   .app-toast.show{ opacity:1; transform:translate(-50%,0); }
-  .brand h1{font-size:calc(18px * var(--en-scale));color:#F4F9FF;margin:0;font-weight:600;letter-spacing:0.06em;white-space:nowrap;flex-shrink:0;}
+  .brand h1{font-size:calc(18px * var(--en-scale));color:#F4F9FF;margin:0;font-weight:600;letter-spacing:0.06em;white-space:nowrap !important;flex-shrink:0;}
   .brand span{display:block;font-family:'JetBrains Mono',monospace;font-size:calc(9px * var(--en-scale));color:#B8D4EC;letter-spacing:0.14em;text-transform:uppercase;margin-top:2px;}
   /* Small crown badge shown while this boat's Pro subscription is active
      (see updateHeaderProBadge). Positioned by JS (positionProBadge) to
@@ -2375,11 +2375,18 @@ function applyStaticTranslations(){
   const h1 = document.querySelector('header.app-head h1');
   if(h1){
     const name = t('SeaFare');
+    // Belt-and-suspenders against this ever wrapping onto two lines again
+    // (it did once, from the last-char span below giving the browser a
+    // break opportunity it didn't have with plain text) -- set directly
+    // as an inline style, which no external stylesheet rule can override,
+    // on top of the equivalent CSS rule on .brand h1.
+    h1.style.whiteSpace = 'nowrap';
+    h1.style.flexShrink = '0';
     // Last character split into its own span so the Pro crown badge (see
     // positionProBadge) always has something exact to anchor to,
     // regardless of language or how long the translated name is.
     if(name.length > 1){
-      h1.innerHTML = `${escapeHtml(name.slice(0, -1))}<span id="brand-last-char">${escapeHtml(name.slice(-1))}</span>`;
+      h1.innerHTML = `${escapeHtml(name.slice(0, -1))}<span id="brand-last-char" style="white-space:nowrap;">${escapeHtml(name.slice(-1))}</span>`;
     } else {
       h1.textContent = name;
     }
@@ -4444,6 +4451,15 @@ function renderTagCard(s, isUndelivered){
 
   const draft = state.loadingDraft[s.id];
   let actions = '';
+  // "Mark Delivered" shows for 'in_transit' shipments normally, but also
+  // for 'loaded' ones whose trip has already departed -- that combination
+  // only happens after a delivery gets undone (see the "Mark as
+  // Undelivered" handler, which deliberately reverts to 'loaded' rather
+  // than 'in_transit'), and without this the shipment would be stuck with
+  // no way to be marked delivered again at all once its trip has already
+  // departed and "Mark In Transit" isn't offered a second time.
+  const shipTrip = (state.trips||[]).find(x => x.id === s.tripId);
+  const deliverableNow = s.status === 'in_transit' || (s.status === 'loaded' && !!(shipTrip && shipTrip.departed));
   if(s.status === 'pending'){
     if(draft && draft.items.length){
       const pendingCount = draft.items.reduce((n,i)=>n+i.qty,0);
@@ -4451,7 +4467,7 @@ function renderTagCard(s, isUndelivered){
     } else {
       actions = `<button class="btn btn-amber" data-load="${s.id}">${t("Log Items Loaded")}</button>`;
     }
-  } else if(s.status === 'in_transit'){
+  } else if(deliverableNow){
     actions = shipmentTripHasArrived(s)
       ? `<button class="btn btn-primary" data-deliver="${s.id}">${t("Mark Delivered")}</button>`
       : `<div class="note" style="margin:0;">${t("Waiting for the boat to arrive at a destination island before this can be marked delivered.")}</div>`;
