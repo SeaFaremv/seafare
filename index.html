@@ -9105,6 +9105,12 @@ function renderOwnerSettings(){
       <div class="url-box"><div><div class="tag-label">Owner \u2014 for Add to Home Screen</div><div class="u">${escapeHtml(baseUrl() + 'owner/')}</div></div></div>
       <div class="note">${t("Sign in with your boat name (username) and PIN. Keep this link private to yourself.")}</div>
     </div>
+
+    <div class="settings-block" style="border:1.5px solid var(--red);">
+      <h3 style="color:var(--red);">${t("Danger Zone")}</h3>
+      <p class="sub" style="margin-bottom:12px;">${t("Permanently deletes this boat \u2014 its trips, shipments, invoices, and staff/manager access. This cannot be undone.")}</p>
+      <button class="btn btn-danger" id="delete-boat-btn" style="width:100%;">${t("Delete This Boat")}</button>
+    </div>
   `;
 
   const byId = (id) => document.getElementById(id);
@@ -9118,7 +9124,71 @@ function renderOwnerSettings(){
     state.settingsEdit.bank = false;
     renderOwnerSettings();
   });
+  byId('delete-boat-btn')?.addEventListener('click', () => { openDeleteBoatPopup(); });
 
+}
+// Owner-facing "delete this boat" confirmation -- same re-enter-your-
+// password pattern as confirmAdminAction, but checked against this
+// boat's own owner PIN (state.settings.ownerPin) rather than an admin
+// passkey, since the person doing this is the boat owner, not Super
+// Admin. A deliberately heavy, hard-to-misclick action: red panel,
+// explicit warning, and the PIN re-entry is the only thing that unlocks
+// the Confirm button actually doing anything.
+function openDeleteBoatPopup(){
+  const overlay = document.createElement('div');
+  overlay.id = 'delete-boat-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2400;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="panel" style="max-width:380px;width:100%;margin:0;border:1.5px solid var(--red);">
+      <h3 style="margin-bottom:6px;color:var(--red);">${t("Delete This Boat?")}</h3>
+      <p class="sub" style="margin-bottom:12px;">${t("This permanently deletes this boat and everything on it \u2014 trips, shipments, invoices, and staff/manager access. This cannot be undone.")}</p>
+      <label>${t("Enter your owner PIN to confirm")}</label>
+      <input type="password" inputmode="numeric" maxlength="6" id="delete-boat-pin" placeholder="&bull;&bull;&bull;&bull;">
+      <div class="pin-error" id="delete-boat-error"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button class="btn btn-ghost" id="delete-boat-cancel" style="flex:1;">${t("Cancel")}</button>
+        <button class="btn btn-danger" id="delete-boat-confirm" style="flex:1;">${t("Delete Boat")}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const input = document.getElementById('delete-boat-pin');
+  input.focus();
+  const close = () => overlay.remove();
+  document.getElementById('delete-boat-cancel').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
+  const go = async () => {
+    const errorEl = document.getElementById('delete-boat-error');
+    if(input.value !== state.settings.ownerPin){
+      errorEl.textContent = t('Incorrect PIN.');
+      return;
+    }
+    const btn = document.getElementById('delete-boat-confirm');
+    btn.disabled = true; btn.textContent = t('Deleting\u2026');
+    try{
+      const res = await fetch(`${API_BASE}/api/boats/${CURRENT_BOAT_ID}`, {
+        method: 'DELETE', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ passkey: input.value })
+      });
+      const data = await res.json().catch(() => ({}));
+      if(!res.ok || !data.ok){
+        errorEl.textContent = (data && data.error) || t('Could not delete this boat. Try again.');
+        btn.disabled = false; btn.textContent = t('Delete Boat');
+        return;
+      }
+      close();
+      // The boat this session was pointed at no longer exists -- send the
+      // owner back to the sign-in gate rather than leaving them sitting
+      // on a now-deleted boat's dashboard.
+      logoutInternal();
+    }catch(e){
+      console.error('delete boat failed', e);
+      errorEl.textContent = t('Something went wrong. Try again.');
+      btn.disabled = false; btn.textContent = t('Delete Boat');
+    }
+  };
+  document.getElementById('delete-boat-confirm').addEventListener('click', go);
+  input.addEventListener('keydown', e => { if(e.key === 'Enter') go(); });
 }
 
 function renderTripSettings(){
