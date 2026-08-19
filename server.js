@@ -2634,6 +2634,60 @@ app.post('/api/boats/first-free', async (req, res) => {
   }
 });
 
+// Owner-initiated deletion of one of their own boats (Settings -> Owner
+// Settings -> Permanent Deletion, in the dispatch app). Two auth paths,
+// matching the app's two sign-in systems:
+//   - Multi-boat organizations: verified against the organization's own
+//     passkey (body.organizationId + body.passkey), the same check
+//     /api/org-login and /api/boats/first-free already use.
+//   - Legacy single-boat direct logins (#owner/<boatId> links, no
+//     organization involved from the client's point of view): verified
+//     against that boat's own owner PIN in its settings (body.pin), the
+//     same check /api/owner-pin-login uses.
+// Deliberately lighter-touch than the Super Admin delete route above --
+// this is an owner voluntarily removing one of their own boats, not a
+// moderation action, so their numbers are NOT added to the blocked list
+// and nothing is written to deleted_accounts (that table drives the
+// "previously deleted" warning/blocklist shown on new signups, which
+// only makes sense for an account-level closure, not one boat being
+// removed from an organization that may still have others).
+app.delete('/api/boats/:id', async (req, res) => {
+  try{
+    const { id } = req.params;
+    const { passkey, organizationId, pin } = req.body || {};
+    const boatRows = await sql`SELECT id, organization_id FROM boats WHERE id = ${id}`;
+    const boat = boatRows[0];
+    if(!boat) return res.status(404).json({ ok:false, error:'Unknown boat.' });
+
+    if(organizationId){
+      if(String(boat.organization_id) !== String(organizationId)){
+        return res.status(403).json({ ok:false, error:'This boat does not belong to that account.' });
+      }
+      const orgRows = await sql`SELECT passkey_hash FROM organizations WHERE id = ${organizationId}`;
+      const org = orgRows[0];
+      if(!org || !passkey || !verifyPasskey(passkey, org.passkey_hash)){
+        return res.status(401).json({ ok:false, error:'Incorrect password.' });
+      }
+    } else {
+      const settingsRows = await sql`SELECT value FROM app_data WHERE boat_id = ${id} AND key = 'settings'`;
+      const settings = settingsRows.length ? settingsRows[0].value : {};
+      if(!settings.ownerPin || !pin || !verifySecret(pin, settings.ownerPin)){
+        return res.status(401).json({ ok:false, error:'Incorrect PIN.' });
+      }
+    }
+
+    await sql`DELETE FROM app_data WHERE boat_id = ${id}`;
+    await sql`DELETE FROM boats WHERE id = ${id}`;
+    if(boat.organization_id){
+      await notifyAdmin('boat_deleted', `A boat was deleted by its owner.`, { type:'organization', id: boat.organization_id });
+    }
+    res.json({ ok:true });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({ ok:false, error:'Could not delete this boat. Try again.' });
+  }
+});
+
 // --- Google Sheets trip logging ---------------------------------------------
 // Each ORGANIZATION (not boat) connects one Google account, once, via OAuth.
 // Sheets created for that organization's boats live directly in that
