@@ -2677,6 +2677,13 @@ app.delete('/api/boats/:id', async (req, res) => {
     }
 
     await sql`DELETE FROM app_data WHERE boat_id = ${id}`;
+    // Clears any lingering suspended-reason block record tied to this
+    // boat_id (harmless/no-op in the common case where none exists) so
+    // nothing referencing this boat is left behind anywhere once it's
+    // gone -- matches the "remove every trace of this boat" intent of a
+    // full deletion, same table blockBoatNumbers/liftBoatNumbers already
+    // manage elsewhere.
+    await liftBoatNumbers(id);
     await sql`DELETE FROM boats WHERE id = ${id}`;
     if(boat.organization_id){
       await notifyAdmin('boat_deleted', `A boat was deleted by its owner.`, { type:'organization', id: boat.organization_id });
