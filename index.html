@@ -261,6 +261,16 @@
   .app-toast.show{ opacity:1; transform:translate(-50%,0); }
   .brand h1{font-size:calc(18px * var(--en-scale));color:#F4F9FF;margin:0;font-weight:600;letter-spacing:0.06em;white-space:nowrap !important;flex-shrink:0;}
   .brand span{display:block;font-family:'JetBrains Mono',monospace;font-size:calc(9px * var(--en-scale));color:#B8D4EC;letter-spacing:0.14em;text-transform:uppercase;margin-top:2px;}
+  /* #brand-last-char is also a <span> nested inside .brand (see the app
+     name markup below), so it was inheriting the rule above -- meant only
+     for the #clock line underneath the name -- and getting display:block
+     (forcing it onto its own new line, "SeaFar" / "e", no matter what
+     white-space/flex-shrink said on its ancestors), plus the clock's tiny
+     uppercase monospace styling instead of just looking like the rest of
+     the name. An ID selector always outranks .brand span's specificity,
+     so this reliably wins and makes it behave like an ordinary inline
+     character again. */
+  #brand-last-char{display:inline;text-transform:none;font:inherit;color:inherit;letter-spacing:inherit;margin-top:0;}
   /* Small crown badge shown while this boat's Pro subscription is active
      (see updateHeaderProBadge). Positioned by JS (positionProBadge) to
      sit precisely centered above the app name's very last letter -- "e"
@@ -2386,7 +2396,7 @@ function applyStaticTranslations(){
     // positionProBadge) always has something exact to anchor to,
     // regardless of language or how long the translated name is.
     if(name.length > 1){
-      h1.innerHTML = `${escapeHtml(name.slice(0, -1))}<span id="brand-last-char" style="white-space:nowrap;">${escapeHtml(name.slice(-1))}</span>`;
+      h1.innerHTML = `${escapeHtml(name.slice(0, -1))}<span id="brand-last-char" style="white-space:nowrap;display:inline;text-transform:none;">${escapeHtml(name.slice(-1))}</span>`;
     } else {
       h1.textContent = name;
     }
@@ -9106,8 +9116,8 @@ function renderOwnerSettings(){
       <div class="note">${t("Sign in with your boat name (username) and PIN. Keep this link private to yourself.")}</div>
     </div>
 
-    <div class="settings-block" style="border:1.5px solid var(--red);">
-      <h3 style="color:var(--red);">${t("Danger Zone")}</h3>
+    <div class="settings-block">
+      <h3 style="color:var(--red);">${t("Permanent Deletion")}</h3>
       <p class="sub" style="margin-bottom:12px;">${t("Permanently deletes this boat \u2014 its trips, shipments, invoices, and staff/manager access. This cannot be undone.")}</p>
       <button class="btn btn-danger" id="delete-boat-btn" style="width:100%;">${t("Delete This Boat")}</button>
     </div>
