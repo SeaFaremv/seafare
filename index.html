@@ -259,7 +259,7 @@
     transition:opacity 0.25s ease, transform 0.25s ease;
   }
   .app-toast.show{ opacity:1; transform:translate(-50%,0); }
-  .brand h1{font-size:calc(18px * var(--en-scale));color:#F4F9FF;margin:0;font-weight:600;letter-spacing:0.06em;white-space:nowrap;}
+  .brand h1{font-size:calc(18px * var(--en-scale));color:#F4F9FF;margin:0;font-weight:600;letter-spacing:0.06em;white-space:nowrap;flex-shrink:0;}
   .brand span{display:block;font-family:'JetBrains Mono',monospace;font-size:calc(9px * var(--en-scale));color:#B8D4EC;letter-spacing:0.14em;text-transform:uppercase;margin-top:2px;}
   /* Small crown badge shown while this boat's Pro subscription is active
      (see updateHeaderProBadge). Positioned by JS (positionProBadge) to
@@ -274,7 +274,7 @@
      Kept as a sibling of <h1> rather than a child of it, since h1's
      innerHTML gets reassigned on every language switch/render (see
      applyStaticTranslations), which would wipe out a child element. */
-  .brand-name-wrap{ position:relative; }
+  .brand-name-wrap{ position:relative;flex-shrink:0; }
   .pro-badge{
     position:absolute;margin:0;
     width:15px;height:12px;color:var(--amber);
@@ -585,6 +585,32 @@
   .boat-tab-row:active{background-color:rgba(28,143,224,0.17);border-color:var(--navy-mid);transform:scale(0.985);}
   .boat-tab-row.is-disabled{opacity:0.7;}
   .boat-tab-row .rprice{font-family:'JetBrains Mono',monospace;color:var(--navy-deep);font-weight:700;font-size:calc(11px * var(--en-scale));opacity:0.85;}
+
+  /* Warning popup for hitting the per-org boat cap (see
+     MAX_BOATS_PER_ORG / showMaxBoatsPopup) -- the same frosted-glass wave
+     pattern as .boat-tab-row above, just in translucent red instead of
+     light blue, since this is a hard stop rather than an ordinary tappable
+     row. Deliberately not the app's usual solid-white .panel -- the red
+     tint is what signals "you can't do this right now" at a glance. */
+  .max-boats-popup{
+    position:relative;overflow:hidden;max-width:380px;width:100%;margin:0;
+    text-align:center;padding:26px 22px 22px;
+    background-color:rgba(229,71,59,0.14);
+    background-image:
+      radial-gradient(circle at 12% 0%, rgba(229,71,59,0.10), transparent 45%),
+      radial-gradient(circle at 88% 100%, rgba(229,71,59,0.08), transparent 45%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0,35 Q35,10 70,35 T140,35' stroke='rgba(229,71,59,0.14)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,55 Q35,30 70,55 T140,55' stroke='rgba(229,71,59,0.16)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,15 Q35,-10 70,15 T140,15' stroke='rgba(229,71,59,0.10)' stroke-width='1' fill='none'/%3E%3C/svg%3E");
+    background-repeat:no-repeat,no-repeat,repeat;
+    background-position:0 0,0 0,0 0;
+    background-size:auto,auto,140px 70px;
+    backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    border:1.5px solid rgba(229,71,59,0.45);border-radius:14px;
+    box-shadow:0 14px 32px rgba(0,0,0,0.25);
+    animation:invoice-pop-in 0.18s ease-out;
+  }
+  .max-boats-icon{width:34px;height:34px;color:var(--red);margin-bottom:10px;}
+  .max-boats-popup h3{margin:0 0 8px;color:#B23A2F;}
+  .max-boats-popup .sub{margin:0;color:#8A362C;}
 
   .rate-row{
     display:flex;align-items:center;justify-content:space-between;gap:10px;
@@ -2619,8 +2645,16 @@ function wireTruncatableLinks(ids){
   });
 }
 
+// Slugifies the LAST word of a name -- e.g. "Ahmed Bassam" -> "bassam" --
+// since usernames are now built from the person's last name rather than
+// their first name (too many staff/managers across boats share common
+// Maldivian first names, which caused collisions/confusion; a last name
+// paired with the person's own mobile number is far more likely to be
+// unique on its own, and the mobile number tiebreaker below still covers
+// the rest).
 function slugify(s){
-  return String(s||'').toLowerCase().trim().split(/\s+/)[0].replace(/[^a-z0-9]/g, '') || 'user';
+  const parts = String(s||'').toLowerCase().trim().split(/\s+/).filter(Boolean);
+  return (parts.length ? parts[parts.length - 1] : '').replace(/[^a-z0-9]/g, '') || 'user';
 }
 let _boatNameCache = {};
 async function getCurrentBoatName(){
@@ -2635,9 +2669,16 @@ async function getCurrentBoatName(){
   }catch(e){ console.error('getCurrentBoatName failed', e); }
   return 'boat';
 }
-async function generateStaffUsername(fullName, existingUsernames){
-  const boatName = await getCurrentBoatName();
-  const base = `${slugify(fullName)}.${slugify(boatName)}`;
+// Username = <last name>-<mobile number>, e.g. "bassam-7712345" -- not
+// first name, and not tied to the boat name (a boat can have many staff
+// with otherwise-identical first names, but each has their own mobile
+// number). Falls back to a numbered suffix in the rare case the same
+// last name + mobile combination already exists (e.g. a family member
+// added twice, or a placeholder/missing mobile shared across entries).
+function generateStaffUsername(fullName, mobile, existingUsernames){
+  const lastName = slugify(fullName);
+  const digits = String(mobile||'').replace(/\D/g,'') || 'nomobile';
+  const base = `${lastName}-${digits}`;
   if(!existingUsernames || !existingUsernames.includes(base)) return base;
   let n = 2;
   while(existingUsernames.includes(`${base}${n}`)) n++;
@@ -4309,16 +4350,16 @@ function renderDashboard(){
       return;
     }
     const arrived = activeTripArrivedIsland();
-    const trip = s ? (state.trips||[]).find(x => x.id === s.tripId) : null;
-    const arrivedIsPlannedStop = !!(trip && (trip.destinations||[]).includes(arrived));
     // Only auto-detect a mismatch once the boat has actually been marked
     // arrived somewhere (Trips tab) -- otherwise every delivery would
-    // trip the off-island popup before an arrival is even set. And only
-    // treat it as a mismatch worth the extra popup if the arrived island
-    // isn't even one of this trip's planned stops -- arriving at any
-    // scheduled destination is a normal delivery, not an off-plan one,
-    // even if it's not the exact island this shipment was checked in for.
-    if(s && arrived && s.island !== arrived && !arrivedIsPlannedStop){
+    // trip the off-island popup before an arrival is even set. Any
+    // mismatch between the arrived island and THIS shipment's own
+    // registered destination routes through the off-island popup --
+    // even when the arrived island is one of the trip's other planned
+    // stops, since that's still the wrong island for this particular
+    // shipment and still needs the receiver/reason captured, not a
+    // silent normal delivery.
+    if(s && arrived && s.island !== arrived){
       openDeliverOtherPopup(id);
     } else {
       markDelivered(id);
@@ -8740,7 +8781,7 @@ function renderStaffManagement(){
           // this same screen-open (justSetPins) can be usefully checked here.
           const usedPins = new Set(Object.values(justSetPins));
           do { newPin = String(Math.floor(1000 + Math.random()*9000)); } while(usedPins.has(newPin));
-          newUsername = await generateStaffUsername(target.name, users.map(u => u.username).filter(Boolean));
+          newUsername = await generateStaffUsername(target.name, target.mobile, users.map(u => u.username).filter(Boolean));
           const newId = 'staff-'+Date.now();
           users.push({id:newId, name:target.name, email:target.email, mobile:target.mobile, pin:newPin, username:newUsername, status:'approved'});
           justSetPins[newId] = newPin;
@@ -8843,6 +8884,8 @@ function renderStaffManagement(){
         <input type="text" id="invite-name" placeholder="${t("e.g. Ahmed")}">
         <label>${t("Email address")}</label>
         <input type="text" id="invite-email" placeholder="${t("e.g. ahmed@example.com")}">
+        <label>${t("Mobile number")}</label>
+        <input type="tel" id="invite-mobile" placeholder="${t("e.g. 771 2345")}">
         <div style="display:flex;gap:8px;">
           <button class="btn btn-ghost" id="invite-cancel-btn" style="flex:1;">${t("Cancel")}</button>
           <button class="btn btn-primary" id="invite-create-btn" style="flex:1;">${t("Create Invite")}</button>
@@ -8852,11 +8895,14 @@ function renderStaffManagement(){
     document.body.appendChild(overlay);
     overlay.addEventListener('click', (e) => { if(e.target === overlay) closeInviteModal(); });
     document.getElementById('invite-cancel-btn').addEventListener('click', closeInviteModal);
+    const checkInviteMobile = wireMobileValidation('invite-mobile');
     document.getElementById('invite-create-btn').addEventListener('click', async () => {
       const name = document.getElementById('invite-name').value.trim();
       const email = document.getElementById('invite-email').value.trim();
+      const mobile = document.getElementById('invite-mobile').value.trim();
       if(!name || !email){ alert(t('Enter both a name and an email address.')); return; }
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ alert(t('Enter a valid email address.')); return; }
+      if(!checkInviteMobile()) return;
       const createBtn = document.getElementById('invite-create-btn');
       createBtn.disabled = true;
       let newPin = '', newUsername = '', newId = '';
@@ -8865,9 +8911,9 @@ function renderStaffManagement(){
           const users = fresh.staffUsers || (fresh.staffUsers = []);
           const usedPins = new Set(Object.values(justSetPins));
           do { newPin = String(Math.floor(1000 + Math.random()*9000)); } while(usedPins.has(newPin));
-          newUsername = await generateStaffUsername(name, users.map(u => u.username).filter(Boolean));
+          newUsername = await generateStaffUsername(name, mobile, users.map(u => u.username).filter(Boolean));
           newId = 'staff-'+Date.now();
-          users.push({id:newId, name, email, pin:newPin, username:newUsername, status:'approved'});
+          users.push({id:newId, name, email, mobile, pin:newPin, username:newUsername, status:'approved'});
         });
       }catch(e){
         console.error('invite staff failed', e);
@@ -8987,7 +9033,7 @@ function renderStaffManagement(){
             const usedPins = new Set(Object.values(justSetPins));
             do { newPin = String(Math.floor(1000 + Math.random()*9000)); } while(usedPins.has(newPin));
             const allUsernames = managers.map(u => u.username).concat((fresh.staffUsers||[]).map(u => u.username)).filter(Boolean);
-            newUsername = await generateStaffUsername(name, allUsernames);
+            newUsername = await generateStaffUsername(name, mobile, allUsernames);
             newId = 'manager-'+Date.now();
             managers.push({id:newId, name, mobile, pin:newPin, username:newUsername});
           });
@@ -12052,6 +12098,34 @@ const BOAT_TAB_COLORS = [
   { bg: 'rgba(120,170,235,0.13)', border: 'rgba(120,170,235,0.42)' },
   { bg: 'rgba(0,150,199,0.11)',   border: 'rgba(0,150,199,0.38)' },
 ];
+// Even a Pro organization can only run this many boats -- unlimited
+// additional boats was never really the intent of Pro, just "more than
+// one." Enforced both where the request form would otherwise open (so
+// it's never shown at all once the cap is hit) and again right before
+// actually submitting a request, in case the boat count changed in
+// between (another tab, a stale render, etc).
+const MAX_BOATS_PER_ORG = 20;
+// Warning popup for hitting that cap -- same frosted-glass wave-pattern
+// treatment as the app's other themed panels, just in a translucent red
+// instead of navy, since this is a hard stop rather than a normal action.
+function showMaxBoatsPopup(){
+  lockBodyScroll();
+  const overlay = document.createElement('div');
+  overlay.id = 'max-boats-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2400;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="max-boats-popup">
+      <button type="button" class="btn btn-ghost" id="max-boats-popup-close-btn" style="position:absolute;top:10px;right:10px;padding:6px 11px;">\u2715</button>
+      <svg class="max-boats-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <h3>${t('Maximum Boats Reached')}</h3>
+      <p class="sub">${t('This account has reached the maximum of {count} boats \u2014 remove one before adding another, or contact support if you genuinely need more.').replace('{count}', MAX_BOATS_PER_ORG)}</p>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const close = () => { overlay.remove(); unlockBodyScroll(); };
+  document.getElementById('max-boats-popup-close-btn').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); });
+}
 function renderOrgDashboard(){
   const area = document.getElementById('gate-area');
   const org = state.orgData || {};
@@ -12078,6 +12152,7 @@ function renderOrgDashboard(){
 
         <div class="settings-block">
           <h3>Your Boats (${boats.length})</h3>
+          <div class="boats-scroll-list"${boats.length > 10 ? ' style="max-height:520px;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-right:2px;"' : ''}>
           ${boats.map((b, i) => {
             // Cycles through a small palette of light-blue tints (still
             // the same navy/teal family as the rest of the theme, just
@@ -12104,19 +12179,24 @@ function renderOrgDashboard(){
             `}
           `;
           }).join('')}
+          </div>
           ${boats.length === 0 ? `
             <p class="sub" style="margin-bottom:10px;">${t("You don't have a boat yet — your first one is free, no approval needed.")}</p>
             <label>${t("Boat name")}</label>
             <input type="text" id="first-boat-name">
+            <label>${t("Boat contact number(s) *")}</label>
+            <input type="tel" id="first-boat-contact" placeholder="${t("e.g. 7777777 / 9999999")}">
             <div class="pin-error" id="first-boat-error"></div>
             <button class="btn btn-primary" id="first-boat-submit-btn" style="width:100%;">${t("+ Add Your Free Boat")}</button>
           ` : `
-            <button class="btn btn-amber" id="request-boat-toggle-btn" style="margin-top:10px;">${state.boatRequestOpen ? t('Cancel') : '+ Request Additional Boat'}</button>
+            <button class="btn ${!state.boatRequestOpen && boats.length >= MAX_BOATS_PER_ORG ? 'btn-ghost' : 'btn-amber'}" id="request-boat-toggle-btn" style="margin-top:10px;${!state.boatRequestOpen && boats.length >= MAX_BOATS_PER_ORG ? 'opacity:0.65;' : ''}">${state.boatRequestOpen ? t('Cancel') : (boats.length >= MAX_BOATS_PER_ORG ? t('Maximum Boats Reached') : '+ Request Additional Boat')}</button>
             ${state.boatRequestOpen ? (isOrgPro() ? `
               <div style="margin-top:14px;">
                 <p class="sub">${t("You're on Pro — additional boats are granted instantly, no payment or approval needed.")}</p>
                 <label>${t("New boat name")}</label>
                 <input type="text" id="req-boat-name">
+                <label>${t("Boat contact number(s) *")}</label>
+                <input type="tel" id="req-boat-contact" placeholder="${t("e.g. 7777777 / 9999999")}">
                 <div class="pin-error" id="req-boat-error">${escapeHtml(state.orgError || '')}</div>
                 <button class="btn btn-primary" id="req-boat-submit-btn" style="width:100%;margin-top:8px;">${t("Add Boat")}</button>
               </div>
@@ -12125,6 +12205,8 @@ function renderOrgDashboard(){
                 <p class="sub">${t("Additional boats require approval after payment. Enter a name for the new boat and attach a screenshot of your transfer.")}</p>
                 <label>${t("New boat name")}</label>
                 <input type="text" id="req-boat-name">
+                <label>${t("Boat contact number(s) *")}</label>
+                <input type="tel" id="req-boat-contact" placeholder="${t("e.g. 7777777 / 9999999")}">
                 <label>${t("Payment screenshot")}</label>
                 <input type="file" id="req-boat-screenshot" accept="image/*">
                 <div class="pin-error" id="req-boat-error">${escapeHtml(state.orgError || '')}</div>
@@ -12193,6 +12275,13 @@ function renderOrgDashboard(){
     openProFeatureRequiredPopup(t('Managing more than one boat is a Pro feature. Upgrade to Pro to access this boat.'));
   }));
   document.getElementById('request-boat-toggle-btn')?.addEventListener('click', () => {
+    // Hard cap regardless of Pro status -- check this before anything
+    // else so the request form (name/contact/screenshot fields) never
+    // even opens once the org is already at the limit.
+    if(!state.boatRequestOpen && boats.length >= MAX_BOATS_PER_ORG){
+      showMaxBoatsPopup();
+      return;
+    }
     const opening = !state.boatRequestOpen;
     state.boatRequestOpen = opening; state.orgError = '';
     if(opening){
@@ -12242,13 +12331,24 @@ function renderOrgDashboard(){
     const btn = document.getElementById('first-boat-submit-btn');
     clearFieldErrors(['first-boat-name']);
     const boatName = document.getElementById('first-boat-name').value.trim();
+    const contactNumber = document.getElementById('first-boat-contact').value.trim();
     if(!boatName){ markFieldError('first-boat-name', false); errorEl.textContent = 'Enter a name for your boat.'; return; }
+    if(!contactNumber){ errorEl.textContent = 'Enter a contact number for this boat.'; return; }
+    // This org's first boat, so there's nothing to collide with yet --
+    // but the check stays here (rather than only in the additional-boat
+    // handler below) so this form behaves identically if it's ever
+    // reached with existing boats already on record.
+    if(boats.some(b => b.name.trim().toLowerCase() === boatName.toLowerCase())){
+      markFieldError('first-boat-name', false);
+      errorEl.textContent = t('You already have a boat with this name — use a different name.');
+      return;
+    }
     errorEl.textContent = '';
     btn.disabled = true; btn.textContent = 'Adding\u2026';
     try{
       const res = await fetch(`${API_BASE}/api/boats/first-free`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ organizationId: org.id, passkey: state.orgPasskey, boatName })
+        body: JSON.stringify({ organizationId: org.id, passkey: state.orgPasskey, boatName, contactNumber })
       });
       const data = await res.json().catch(() => ({}));
       if(res.ok && data.ok){
@@ -12275,10 +12375,28 @@ function renderOrgDashboard(){
     const submitLabel = isOrgPro() ? 'Add Boat' : 'Submit Request';
     clearFieldErrors(['req-boat-name']);
     const name = document.getElementById('req-boat-name').value.trim();
+    const contactNumber = document.getElementById('req-boat-contact').value.trim();
     // The screenshot field doesn't exist at all for a Pro org (see the
     // markup above) -- optional chaining so this doesn't throw there.
     const file = document.getElementById('req-boat-screenshot')?.files[0];
     if(!name){ markFieldError('req-boat-name', false); errorEl.textContent = 'Enter a name for the new boat.'; return; }
+    if(!contactNumber){ errorEl.textContent = 'Enter a contact number for this boat.'; return; }
+    // Re-checked here as a safety net in case the boat count changed
+    // since the toggle button's own check above (stale render, another
+    // tab open, etc) -- this is the check that actually blocks the
+    // request from being sent, not just from being opened.
+    if(boats.length >= MAX_BOATS_PER_ORG){
+      showMaxBoatsPopup();
+      return;
+    }
+    // No two boats under the same organization can share a name -- boat
+    // name doubles as the login username, so a duplicate would also mean
+    // a duplicate/ambiguous login, not just a confusing list here.
+    if(boats.some(b => b.name.trim().toLowerCase() === name.toLowerCase())){
+      markFieldError('req-boat-name', false);
+      errorEl.textContent = t('You already have a boat with this name — use a different name.');
+      return;
+    }
     if(!isOrgPro()){
       // Pro orgs skip payment entirely (see the markup above -- no
       // screenshot field is even rendered for them), so the slip check
@@ -12310,7 +12428,7 @@ function renderOrgDashboard(){
       if(file) screenshot = await compressImageToDataUrl(file, 800, 0.55);
       const res = await fetch(`${API_BASE}/api/boat-requests`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ organizationId: org.id, passkey: state.orgPasskey, requestedBoatName: name, paymentScreenshot: screenshot })
+        body: JSON.stringify({ organizationId: org.id, passkey: state.orgPasskey, requestedBoatName: name, contactNumber, paymentScreenshot: screenshot })
       });
       const data = await res.json().catch(() => ({}));
       if(res.ok && data.ok){
