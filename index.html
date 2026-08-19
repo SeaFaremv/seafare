@@ -262,25 +262,27 @@
   .brand h1{font-size:calc(18px * var(--en-scale));color:#F4F9FF;margin:0;font-weight:600;letter-spacing:0.06em;}
   .brand span{display:block;font-family:'JetBrains Mono',monospace;font-size:calc(9px * var(--en-scale));color:#B8D4EC;letter-spacing:0.14em;text-transform:uppercase;margin-top:2px;}
   /* Small crown badge shown while this boat's Pro subscription is active
-     (see updateHeaderProBadge). Sits absolutely positioned in the top
-     corner of .brand-name-wrap (the small wrapper directly around the
-     app name, sized to hug the name's text since it has no other in-
-     flow siblings) so it lands right over the last letter of the name --
-     top-right, tilted right, in English; top-left, tilted left, in
-     Dhivehi, since RTL text ends on the left. Kept as a sibling of <h1>
-     rather than a child of it, since h1.textContent gets reassigned on
-     every language switch/render (see applyStaticTranslations), which
-     would wipe out a child element. */
+     (see updateHeaderProBadge). Positioned by JS (positionProBadge) to
+     sit precisely centered above the app name's very last letter -- "e"
+     in "SeaFare", "ރ" in the Dhivehi name -- since that's the character
+     RTL/LTR text always ends on regardless of which language is active
+     or how long the translated name is, rather than a fixed pixel offset
+     that only happened to line up for one specific word. left/top are
+     set inline by JS; only the tilt direction (right in English, left in
+     Dhivehi, since that's each language's natural reading-end lean)
+     stays as a CSS rule here.
+     Kept as a sibling of <h1> rather than a child of it, since h1's
+     innerHTML gets reassigned on every language switch/render (see
+     applyStaticTranslations), which would wipe out a child element. */
   .brand-name-wrap{ position:relative; }
   .pro-badge{
-    position:absolute;top:-6px;right:-6px;margin:0;
+    position:absolute;margin:0;
     width:15px;height:12px;color:var(--amber);
     transform:rotate(18deg);
     pointer-events:none;
   }
   .pro-badge svg{ display:block;width:100%;height:100%; }
   html[lang="dv"] .pro-badge{
-    right:auto;left:-6px;
     transform:rotate(-18deg);
   }
 
@@ -421,16 +423,40 @@
   .dp-footer button{background:none;border:none;color:var(--teal-light);font-family:'Oswald',sans-serif;text-transform:uppercase;letter-spacing:0.04em;font-size:calc(11.5px * var(--en-scale));cursor:pointer;padding:6px 4px;}
 
   /* Themed replacement for the native OS time-picker wheel -- same
-     limitation and same frosted-glass panel as the calendar above.
-     Three scrollable columns (hour/minute/AM-PM) instead of a native
-     spinning wheel; the selected value gets the same soft/light fill as
-     the calendar's selected day. */
+     limitation and same frosted-glass panel as the calendar above. Built
+     as a real spinning-wheel picker (iOS-style): three scroll-snapping
+     columns (hour/minute/AM-PM) behind one fixed amber highlight band
+     across the middle row. Rows fade out toward the top/bottom edges via
+     a mask, and shrink/dim the further they scroll from center, instead
+     of the flat button list this used to be. */
   .time-picker-menu{padding:14px 16px 12px;}
-  .tp-columns{display:flex;gap:8px;}
-  .tp-col{flex:1;max-height:200px;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:2px;}
-  .tp-item{background:transparent;border:none;color:#F4F9FF;font-size:calc(15px * var(--en-scale));padding:9px 0;border-radius:8px;cursor:pointer;text-align:center;font-family:'JetBrains Mono',monospace;}
-  .tp-item:active{background:rgba(255,255,255,0.14);}
-  .tp-item.tp-selected{background:rgba(255,167,38,0.3);color:#FFF3E0;font-weight:700;}
+  .tp-wheel{position:relative;}
+  .tp-highlight{
+    position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+    height:var(--tp-row-h);pointer-events:none;z-index:1;
+    background:rgba(255,167,38,0.16);
+    border-top:1.5px solid rgba(255,167,38,0.55);
+    border-bottom:1.5px solid rgba(255,167,38,0.55);
+    border-radius:9px;
+  }
+  .tp-columns{display:flex;gap:4px;position:relative;z-index:2;height:var(--tp-wheel-h);}
+  .tp-col{
+    flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    scroll-snap-type:y mandatory;scroll-behavior:auto;
+    -ms-overflow-style:none;scrollbar-width:none;
+    -webkit-mask-image:linear-gradient(to bottom, transparent 0, #000 30%, #000 70%, transparent 100%);
+    mask-image:linear-gradient(to bottom, transparent 0, #000 30%, #000 70%, transparent 100%);
+  }
+  .tp-col::-webkit-scrollbar{display:none;}
+  .tp-pad{height:calc((var(--tp-wheel-h) - var(--tp-row-h)) / 2);flex-shrink:0;}
+  .tp-item{
+    height:var(--tp-row-h);display:flex;align-items:center;justify-content:center;
+    scroll-snap-align:center;cursor:pointer;user-select:none;-webkit-user-select:none;
+    font-family:'JetBrains Mono',monospace;color:rgba(244,249,255,0.4);
+    font-size:calc(15px * var(--en-scale));font-weight:500;
+    transition:color 0.12s ease,font-size 0.12s ease,opacity 0.12s ease;
+  }
+  .tp-item.tp-center{color:#FFF3E0;font-weight:700;font-size:calc(19px * var(--en-scale));}
 
   /* Same frosted-glass wave pattern as the dropdowns/calendar, used for
      centered modal popups (like the staff-PIN share sheet) rather than
@@ -529,6 +555,36 @@
   }
   .item-result-row:active{background:var(--paper-dark);border-color:var(--teal);}
   .item-result-row .rprice{font-family:'JetBrains Mono',monospace;color:var(--ink-soft);font-size:calc(11px * var(--en-scale));}
+
+  /* "Your Boats" list on the org dashboard -- these are tappable rows
+     (open the boat's app / trigger an upgrade flow), but styled with the
+     same flat white box as every other read-only row in the app, so
+     nothing signaled that they were actually buttons. Reuses the same
+     navy frosted-glass wave background as the date/time picker popups
+     (see .custom-select-menu) for that "this is a live control" feel,
+     just at much lower opacity so it stays light and fits the mostly-
+     white dashboard card around it, rather than the picker's near-solid
+     navy panel. */
+  .boat-tab-row{
+    position:relative;overflow:hidden;
+    display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;
+    background-color:rgba(28,143,224,0.09);
+    background-image:
+      radial-gradient(circle at 8% 0%, rgba(28,143,224,0.07), transparent 45%),
+      radial-gradient(circle at 92% 100%, rgba(0,191,165,0.06), transparent 45%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0,35 Q35,10 70,35 T140,35' stroke='rgba(11,72,124,0.10)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,55 Q35,30 70,55 T140,55' stroke='rgba(11,72,124,0.12)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,15 Q35,-10 70,15 T140,15' stroke='rgba(11,72,124,0.07)' stroke-width='1' fill='none'/%3E%3C/svg%3E");
+    background-repeat:no-repeat,no-repeat,repeat;
+    background-position:0 0,0 0,0 0;
+    background-size:auto,auto,140px 70px;
+    border:1.5px solid rgba(28,143,224,0.32);border-radius:10px;
+    padding:13px 14px;margin-bottom:8px;
+    font-size:calc(13px * var(--en-scale));color:var(--navy-deep);font-weight:600;
+    cursor:pointer;font-family:'Inter',sans-serif;
+    transition:background-color 0.15s ease,border-color 0.15s ease,transform 0.08s ease;
+  }
+  .boat-tab-row:active{background-color:rgba(28,143,224,0.17);border-color:var(--navy-mid);transform:scale(0.985);}
+  .boat-tab-row.is-disabled{opacity:0.7;}
+  .boat-tab-row .rprice{font-family:'JetBrains Mono',monospace;color:var(--navy-deep);font-weight:700;font-size:calc(11px * var(--en-scale));opacity:0.85;}
 
   .rate-row{
     display:flex;align-items:center;justify-content:space-between;gap:10px;
@@ -2291,8 +2347,33 @@ function applyStaticTranslations(){
   const brandMark = document.getElementById('brand-logo-btn');
   if(brandMark) brandMark.title = t('Refresh');
   const h1 = document.querySelector('header.app-head h1');
-  if(h1) h1.textContent = t('SeaFare');
+  if(h1){
+    const name = t('SeaFare');
+    // Last character split into its own span so the Pro crown badge (see
+    // positionProBadge) always has something exact to anchor to,
+    // regardless of language or how long the translated name is.
+    if(name.length > 1){
+      h1.innerHTML = `${escapeHtml(name.slice(0, -1))}<span id="brand-last-char">${escapeHtml(name.slice(-1))}</span>`;
+    } else {
+      h1.textContent = name;
+    }
+  }
+  positionProBadge();
 }
+// Centers the small Pro crown badge directly above the app name's last
+// letter (see .pro-badge / #brand-last-char above) using its actual
+// rendered position rather than a guessed pixel offset -- so it stays
+// correctly placed across languages, translated name lengths, and the
+// smaller header font-size on narrow screens.
+function positionProBadge(){
+  const badge = document.getElementById('pro-badge');
+  const lastChar = document.getElementById('brand-last-char');
+  if(!badge || !lastChar) return;
+  const w = badge.offsetWidth || 15, h = badge.offsetHeight || 12;
+  badge.style.left = (lastChar.offsetLeft + lastChar.offsetWidth / 2 - w / 2) + 'px';
+  badge.style.top = (lastChar.offsetTop - h * 0.55) + 'px';
+}
+window.addEventListener('resize', positionProBadge);
 // Sets the icon name shown when someone taps "Add to Home Screen" (and,
 // on Android/Chrome, the icon image too) based on which kind of link
 // they're actually on -- owner, staff, manager, Super Admin, or a
@@ -2356,6 +2437,7 @@ function updateHeaderProBadge(){
   if(!badge) return;
   const show = INTERNAL_ROLES.includes(state.role) && isProAccount();
   badge.style.display = show ? '' : 'none';
+  if(show) positionProBadge();
 }
 
 
@@ -3003,11 +3085,16 @@ function activeTripArrivedIsland(){
 // (not necessarily the exact island this shipment is bound for -- that
 // mismatch case is what the off-island delivery popup handles). Before
 // that, trip.arrivedIsland is empty and nothing should be deliverable yet,
-// no matter which button or popup someone taps.
+// no matter which button or popup someone taps. Once the trip itself is
+// finished, though, there's nothing left to wait on -- any shipment still
+// sitting undelivered on a finished trip should be markable delivered at
+// any time, even if arrivedIsland was never set (or the arrival got
+// recorded, then the trip finished without every shipment being handled).
 function shipmentTripHasArrived(s){
   if(!s || !s.tripId) return true; // no trip on record (legacy data) -- don't block on something we can't check
   const trip = (state.trips||[]).find(x => x.id === s.tripId);
-  return !!(trip && trip.arrivedIsland);
+  if(!trip) return true; // trip data missing -- don't block on something we can't check
+  return trip.finished || !!trip.arrivedIsland;
 }
 function buildAnnouncement(t){
   const dests = (t.destinations||[]).join(', ');
@@ -3819,6 +3906,7 @@ function wireActiveTripStripEvents(){
     }
     if(trip) downloadTripManifest(trip, tripShipments);
     alert(t('Trip marked in transit. {count} shipment(s) updated.').replace('{count}', moved));
+    closeTripDetailsPopup();
     renderDashboard();
   });
 
@@ -3834,6 +3922,7 @@ function wireActiveTripStripEvents(){
     const localTrip = (state.trips || []).find(t => t.id === tripId);
     if(localTrip){ localTrip.arrivedIsland = island; localTrip.arrivedAt = island ? new Date().toISOString() : null; }
     state.dashIslandView = island;
+    if(island) closeTripDetailsPopup();
     renderDashboard();
     withFreshTrips(l => {
       const t = l.find(x => x.id === tripId);
@@ -4786,6 +4875,7 @@ function openFinishTripPopup(tripId){
     const localTrip = (state.trips || []).find(x => x.id === tripId);
     if(localTrip) localTrip.finished = true;
     closeFinishTripPopup();
+    closeTripDetailsPopup();
     renderTrips();
     finishTrip(tripId).then(() => {
       // Jump straight to the Dashboard once the trip is done -- any
@@ -4855,11 +4945,31 @@ function openAnnouncementPopup(tripId){
       copyBtn.textContent = t('Copied!');
       setTimeout(() => { if(document.getElementById('announcement-copy-btn')) copyBtn.textContent = original; }, 1200);
     };
+    // Fallback for webviews/browsers where the async Clipboard API is
+    // blocked or unavailable (common in in-app browsers): select the
+    // textarea contents and use the older execCommand('copy'), which
+    // works off the same user gesture without needing clipboard-write
+    // permission.
+    const legacyCopy = () => {
+      try{
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+        const ok = document.execCommand('copy');
+        if(ok){ finish(); return true; }
+      }catch(e){}
+      return false;
+    };
     if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text).then(finish).catch(() => alert('Could not copy \u2014 select the text and copy manually.'));
+      navigator.clipboard.writeText(text).then(finish).catch(() => {
+        if(!legacyCopy()) alert(t('Could not copy \u2014 select the text and copy manually.'));
+      });
     } else {
-      textarea.select();
-      alert(t('Select the text in the box and copy manually.'));
+      if(!legacyCopy()){
+        textarea.focus();
+        textarea.select();
+        alert(t('Select the text in the box and copy manually.'));
+      }
     }
   });
 
@@ -7521,6 +7631,13 @@ function renderTrips(){
     const trackingLink = fresh.trackingLink || '';
     const viberLink = fresh.viberLink || '';
     if(!origin || destinations.length === 0 || !date){ alert(t('Origin, at least one destination, and a date are required.')); return; }
+    // Both times are optional individually, but if both are set, loading
+    // has to happen before departure -- the boat can't leave before it's
+    // finished loading.
+    if(loadingTime && departureTime && departureTime < loadingTime){
+      alert(t('Departure time cannot be before loading time.'));
+      return;
+    }
     const trip = {id:'trip-'+Date.now(), origin, destinations, date, loadingTime, departureTime, location, boatContacts, trackingLink, viberLink, active:true, createdAt:new Date().toISOString()};
     await withFreshTrips(list => {
       list.forEach(t => t.active = false);
@@ -11924,12 +12041,22 @@ function renderOrgResetConfirm(){
   });
 }
 
+// Light-blue tint/border pairs cycled across the "Your Boats" rows (see
+// renderOrgDashboard) so multiple boats visually read as distinct tabs
+// rather than a uniform stack -- all still within the app's navy/teal
+// palette, just varied shades of it.
+const BOAT_TAB_COLORS = [
+  { bg: 'rgba(28,143,224,0.10)',  border: 'rgba(28,143,224,0.38)' },
+  { bg: 'rgba(0,191,165,0.12)',   border: 'rgba(0,191,165,0.38)' },
+  { bg: 'rgba(91,140,220,0.13)',  border: 'rgba(91,140,220,0.42)' },
+  { bg: 'rgba(120,170,235,0.13)', border: 'rgba(120,170,235,0.42)' },
+  { bg: 'rgba(0,150,199,0.11)',   border: 'rgba(0,150,199,0.38)' },
+];
 function renderOrgDashboard(){
   const area = document.getElementById('gate-area');
   const org = state.orgData || {};
   const boats = state.orgBoats || [];
   const justSignedUp = !!state.orgSignupTotpSecret;
-
   area.innerHTML = `
     <div style="max-width:600px;margin:0 auto;padding:20px 16px 60px;">
       <div class="panel">
@@ -11951,24 +12078,32 @@ function renderOrgDashboard(){
 
         <div class="settings-block">
           <h3>Your Boats (${boats.length})</h3>
-          ${boats.map(b => `
+          ${boats.map((b, i) => {
+            // Cycles through a small palette of light-blue tints (still
+            // the same navy/teal family as the rest of the theme, just
+            // varied) so multiple boats read as distinct tappable tabs
+            // rather than a uniform stack of identical rows.
+            const c = BOAT_TAB_COLORS[i % BOAT_TAB_COLORS.length];
+            const tint = `background-color:${c.bg};border-color:${c.border};`;
+            return `
             ${b.status==='suspended' ? `
-              <button type="button" class="item-result-row" data-view-suspend-reason="${b.id}" style="margin-bottom:6px;width:100%;text-align:left;opacity:0.75;">
+              <button type="button" class="boat-tab-row is-disabled" data-view-suspend-reason="${b.id}" style="margin-bottom:6px;${tint}">
                 <span>${escapeHtml(b.name)}${b.is_primary?' (primary, free)':''}</span>
                 <span class="rprice" style="color:var(--red);">Inactive</span>
               </button>
             ` : (!b.is_primary && !isOrgPro()) ? `
-              <button type="button" class="item-result-row" data-open-pro-required="${b.id}" style="margin-bottom:6px;width:100%;text-align:left;opacity:0.75;">
+              <button type="button" class="boat-tab-row is-disabled" data-open-pro-required="${b.id}" style="margin-bottom:6px;${tint}">
                 <span>${escapeHtml(b.name)}</span>
                 <span class="rprice" style="color:var(--red);">${t('Needs Pro')} \u2192 ${t('Upgrade')}</span>
               </button>
             ` : `
-              <button type="button" class="item-result-row" data-open-dispatch="${b.id}" style="margin-bottom:6px;width:100%;text-align:left;">
+              <button type="button" class="boat-tab-row" data-open-dispatch="${b.id}" style="margin-bottom:6px;${tint}">
                 <span>${escapeHtml(b.name)}${b.is_primary?' (primary, free)':''}</span>
                 <span class="rprice">${escapeHtml(b.status)} \u2192 Open App</span>
               </button>
             `}
-          `).join('')}
+          `;
+          }).join('')}
           ${boats.length === 0 ? `
             <p class="sub" style="margin-bottom:10px;">${t("You don't have a boat yet — your first one is free, no approval needed.")}</p>
             <label>${t("Boat name")}</label>
@@ -12889,21 +13024,60 @@ function openTimePicker(input){
     menu.style.maxHeight = Math.max(220, vh - (r.bottom + 6) - 10) + 'px';
   };
 
+  // Row/wheel sizing shared between the CSS (via inline custom
+  // properties) and the JS scroll math below, so the two never drift
+  // apart if either changes.
+  const TP_ROW_H = 44;
+  const TP_WHEEL_ROWS = 5;
+  const TP_WHEEL_H = TP_ROW_H * TP_WHEEL_ROWS;
+
+  const buildCol = (colId, items, fmt) => `
+    <div class="tp-col" data-tp-col="${colId}">
+      <div class="tp-pad"></div>
+      ${items.map(v => `<div class="tp-item" data-tp-val="${v}">${fmt(v)}</div>`).join('')}
+      <div class="tp-pad"></div>
+    </div>
+  `;
+
+  // Wires one wheel column: keeps the row nearest the fixed center
+  // highlight visually "selected" (larger/brighter, dimming with
+  // distance) as it scrolls, snaps via native CSS scroll-snap, and
+  // reports the settled value back once scrolling stops. Tapping a row
+  // scrolls it to center rather than selecting it immediately, matching
+  // how a real spinning wheel behaves.
+  const wireWheelCol = (colEl, items, onSettle) => {
+    let raf = null;
+    let settleTimer = null;
+    const applyStyles = () => {
+      const idx = Math.max(0, Math.min(items.length - 1, Math.round(colEl.scrollTop / TP_ROW_H)));
+      colEl.querySelectorAll('.tp-item').forEach((el, i) => {
+        const dist = Math.abs(i - idx);
+        el.classList.toggle('tp-center', dist === 0);
+        el.style.opacity = dist === 0 ? '1' : dist === 1 ? '0.55' : dist === 2 ? '0.3' : '0.12';
+      });
+      return idx;
+    };
+    colEl.addEventListener('scroll', () => {
+      if(!raf) raf = requestAnimationFrame(() => { raf = null; applyStyles(); });
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => onSettle(items[applyStyles()]), 90);
+    }, { passive: true });
+    colEl.querySelectorAll('.tp-item').forEach((el, i) => {
+      el.addEventListener('click', () => colEl.scrollTo({ top: i * TP_ROW_H, behavior: 'smooth' }));
+    });
+    return applyStyles;
+  };
+
   const redraw = () => {
     const hours = Array.from({length: 12}, (_,i) => i+1);
     const minutes = Array.from({length: 60}, (_,i) => i);
-    const col = (colId, items, selected, fmt) => `
-      <div class="tp-col" data-tp-col="${colId}">
-        ${items.map(v => `<button type="button" class="tp-item${v===selected ? ' tp-selected' : ''}" data-tp-val="${v}">${fmt(v)}</button>`).join('')}
-      </div>
-    `;
     menu.innerHTML = `
-      <div class="tp-columns">
-        ${col('hour', hours, _timePickerHour, v => v)}
-        ${col('minute', minutes, _timePickerMinute, v => String(v).padStart(2,'0'))}
-        <div class="tp-col" data-tp-col="ampm">
-          <button type="button" class="tp-item${_timePickerAmPm==='AM' ? ' tp-selected' : ''}" data-tp-val="AM">AM</button>
-          <button type="button" class="tp-item${_timePickerAmPm==='PM' ? ' tp-selected' : ''}" data-tp-val="PM">PM</button>
+      <div class="tp-wheel" style="--tp-row-h:${TP_ROW_H}px;--tp-wheel-h:${TP_WHEEL_H}px;">
+        <div class="tp-highlight"></div>
+        <div class="tp-columns">
+          ${buildCol('hour', hours, v => v)}
+          ${buildCol('minute', minutes, v => String(v).padStart(2,'0'))}
+          ${buildCol('ampm', ['AM','PM'], v => v)}
         </div>
       </div>
       <div class="dp-footer">
@@ -12911,9 +13085,13 @@ function openTimePicker(input){
         <button type="button" id="tp-done">Done</button>
       </div>
     `;
-    menu.querySelectorAll('[data-tp-col="hour"] .tp-item').forEach(b => b.addEventListener('mousedown', (e) => { e.preventDefault(); _timePickerHour = Number(b.dataset.tpVal); redraw(); }));
-    menu.querySelectorAll('[data-tp-col="minute"] .tp-item').forEach(b => b.addEventListener('mousedown', (e) => { e.preventDefault(); _timePickerMinute = Number(b.dataset.tpVal); redraw(); }));
-    menu.querySelectorAll('[data-tp-col="ampm"] .tp-item').forEach(b => b.addEventListener('mousedown', (e) => { e.preventDefault(); _timePickerAmPm = b.dataset.tpVal; redraw(); }));
+    const hourCol = menu.querySelector('[data-tp-col="hour"]');
+    const minuteCol = menu.querySelector('[data-tp-col="minute"]');
+    const ampmCol = menu.querySelector('[data-tp-col="ampm"]');
+    const applyHour = wireWheelCol(hourCol, hours, v => { _timePickerHour = v; });
+    const applyMinute = wireWheelCol(minuteCol, minutes, v => { _timePickerMinute = v; });
+    const applyAmpm = wireWheelCol(ampmCol, ['AM','PM'], v => { _timePickerAmPm = v; });
+
     document.getElementById('tp-clear').addEventListener('mousedown', (e) => {
       e.preventDefault();
       input.value = '';
@@ -12930,15 +13108,17 @@ function openTimePicker(input){
       input.dispatchEvent(new Event('change', { bubbles: true }));
       closeTimePicker();
     });
-    // Jump each column to its current selection rather than always
-    // starting scrolled to the top -- most of the time the field already
-    // has a value, and hunting for it near the bottom of a 60-row minute
-    // list every time it opens would be tedious.
+
+    // Jump each column straight to its current selection (instant, no
+    // animation) rather than always starting scrolled to the top --
+    // most of the time the field already has a value, and hunting for
+    // it near the bottom of a 60-row minute list every time it opens
+    // would be tedious.
     requestAnimationFrame(() => {
-      menu.querySelectorAll('.tp-col').forEach(colEl => {
-        const sel = colEl.querySelector('.tp-selected');
-        if(sel) sel.scrollIntoView({ block: 'center' });
-      });
+      hourCol.scrollTop = hours.indexOf(_timePickerHour) * TP_ROW_H;
+      minuteCol.scrollTop = _timePickerMinute * TP_ROW_H;
+      ampmCol.scrollTop = (_timePickerAmPm === 'PM' ? 1 : 0) * TP_ROW_H;
+      applyHour(); applyMinute(); applyAmpm();
     });
   };
   redraw();
@@ -13075,6 +13255,26 @@ function closeIslandSearchPopup(){
   _islandSearchExpandedAtoll = null;
   clearAnchoredDropdown();
 }
+
+// Every themed dropdown/popup above (select menus, island search, the
+// date picker, the time picker) is `position:fixed` and anchored to its
+// field's on-screen coordinates only at the moment it opens. That's fine
+// for keyboard/viewport changes (already handled via each one's resize
+// listener), but scrolling the page itself -- e.g. the Home screen's
+// trip-summary panel, which is taller than the screen -- moves the field
+// out from under a popup that stays put, since nothing re-runs the
+// positioning on scroll. Re-running all of them together on every scroll
+// of the app's actual scroll container(s) keeps whichever popup is open
+// pinned directly under its field the whole time, same as it looks the
+// moment it opens.
+function repositionOpenPickers(){
+  repositionAnchoredDropdown();
+  if(_datePickerResizeHandler) _datePickerResizeHandler();
+  if(_timePickerResizeHandler) _timePickerResizeHandler();
+}
+document.getElementById('panel')?.addEventListener('scroll', repositionOpenPickers, { passive: true });
+document.getElementById('gate-area')?.addEventListener('scroll', repositionOpenPickers, { passive: true });
+window.addEventListener('scroll', repositionOpenPickers, { passive: true });
 
 applyLangDirection();
 applyStaticTranslations();
