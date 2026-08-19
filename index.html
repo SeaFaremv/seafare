@@ -6776,7 +6776,8 @@ function renderUpgradeToProRequestArea(alreadyRequested, which){
     const check = await checkTransferSlip(file, {
       expectedBank: which,
       expectedAccountNumber: expectedAccount,
-      expectedAmount: SWIPE_PRO_DISPLAY_AMOUNT,
+      // TEMP TEST VALUE -- change back to SWIPE_PRO_DISPLAY_AMOUNT (500) when done testing.
+      expectedAmount: 1,
       referenceTime: _proTransferSelectedAt || Date.now(),
       windowMinutes: 15
     });
@@ -11452,22 +11453,22 @@ function renderSignupForm(){
   area.innerHTML = `
     <div style="max-width:520px;margin:0 auto;padding:20px 16px 60px;">
       <div class="panel">
-        <h2>${t("Register a New User or Organization")}</h2>
+        <h2>${t("Register New User")}</h2>
         <p class="sub">${t("Every owner starts with one free boat. Fill in the basics below — everything else is optional and can be added later from Settings.")}</p>
 
-        <label>${t("Boat name (this is also your login username) *")}</label>
-        <input type="text" id="su-boat-name" placeholder="${t("e.g. GreenLine Cargo")}" autocomplete="off">
         <label>${t("Owner name *")}</label>
         <input type="text" id="su-owner-name" placeholder="e.g. Ahmed Bassam" autocomplete="off">
         <label>${t("Owner's personal mobile number *")}</label>
         <input type="tel" id="su-mobile" autocomplete="off">
+        <label>${t("Boat name *")}</label>
+        <input type="text" id="su-boat-name" placeholder="${t("e.g. GreenLine Cargo")}" autocomplete="off">
 
         <button type="button" class="btn btn-ghost" id="su-extras-btn" style="width:100%;margin:6px 0;">${t("Additional Setup Information (optional)")}</button>
         <div id="su-extras-summary" class="tag-meta" style="margin:0 0 14px;"></div>
 
         <label style="margin-top:6px;">Set your PIN *</label>
         <input type="password" id="su-passkey" placeholder="${t("At least 6 characters")}" autocomplete="new-password">
-        <p class="sub" style="margin-top:-10px;">${t("You'll log in later with your boat name as your username and this PIN.")}</p>
+        <p class="sub" style="margin-top:-10px;">${t("You'll log in later with your mobile number as your username and this PIN.")}</p>
 
         <div class="pin-error" id="su-error">${escapeHtml(state.orgError || '')}</div>
         <button class="btn btn-primary" id="su-submit-btn" style="width:100%;margin:10px 0;">${t("Sign Up")}</button>
@@ -12062,7 +12063,7 @@ function renderOrgLogin(){
         <div class="pin-error" id="ol-error">${escapeHtml(state.orgError || '')}</div>
         <div id="ol-wait-note" style="display:none;font-size:calc(12px * var(--en-scale));color:var(--ink-soft);text-align:left;margin:-2px 0 8px;">This can take up to a minute if the server has been idle.</div>
         <button class="btn btn-primary" id="ol-submit-btn" style="width:100%;margin:10px 0;">${t("Log In")}</button>
-        <button class="btn btn-ghost" id="ol-signup-instead-btn" style="width:100%;margin-bottom:8px;">${t("New here? Register your boat")}</button>
+        <button class="btn btn-ghost" id="ol-signup-instead-btn" style="width:100%;margin-bottom:8px;">${t("New here? Register")}</button>
         <button class="btn btn-ghost" id="ol-back-btn" style="width:100%;">${t("Back")}</button>
       </div>
     </div>
