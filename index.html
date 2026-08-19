@@ -3213,7 +3213,7 @@ let state = {
   signupEmailOtpVerifiedEmail: null,
   signupEmailOtpUnavailable: false,
   signupEmailOtpCooldownUntil: 0,
-  orgForgotBoatName: '',
+  orgForgotMobile: '',
   orgResetToken: null,
   boatRequestOpen: false,
   boatRequestBusy: false,
@@ -6631,7 +6631,7 @@ async function handleProPaymentConfirmed(){
     try{
       const refreshed = await fetch(`${API_BASE}/api/org-login`, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ boatName: state.orgData.boatName, passkey: state.orgPasskey })
+        body: JSON.stringify({ mobile: state.orgData.mobile, passkey: state.orgPasskey })
       }).then(r => r.json()).catch(() => null);
       if(refreshed && refreshed.ok){
         state.orgData = refreshed.organization;
@@ -9240,7 +9240,7 @@ function openDeleteBoatPopup(){
         // result -- doesn't block the list from already looking right.
         fetch(`${API_BASE}/api/org-login`, {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ boatName: state.orgData.boatName, passkey: state.orgPasskey })
+          body: JSON.stringify({ mobile: state.orgData.mobile, passkey: state.orgPasskey })
         }).then(r => r.json()).then(refreshed => {
           if(refreshed && refreshed.ok){ state.orgBoats = refreshed.boats || []; if(state.orgAuthed) renderOrgArea(); }
         }).catch(() => {});
@@ -10618,8 +10618,8 @@ function openAdminOrgPopup(orgId){
     <div class="panel admin-popup-panel" id="admin-org-popup-panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:460px;margin:0;animation:invoice-pop-in 0.18s ease-out;">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;">
         <div>
-          <h3 style="margin-bottom:4px;">${escapeHtml(o.boat_name)}</h3>
-          <p class="sub" style="margin-bottom:2px;">${escapeHtml(o.owner_name)}</p>
+          <h3 style="margin-bottom:4px;">${escapeHtml(o.owner_name)}</h3>
+          <p class="sub" style="margin-bottom:2px;">${o.mobile ? telLink(o.mobile) : ''}</p>
         </div>
         <button type="button" class="btn btn-ghost" id="admin-org-popup-close-btn" style="padding:8px 14px;">\u2715</button>
       </div>
@@ -11082,8 +11082,8 @@ function renderAdminTabBody(){
         <button type="button" class="settings-block" data-open-org="${o.id}" style="display:block;width:100%;text-align:left;cursor:pointer;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
             <div>
-              <h3 style="margin-bottom:4px;">${escapeHtml(o.boat_name)} \u2192</h3>
-              <p class="sub" style="margin-bottom:8px;">${escapeHtml(o.owner_name)}</p>
+              <h3 style="margin-bottom:4px;">${escapeHtml(o.owner_name)} \u2192</h3>
+              <p class="sub" style="margin-bottom:8px;">${escapeHtml(o.mobile || '')}</p>
             </div>
             <span class="status-pill ${o.status==='suspended'?'status-in_transit':'status-delivered'}">${escapeHtml(o.status)}</span>
           </div>
@@ -12038,7 +12038,7 @@ async function submitBlockedDuePaymentResolve(choice){
       state.orgScreen = 'login';
       state.orgError = '';
       renderOrgArea();
-      alert(t("Your account is reactivated. Log in with your boat name and PIN."));
+      alert(t("Your account is reactivated. Log in with your mobile number and PIN."));
     } else {
       alert(t("You're clear to sign up with these numbers now. Please submit the form again."));
     }
@@ -12054,8 +12054,8 @@ function renderOrgLogin(){
     <div class="gate-wrap">
       <div class="pin-box">
         <div class="rname">Owner Login</div>
-        <label style="text-align:left;display:block;margin-bottom:4px;">Username (your first boat's name)</label>
-        <input type="text" id="ol-boat-name" style="text-align:left;letter-spacing:normal;font-family:inherit;font-size:calc(16px * var(--en-scale));">
+        <label style="text-align:left;display:block;margin-bottom:4px;">Username (your mobile number)</label>
+        <input type="tel" id="ol-mobile" style="text-align:left;letter-spacing:normal;font-family:inherit;font-size:calc(16px * var(--en-scale));">
         <label style="text-align:left;display:block;margin:10px 0 4px;">${t("Password")}</label>
         <input type="password" id="ol-passkey" style="text-align:left;letter-spacing:normal;font-family:inherit;font-size:calc(16px * var(--en-scale));">
         <div style="text-align:left;margin:-4px 0 4px;"><a href="javascript:void(0)" id="ol-forgot-link" style="text-decoration:underline;color:var(--navy-deep);font-size:calc(13px * var(--en-scale));">Forgot password?</a></div>
@@ -12067,23 +12067,23 @@ function renderOrgLogin(){
       </div>
     </div>
   `;
-  document.getElementById('ol-boat-name').focus();
-  autoBlurOnAutofill(document.getElementById('ol-boat-name'));
+  document.getElementById('ol-mobile').focus();
+  autoBlurOnAutofill(document.getElementById('ol-mobile'));
   autoBlurOnAutofill(document.getElementById('ol-passkey'));
   document.getElementById('ol-forgot-link').addEventListener('click', () => {
-    state.orgForgotBoatName = document.getElementById('ol-boat-name').value.trim();
+    state.orgForgotMobile = document.getElementById('ol-mobile').value.trim();
     renderOrgForgotPassword();
   });
   const submit = async () => {
     const errorEl = document.getElementById('ol-error');
     const waitNote = document.getElementById('ol-wait-note');
     const btn = document.getElementById('ol-submit-btn');
-    clearFieldErrors(['ol-boat-name','ol-passkey']);
-    const boatName = document.getElementById('ol-boat-name').value.trim();
+    clearFieldErrors(['ol-mobile','ol-passkey']);
+    const mobile = document.getElementById('ol-mobile').value.trim();
     const passkey = document.getElementById('ol-passkey').value;
-    if(!boatName) markFieldError('ol-boat-name', false);
+    if(!mobile) markFieldError('ol-mobile', false);
     if(!passkey) markFieldError('ol-passkey', false);
-    if(!boatName || !passkey){ errorEl.textContent = 'Enter your username and password.'; return; }
+    if(!mobile || !passkey){ errorEl.textContent = 'Enter your username and password.'; return; }
     errorEl.textContent = '';
     btn.disabled = true; btn.textContent = 'Logging in\u2026';
     // The backend sleeps when idle and can take up to ~50s to wake back
@@ -12099,7 +12099,7 @@ function renderOrgLogin(){
     const timeoutTimer = setTimeout(() => controller.abort(), 55000);
     try{
       const res = await fetch(`${API_BASE}/api/org-login`, {
-        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ boatName, passkey }),
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ mobile, passkey }),
         signal: controller.signal
       });
       const data = await res.json().catch(() => ({}));
@@ -12121,7 +12121,7 @@ function renderOrgLogin(){
         } else {
           errorEl.textContent = (data && data.error) || 'Login failed.';
         }
-        markFieldError('ol-boat-name', false);
+        markFieldError('ol-mobile', false);
         markFieldError('ol-passkey', true);
       }
     }catch(e){
@@ -12146,9 +12146,9 @@ function renderOrgForgotPassword(){
     <div class="gate-wrap">
       <div class="pin-box">
         <div class="rname">Reset Password</div>
-        <p class="note" style="margin-top:0;text-align:left;">Enter your boat name and the 6-digit code currently shown in your authenticator app.</p>
-        <label style="text-align:left;display:block;margin-bottom:4px;">Username (your first boat's name)</label>
-        <input type="text" id="ofp-boat-name" style="text-align:left;letter-spacing:normal;font-family:inherit;font-size:calc(16px * var(--en-scale));" value="${escapeHtml(state.orgForgotBoatName || '')}">
+        <p class="note" style="margin-top:0;text-align:left;">Enter your mobile number and the 6-digit code currently shown in your authenticator app.</p>
+        <label style="text-align:left;display:block;margin-bottom:4px;">Username (your mobile number)</label>
+        <input type="tel" id="ofp-mobile" style="text-align:left;letter-spacing:normal;font-family:inherit;font-size:calc(16px * var(--en-scale));" value="${escapeHtml(state.orgForgotMobile || '')}">
         <label style="text-align:left;display:block;margin:10px 0 4px;">Authenticator code</label>
         <input type="text" inputmode="numeric" maxlength="6" id="ofp-code" style="text-align:center;font-family:'JetBrains Mono',monospace;font-size:calc(20px * var(--en-scale));letter-spacing:4px;">
         <div class="pin-error" id="ofp-error"></div>
@@ -12157,29 +12157,29 @@ function renderOrgForgotPassword(){
       </div>
     </div>
   `;
-  const boatInput = document.getElementById('ofp-boat-name');
-  (boatInput.value ? document.getElementById('ofp-code') : boatInput).focus();
-  autoBlurOnAutofill(boatInput);
+  const mobileInput = document.getElementById('ofp-mobile');
+  (mobileInput.value ? document.getElementById('ofp-code') : mobileInput).focus();
+  autoBlurOnAutofill(mobileInput);
   document.getElementById('ofp-submit-btn').addEventListener('click', async () => {
     const errorEl = document.getElementById('ofp-error');
     const btn = document.getElementById('ofp-submit-btn');
-    clearFieldErrors(['ofp-boat-name','ofp-code']);
-    const boatName = boatInput.value.trim();
+    clearFieldErrors(['ofp-mobile','ofp-code']);
+    const mobile = mobileInput.value.trim();
     const code = document.getElementById('ofp-code').value.trim();
-    if(!boatName) markFieldError('ofp-boat-name', false);
+    if(!mobile) markFieldError('ofp-mobile', false);
     if(!/^\d{6}$/.test(code)) markFieldError('ofp-code', true);
-    if(!boatName || !/^\d{6}$/.test(code)){ errorEl.textContent = 'Enter your boat name and the 6-digit code.'; return; }
+    if(!mobile || !/^\d{6}$/.test(code)){ errorEl.textContent = 'Enter your mobile number and the 6-digit code.'; return; }
     errorEl.textContent = '';
     btn.disabled = true; btn.textContent = 'Verifying\u2026';
     try{
       const res = await fetch(`${API_BASE}/api/org-reset/totp-verify`, {
-        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ boatName, code })
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ mobile, code })
       });
       const data = await res.json().catch(() => ({}));
       btn.disabled = false; btn.textContent = t('Verify Code');
       if(res.ok && data.ok && data.token){
         state.orgResetToken = data.token;
-        state.orgForgotBoatName = '';
+        state.orgForgotMobile = '';
         renderOrgResetConfirm();
       } else {
         errorEl.textContent = (data && data.error) || 'That code is incorrect or expired.';
@@ -12192,7 +12192,7 @@ function renderOrgForgotPassword(){
     }
   });
   document.getElementById('ofp-back-btn').addEventListener('click', () => {
-    state.orgForgotBoatName = '';
+    state.orgForgotMobile = '';
     state.orgScreen = 'login';
     renderOrgArea();
   });
@@ -12297,7 +12297,8 @@ function renderOrgDashboard(){
       <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
           <h2 style="margin:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-            ${escapeHtml(org.boatName || '')}
+            <span>${escapeHtml(org.ownerName || '')}</span>
+            <span class="tag-meta" style="font-size:calc(13px * var(--en-scale));font-weight:400;">${org.mobile ? telLink(org.mobile) : ''}</span>
             ${isOrgPro() ? `<span class="status-pill status-delivered" style="font-size:calc(10px * var(--en-scale));vertical-align:middle;">PRO</span>` : ''}
           </h2>
           <button class="btn btn-ghost" id="org-logout-btn">${t("Log out")}</button>
@@ -12350,8 +12351,8 @@ function renderOrgDashboard(){
             <div class="pin-error" id="first-boat-error"></div>
             <button class="btn btn-primary" id="first-boat-submit-btn" style="width:100%;">${t("+ Add Your Free Boat")}</button>
           ` : `
-            <button class="btn ${!state.boatRequestOpen && boats.length >= MAX_BOATS_PER_ORG ? 'btn-ghost' : 'btn-amber'}" id="request-boat-toggle-btn" style="margin-top:10px;${!state.boatRequestOpen && boats.length >= MAX_BOATS_PER_ORG ? 'opacity:0.65;' : ''}">${state.boatRequestOpen ? t('Cancel') : (boats.length >= MAX_BOATS_PER_ORG ? t('Maximum Boats Reached') : '+ Request Additional Boat')}</button>
-            ${state.boatRequestOpen ? (isOrgPro() ? `
+            <button class="btn ${!isOrgPro() ? 'btn-ghost' : (!state.boatRequestOpen && boats.length >= MAX_BOATS_PER_ORG ? 'btn-ghost' : 'btn-amber')}" id="request-boat-toggle-btn" style="margin-top:10px;${!isOrgPro() || (!state.boatRequestOpen && boats.length >= MAX_BOATS_PER_ORG) ? 'opacity:0.65;' : ''}">${!isOrgPro() ? t('Upgrade to Add Another Boat') : (state.boatRequestOpen ? t('Cancel') : (boats.length >= MAX_BOATS_PER_ORG ? t('Maximum Boats Reached') : '+ Request Additional Boat'))}</button>
+            ${(state.boatRequestOpen && isOrgPro()) ? `
               <div style="margin-top:14px;">
                 <p class="sub">${t("You're on Pro — additional boats are granted instantly, no payment or approval needed.")}</p>
                 <label>${t("New boat name")}</label>
@@ -12361,19 +12362,7 @@ function renderOrgDashboard(){
                 <div class="pin-error" id="req-boat-error">${escapeHtml(state.orgError || '')}</div>
                 <button class="btn btn-primary" id="req-boat-submit-btn" style="width:100%;margin-top:8px;">${t("Add Boat")}</button>
               </div>
-            ` : `
-              <div style="margin-top:14px;">
-                <p class="sub">${t("Additional boats require approval after payment. Enter a name for the new boat and attach a screenshot of your transfer.")}</p>
-                <label>${t("New boat name")}</label>
-                <input type="text" id="req-boat-name">
-                <label>${t("Boat contact number(s) *")}</label>
-                <input type="tel" id="req-boat-contact" placeholder="${t("e.g. 7777777 / 9999999")}">
-                <label>${t("Payment screenshot")}</label>
-                <input type="file" id="req-boat-screenshot" accept="image/*">
-                <div class="pin-error" id="req-boat-error">${escapeHtml(state.orgError || '')}</div>
-                <button class="btn btn-primary" id="req-boat-submit-btn" style="width:100%;margin-top:8px;">${t("Submit Request")}</button>
-              </div>
-            `) : ''}
+            ` : ''}
           `}
         </div>
 
@@ -12436,30 +12425,11 @@ function renderOrgDashboard(){
     openProFeatureRequiredPopup(t('Managing more than one boat is a Pro feature. Upgrade to Pro to access this boat.'));
   }));
   document.getElementById('request-boat-toggle-btn')?.addEventListener('click', () => {
-    // Hard cap regardless of Pro status -- check this before anything
-    // else so the request form (name/contact/screenshot fields) never
-    // even opens once the org is already at the limit.
-    if(!state.boatRequestOpen && boats.length >= MAX_BOATS_PER_ORG){
-      showMaxBoatsPopup();
-      return;
-    }
-    const opening = !state.boatRequestOpen;
-    state.boatRequestOpen = opening; state.orgError = '';
-    if(opening){
-      _boatRequestOpenedAt = Date.now();
-      // Needed to validate the transfer slip's "To" account against the
-      // right BML/MIB number -- fetched here (rather than only from the
-      // Upgrade-to-Pro popup) since this form can be reached without ever
-      // opening that popup.
-      if(!_proBankAccounts) fetchProBankAccounts().then(accounts => { _proBankAccounts = accounts; });
-    }
-    renderOrgDashboard();
-    // The free plan covers one boat; requesting another is normally a
-    // Pro-gated action -- but an organization that's already Pro doesn't
-    // need to pay again for it, so the payment popup only shows up here
-    // when this org isn't already Pro. Either way the request form itself
-    // (name + screenshot) is what an admin actually reviews below.
-    if(opening && !isOrgPro()){
+    // Free orgs can't add extra boats at all anymore -- point them at
+    // Upgrade to Pro and stop there. The name/contact number form must
+    // never expand for a non-Pro org, so this returns before touching
+    // state.boatRequestOpen.
+    if(!isOrgPro()){
       // The org dashboard doesn't set CURRENT_BOAT_ID until a specific
       // boat's dispatch app is opened -- but the popup's Payment Link tab
       // needs a real boat ID right now to create the Swipe payment for.
@@ -12470,22 +12440,19 @@ function renderOrgDashboard(){
       const primaryBoat = orgBoats.find(b => b.is_primary) || orgBoats[0];
       if(primaryBoat) CURRENT_BOAT_ID = primaryBoat.id;
       openProFeatureRequiredPopup(t('Managing more than one boat is a Pro feature. Upgrade to Pro to add another boat.'));
-      // If they back out of the popup (X, or tapping outside it) without
-      // ever actually submitting the request below (Submit Request sets
-      // state.boatRequestOpen = false itself on success), collapse back to
-      // the boats list instead of leaving the New Boat Name / Payment
-      // Screenshot form sitting open underneath a closed popup.
-      const collapseIfNotSubmitted = () => {
-        if(state.boatRequestOpen){
-          state.boatRequestOpen = false;
-          renderOrgDashboard();
-        }
-      };
-      document.getElementById('upgrade-pro-popup-close-btn')?.addEventListener('click', collapseIfNotSubmitted);
-      document.getElementById('upgrade-pro-popup-overlay')?.addEventListener('click', (e) => {
-        if(e.target.id === 'upgrade-pro-popup-overlay') collapseIfNotSubmitted();
-      });
+      return;
     }
+    // Hard cap still applies to Pro orgs -- check this before anything
+    // else so the request form (name/contact fields) never even opens
+    // once the org is already at the limit.
+    if(!state.boatRequestOpen && boats.length >= MAX_BOATS_PER_ORG){
+      showMaxBoatsPopup();
+      return;
+    }
+    const opening = !state.boatRequestOpen;
+    state.boatRequestOpen = opening; state.orgError = '';
+    if(opening) _boatRequestOpenedAt = Date.now();
+    renderOrgDashboard();
   });
   document.getElementById('first-boat-submit-btn')?.addEventListener('click', async () => {
     const errorEl = document.getElementById('first-boat-error');
@@ -12515,7 +12482,7 @@ function renderOrgDashboard(){
       if(res.ok && data.ok){
         const refreshed = await fetch(`${API_BASE}/api/org-login`, {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ boatName: org.boatName, passkey: state.orgPasskey })
+          body: JSON.stringify({ mobile: org.mobile, passkey: state.orgPasskey })
         }).then(r => r.json()).catch(() => null);
         if(refreshed && refreshed.ok) state.orgBoats = refreshed.boats || [];
         renderOrgDashboard();
@@ -12551,8 +12518,8 @@ function renderOrgDashboard(){
       return;
     }
     // No two boats under the same organization can share a name -- boat
-    // name doubles as the login username, so a duplicate would also mean
-    // a duplicate/ambiguous login, not just a confusing list here.
+    // names are just labels now (login is by mobile number), but two
+    // identically-named boats would still be a confusing, ambiguous list.
     if(boats.some(b => b.name.trim().toLowerCase() === name.toLowerCase())){
       markFieldError('req-boat-name', false);
       errorEl.textContent = t('You already have a boat with this name — use a different name.');
@@ -12600,7 +12567,7 @@ function renderOrgDashboard(){
           // immediately instead of the org having to log out/in.
           const refreshed = await fetch(`${API_BASE}/api/org-login`, {
             method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ boatName: org.boatName, passkey: state.orgPasskey })
+            body: JSON.stringify({ mobile: org.mobile, passkey: state.orgPasskey })
           }).then(r => r.json()).catch(() => null);
           if(refreshed && refreshed.ok) state.orgBoats = refreshed.boats || [];
           alert(t('Boat added.'));
