@@ -199,8 +199,14 @@
         any other header icon. This is the default everywhere: desktop,
         and mobile before it's been scrolled.
      -- #pro-badge-corner (.pro-corner-cut) is a triangular notch cut
-        into the logo's top corner, filled with the page background
-        color so it reads as the corner itself being sliced off. Hidden
+        into the logo's top corner, showing the page's own background
+        (color, gradients, and wave pattern) through it so it reads as
+        the corner itself being sliced away rather than covered by a
+        flat patch. background-attachment:fixed is what makes that work
+        despite the notch living deep inside the header/logo -- it
+        anchors the image to the viewport instead of to this small
+        element's own box, so the wave lines up exactly with the real
+        background visible everywhere else on the page. Hidden
         (opacity:0) here by default; the mobile-only collapse rule
         further down is what actually fades it in, in step with the
         header collapsing on scroll, while fading the inline one out --
@@ -214,33 +220,65 @@
   }
   .pro-badge-inline svg{ display:block;width:100%;height:100%; }
   .pro-corner-cut{
-    position:absolute;top:-1px;right:-1px;width:18px;height:18px;
+    position:absolute;top:-1px;right:-1px;width:14px;height:14px;
     pointer-events:none;
     opacity:0;
     transition:opacity 0.45s ease-in-out;
   }
   .pro-corner-cut-bg{
     position:absolute;inset:0;
-    background:var(--body-bg, var(--navy-deep));
-    clip-path:polygon(100% 0, 0 0, 100% 100%);
+    background-color:var(--body-bg, var(--navy-deep));
+    background-image:
+      radial-gradient(circle at 10% 0%, rgba(255,255,255,0.05), transparent 40%),
+      radial-gradient(circle at 90% 100%, rgba(255,255,255,0.04), transparent 40%),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0,35 Q35,10 70,35 T140,35' stroke='rgba(255,255,255,0.06)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,55 Q35,30 70,55 T140,55' stroke='rgba(64,217,192,0.07)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,15 Q35,-10 70,15 T140,15' stroke='rgba(255,255,255,0.035)' stroke-width='1' fill='none'/%3E%3C/svg%3E");
+    background-repeat:no-repeat, no-repeat, repeat;
+    background-position:0 0, 0 0, 0 0;
+    background-size:auto, auto, 140px 70px;
+    background-attachment:fixed;
+    clip-path:path('M14,0 L12.071,0 A5,5 0 0,0 8.536,8.536 L14,14 Z');
   }
   .pro-corner-cut svg{
-    position:absolute;top:2px;right:1px;width:9px;height:7.5px;color:var(--amber);
-    transform:rotate(18deg);
+    position:absolute;top:4px;right:4px;width:5px;height:4.2px;color:#F4F9FF;
+    transform:rotate(45deg);
   }
   html[lang="dv"] .pro-corner-cut{
     right:auto;left:-1px;
   }
   html[lang="dv"] .pro-corner-cut-bg{
-    clip-path:polygon(0 0, 100% 0, 0 100%);
+    clip-path:path('M0,0 L1.929,0 A5,5 0 0,1 5.464,8.536 L0,14 Z');
   }
   html[lang="dv"] .pro-corner-cut svg{
-    right:auto;left:1px;
-    transform:rotate(-18deg);
+    right:auto;left:4px;
+    transform:rotate(-45deg);
   }
   @keyframes brand-roll{
     0%{ transform: rotate(0deg); }
     100%{ transform: rotate(360deg); }
+  }
+  /* Startup loading screen (see #startup-loading) -- the line-art boat
+     bobs through 5 distinct height levels rather than a simple up/down
+     bounce, landing softest at the bottom (0%/100%) so it reads as
+     floating on the waves beneath it rather than mechanically bouncing.
+     The two wave lines under it scroll in opposite directions (see
+     startup-wave-left/right below) -- each SVG is drawn at double width
+     with a seamlessly tileable period, so translating it by exactly
+     half its own rendered width loops with no visible seam. */
+  @keyframes startup-bob{
+    0%{ transform: translateY(0); }
+    20%{ transform: translateY(-6px); }
+    40%{ transform: translateY(-13px); }
+    60%{ transform: translateY(-7px); }
+    80%{ transform: translateY(-2px); }
+    100%{ transform: translateY(0); }
+  }
+  @keyframes startup-wave-left{
+    from{ transform: translateX(0); }
+    to{ transform: translateX(-50%); }
+  }
+  @keyframes startup-wave-right{
+    from{ transform: translateX(-50%); }
+    to{ transform: translateX(0); }
   }
   @keyframes invoice-pop-in{
     0%{ transform: scale(0.9); opacity: 0; }
@@ -1465,8 +1503,16 @@ body.admin-mode{
   <main class="panel" id="panel" style="display:none;"></main>
   <div id="gate-area"></div>
   <div id="startup-loading" style="position:fixed;inset:0;z-index:1500;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;">
-    <div class="brand-mark" style="width:64px;height:64px;border-radius:10px;margin:0 auto 20px;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:34px;height:34px;"><path d="M3 17l1.5-6h15L21 17"/><path d="M5 17v2a1 1 0 001 1h12a1 1 0 001-1v-2"/><path d="M12 3v8"/><path d="M8 6l4-3 4 3"/></svg>
+    <div style="position:relative;width:180px;height:70px;margin:0 auto 4px;overflow:hidden;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#F4F9FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:36px;height:36px;position:absolute;left:50%;top:2px;margin-left:-18px;animation:startup-bob 2.2s ease-in-out infinite;">
+        <path d="M3 17l1.5-6h15L21 17"/><path d="M5 17v2a1 1 0 001 1h12a1 1 0 001-1v-2"/><path d="M12 3v8"/><path d="M8 6l4-3 4 3"/>
+      </svg>
+      <svg viewBox="0 0 200 20" style="position:absolute;bottom:16px;left:0;width:200%;height:16px;animation:startup-wave-left 3.6s linear infinite;">
+        <path d="M0,10 Q12.5,3 25,10 T50,10 T75,10 T100,10 T125,10 T150,10 T175,10 T200,10" stroke="rgba(244,249,255,0.55)" stroke-width="2" fill="none"/>
+      </svg>
+      <svg viewBox="0 0 200 20" style="position:absolute;bottom:5px;left:0;width:200%;height:16px;animation:startup-wave-right 4.8s linear infinite;">
+        <path d="M0,10 Q12.5,17 25,10 T50,10 T75,10 T100,10 T125,10 T150,10 T175,10 T200,10" stroke="rgba(64,217,192,0.5)" stroke-width="2" fill="none"/>
+      </svg>
     </div>
     <div style="font-size:calc(15px * var(--en-scale));color:#F4F9FF;font-weight:600;margin-bottom:8px;">Connecting&hellip;</div>
     <div style="font-size:calc(12px * var(--en-scale));color:#D6E8F7;">This can take up to a minute if the server has been idle.</div>
@@ -4213,7 +4259,7 @@ function renderDashboard(){
       document.body.appendChild(modalHost);
       lockBodyScroll();
     }
-    modalHost.innerHTML = `<div class="panel" style="height:92vh;max-height:92vh;overflow-y:auto;width:100%;max-width:600px;border-radius:16px 16px 0 0;margin:0;">${renderLoadForm(openLoadShipment)}</div>`;
+    modalHost.innerHTML = `<div class="panel" style="height:92vh;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;width:100%;max-width:600px;border-radius:16px 16px 0 0;margin:0;">${renderLoadForm(openLoadShipment)}</div>`;
     modalHost.onclick = (e) => { if(e.target === modalHost){ delete state.loadingDraft[openLoadId]; renderDashboard(); } };
   } else if(modalHost){
     modalHost.remove();
@@ -5186,7 +5232,8 @@ function renderLoadForm(s){
   const draft = state.loadingDraft[s.id];
   const total = draft.items.reduce((sum,i) => sum + i.qty*i.price, 0);
   const sortedRates = sortedRatesByUsage();
-  const query = (draft.itemSearch || '').trim().toLowerCase();
+  const rawQuery = (draft.itemSearch || '').trim();
+  const query = rawQuery.toLowerCase();
   const matches = query ? sortedRates.filter(r => r.name.toLowerCase().includes(query)) : sortedRates;
   const isPicking = !!draft.itemDropdownOpen;
 
@@ -5204,16 +5251,35 @@ function renderLoadForm(s){
     </div>
   `;
 
-  // Two modes: picking (dropdown open, browsing/searching the catalog --
-  // Total/Confirm are hidden since they're not relevant mid-search) and
-  // review (dropdown closed, showing what's been added so far, with
-  // Total/Confirm available). The modal keeps a fixed height either way
-  // (set where it's created) so switching between them doesn't visibly
-  // shrink or jump. The header+search stays pinned at the top and New
-  // Item/Total/Confirm stays pinned at the bottom in both modes -- only
-  // the item list itself (dropdown results or added items) scrolls.
+  // No match for what's been typed -- a tappable row offering to add it
+  // as a brand new item (using exactly what was typed as the name) beats
+  // a dead-end "No matching items." message, since the person's already
+  // told us the name; they shouldn't have to retype it into the New Item
+  // field below. See openAddNewItemPopup for what happens on tap.
+  const noMatchHtml = query
+    ? `<button type="button" class="item-result-row" data-add-new-item="${s.id}" style="color:var(--teal);font-weight:600;">
+        <span>${t('Add "{name}" as a new item').replace('{name}', escapeHtml(rawQuery))}</span>
+        <span>+</span>
+      </button>`
+    : `<div class="empty" style="padding:10px 0;font-size:calc(13px * var(--en-scale));">${t("No matching items.")}</div>`;
+
+  const resultsListHtml = matches.length ? matches.map(r => `
+    <button type="button" class="item-result-row" data-pick-item="${s.id}" data-rate-id="${r.id}">
+      <span>${escapeHtml(r.name)}</span><span class="rprice">${fmtMoney(r.price)}</span>
+    </button>
+  `).join('') : noMatchHtml;
+
+  // Three fixed flex sections rather than nested position:sticky blocks --
+  // header+search never moves, the middle (dropdown results while
+  // picking, or the added-items list while reviewing) is the only part
+  // that scrolls, and the footer (New Item row, plus Total/Confirm/Cancel
+  // while reviewing) is a genuine flex-shrink:0 footer that always stays
+  // at the bottom of the screen. The previous sticky-based layout relied
+  // on the outer panel actually scrolling for "sticky bottom" to do
+  // anything, so on a tall dropdown-results list or a long items list it
+  // could end up pushed out of view instead of staying put.
   return `
-    <div style="position:sticky;top:0;background:var(--paper);z-index:1;padding-bottom:4px;">
+    <div style="flex-shrink:0;padding-bottom:4px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
         <div>
           <h3 style="margin-bottom:2px;">${t("Log Items Loaded")}</h3>
@@ -5221,51 +5287,43 @@ function renderLoadForm(s){
         </div>
         <button type="button" class="btn btn-ghost" data-cancel-load="${s.id}" style="padding:8px 14px;">\u2715 Close</button>
       </div>
-
-      <div style="margin-bottom:14px;position:relative;">
+      <div style="margin-bottom:0;">
         <label>${t("Search & tap an item to add it")}</label>
         <input type="text" data-item-search="${s.id}" placeholder="${t("Item List (tap to search)")}" autocomplete="off" value="${escapeHtml(draft.itemSearch||'')}" style="margin-bottom:0;">
-        <div class="item-results" data-item-results="${s.id}" style="display:${isPicking ? 'flex' : 'none'};">
-          ${matches.length ? matches.map(r => `
-            <button type="button" class="item-result-row" data-pick-item="${s.id}" data-rate-id="${r.id}">
-              <span>${escapeHtml(r.name)}</span><span class="rprice">${fmtMoney(r.price)}</span>
-            </button>
-          `).join('') : `<div class="empty" style="padding:10px 0;font-size:calc(13px * var(--en-scale));">${t("No matching items.")}</div>`}
-        </div>
       </div>
     </div>
 
+    <div data-items-scroll="${s.id}" style="flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;margin:10px 0;">
       ${isPicking ? `
-        <div style="position:sticky;bottom:0;background:var(--paper);padding-top:12px;">
-          ${newItemRow}
+        <div data-item-results="${s.id}" style="display:flex;flex-direction:column;gap:6px;">
+          ${resultsListHtml}
         </div>
-      ` : `
-        <div data-items-scroll="${s.id}" style="max-height:340px;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-bottom:14px;">
-          ${draft.items.length ? draft.items.map((i,idx) => `
-            <div class="rate-row" style="padding:8px 10px;">
-              <div style="min-width:0;">
-                <div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(i.name)}</div>
-                <div class="price">${fmtMoney(i.price)}/unit</div>
-              </div>
-              <div class="stepper">
-                <button data-dec="${idx}" data-sid="${s.id}">\u2212</button>
-                <span class="qty">${i.qty}</span>
-                <button data-inc="${idx}" data-sid="${s.id}">+</button>
-                <button data-remove="${idx}" data-sid="${s.id}" title="${t("Remove")}" style="border-color:#F5C6C6;color:#C43B3B;">\u00d7</button>
-              </div>
-            </div>
-          `).join('') : `<div class="empty" style="padding:16px 0;">${t("No items added yet.")}</div>`}
-        </div>
-
-        <div style="position:sticky;bottom:0;background:var(--paper);padding-top:12px;">
-          ${newItemRow}
-          <div class="total-line"><span>Total</span><span class="amt">${fmtMoney(total)}</span></div>
-          <div class="tag-actions" style="margin-top:14px;">
-            <button class="btn btn-primary" data-confirm-load="${s.id}">${t("Confirm Loaded & Take Photo")}</button>
-            <button class="btn btn-ghost" data-cancel-load="${s.id}">${t("Cancel")}</button>
+      ` : (draft.items.length ? draft.items.map((i,idx) => `
+        <div class="rate-row" style="padding:8px 10px;">
+          <div style="min-width:0;">
+            <div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(i.name)}</div>
+            <div class="price">${fmtMoney(i.price)}/unit</div>
+          </div>
+          <div class="stepper">
+            <button data-dec="${idx}" data-sid="${s.id}">\u2212</button>
+            <span class="qty">${i.qty}</span>
+            <button data-inc="${idx}" data-sid="${s.id}">+</button>
+            <button data-remove="${idx}" data-sid="${s.id}" title="${t("Remove")}" style="border-color:#F5C6C6;color:#C43B3B;">\u00d7</button>
           </div>
         </div>
+      `).join('') : `<div class="empty" style="padding:16px 0;">${t("No items added yet.")}</div>`)}
+    </div>
+
+    <div style="flex-shrink:0;">
+      ${newItemRow}
+      ${isPicking ? '' : `
+        <div class="total-line"><span>Total</span><span class="amt">${fmtMoney(total)}</span></div>
+        <div class="tag-actions" style="margin-top:14px;">
+          <button class="btn btn-primary" data-confirm-load="${s.id}">${t("Confirm Loaded & Take Photo")}</button>
+          <button class="btn btn-ghost" data-cancel-load="${s.id}">${t("Cancel")}</button>
+        </div>
       `}
+    </div>
   `;
 }
 
@@ -5281,21 +5339,107 @@ function pickItem(sid, rateId){
   renderDashboard();
 }
 
+// Opens over the Log Items Loaded modal when "Add ... as a new item" is
+// tapped after a search with no matches -- collects just the rate/price
+// (the name is already known, from what was typed) then creates the
+// catalog entry, adds it to this shipment's items, and closes back out
+// to the loading form. lockBodyScroll/unlockBodyScroll nest safely on
+// top of the loading modal's own lock (see _scrollLockCount), so this
+// doesn't need any special-casing for being a popup-over-a-popup.
+function openAddNewItemPopup(sid){
+  const d = state.loadingDraft[sid];
+  if(!d) return;
+  const name = (d.itemSearch || '').trim();
+  if(!name) return;
+  closeAddNewItemPopup();
+  lockBodyScroll();
+  const overlay = document.createElement('div');
+  overlay.id = 'add-new-item-popup-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2200;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML = `
+    <div class="panel" id="add-new-item-popup-panel" style="max-height:88vh;overflow-y:auto;width:100%;max-width:420px;margin:0;animation:invoice-pop-in 0.18s ease-out;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;">
+        <h3 style="margin-bottom:2px;">${t("Set Rate for New Item")}</h3>
+        <button type="button" class="btn btn-ghost" id="add-new-item-close-btn" style="padding:8px 14px;">\u2715</button>
+      </div>
+      <p class="sub" style="margin-bottom:14px;">${escapeHtml(name)}</p>
+      <label>${t("Rate")}</label>
+      <input type="text" inputmode="decimal" id="add-new-item-price" placeholder="0" style="margin-bottom:6px;">
+      <div class="pin-error" id="add-new-item-error"></div>
+      <div class="tag-actions" style="margin-top:8px;">
+        <button class="btn btn-primary" id="add-new-item-confirm-btn">${t("Add Item")}</button>
+        <button class="btn btn-ghost" id="add-new-item-cancel-btn">${t("Cancel")}</button>
+      </div>
+    </div>
+  `;
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) closeAddNewItemPopup(); });
+  document.body.appendChild(overlay);
+  document.getElementById('add-new-item-close-btn').addEventListener('click', closeAddNewItemPopup);
+  document.getElementById('add-new-item-cancel-btn').addEventListener('click', closeAddNewItemPopup);
+  const priceInput = document.getElementById('add-new-item-price');
+  priceInput.focus();
+  const confirm = async () => {
+    const errorEl = document.getElementById('add-new-item-error');
+    const price = parseFloat(priceInput.value);
+    if(isNaN(price) || price < 0){
+      errorEl.textContent = t('Enter a valid rate.');
+      return;
+    }
+    errorEl.textContent = '';
+    const btn = document.getElementById('add-new-item-confirm-btn');
+    btn.disabled = true;
+    // Reuse an existing rate with this exact name if one somehow already
+    // exists (e.g. added from another device moments ago), same
+    // case-insensitive check the New Item row below already does --
+    // otherwise this is a genuinely new catalog entry, tagged the same
+    // way a bulk upload tags its items so it shows up under "New Items"
+    // in Settings > Item Rates for the owner to notice.
+    let rate = state.rates.find(r => r.name.trim().toLowerCase() === name.toLowerCase());
+    if(!rate){
+      rate = { id: 'rate-'+Date.now()+'-'+Math.random().toString(36).slice(2,8), name, price, uploadedAt: Date.now() };
+      state.rates.unshift(rate);
+      await saveRates(state.rates);
+    }
+    const existing = d.items.find(i => i.id === rate.id);
+    if(existing){ existing.qty += 1; }
+    else { d.items.unshift({ id: rate.id, name: rate.name, price: rate.price, qty: 1 }); }
+    d.itemSearch = '';
+    d.itemDropdownOpen = false;
+    closeAddNewItemPopup();
+    renderDashboard();
+  };
+  document.getElementById('add-new-item-confirm-btn').addEventListener('click', confirm);
+  priceInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') confirm(); });
+}
+function closeAddNewItemPopup(){
+  if(document.getElementById('add-new-item-popup-overlay')) unlockBodyScroll();
+  document.getElementById('add-new-item-popup-overlay')?.remove();
+}
+
 function renderItemResultsBox(sid){
   const d = state.loadingDraft[sid];
   if(!d) return;
   const box = document.querySelector(`[data-item-results="${sid}"]`);
   if(!box) return;
-  const query = (d.itemSearch || '').trim().toLowerCase();
+  const rawQuery = (d.itemSearch || '').trim();
+  const query = rawQuery.toLowerCase();
   const sortedRates = sortedRatesByUsage();
   const matches = query ? sortedRates.filter(r => r.name.toLowerCase().includes(query)) : sortedRates;
+  const noMatchHtml = query
+    ? `<button type="button" class="item-result-row" data-add-new-item="${sid}" style="color:var(--teal);font-weight:600;">
+        <span>${t('Add "{name}" as a new item').replace('{name}', escapeHtml(rawQuery))}</span>
+        <span>+</span>
+      </button>`
+    : `<div class="empty" style="padding:10px 0;font-size:calc(13px * var(--en-scale));">${t("No matching items.")}</div>`;
   box.style.display = 'flex';
   box.innerHTML = matches.length ? matches.map(r => `
     <button type="button" class="item-result-row" data-pick-item="${sid}" data-rate-id="${r.id}">
       <span>${escapeHtml(r.name)}</span><span class="rprice">${fmtMoney(r.price)}</span>
     </button>
-  `).join('') : `<div class="empty" style="padding:10px 0;font-size:calc(13px * var(--en-scale));">${t("No matching items.")}</div>`;
+  `).join('') : noMatchHtml;
   box.querySelectorAll('[data-pick-item]').forEach(b => b.addEventListener('click', () => pickItem(b.dataset.pickItem, b.dataset.rateId)));
+  const addNewBtn = box.querySelector('[data-add-new-item]');
+  if(addNewBtn) addNewBtn.addEventListener('click', () => openAddNewItemPopup(addNewBtn.dataset.addNewItem));
 }
 
 // Tracks in-flight "Confirm Loaded" saves by shipment id, so the
@@ -5364,6 +5508,7 @@ function wireLoadFormEvents(){
     });
   });
   document.querySelectorAll('[data-pick-item]').forEach(b => b.addEventListener('click', () => pickItem(b.dataset.pickItem, b.dataset.rateId)));
+  document.querySelectorAll('[data-add-new-item]').forEach(b => b.addEventListener('click', () => openAddNewItemPopup(b.dataset.addNewItem)));
   document.querySelectorAll('[data-inc]').forEach(b => b.addEventListener('click', () => {
     const d = state.loadingDraft[b.dataset.sid]; d.items[b.dataset.inc].qty++; renderDashboard();
   }));
@@ -5397,10 +5542,12 @@ function wireLoadFormEvents(){
 
     // Reuse an existing rate if one with this name already exists (case-insensitive),
     // otherwise persist it as a new rate so it shows up in the dropdown for every
-    // future shipment entry, not just this one.
+    // future shipment entry, not just this one -- tagged uploadedAt like the
+    // search quick-add flow does, so it shows under "New Items" in Settings >
+    // Item Rates for the owner to notice, same as any other newly added item.
     let rate = state.rates.find(r => r.name.trim().toLowerCase() === name.toLowerCase());
     if(!rate){
-      rate = { id: 'custom-'+Date.now(), name, price };
+      rate = { id: 'custom-'+Date.now(), name, price, uploadedAt: Date.now() };
       state.rates.push(rate);
       await saveRates(state.rates);
     }
