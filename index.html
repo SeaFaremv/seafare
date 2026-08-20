@@ -198,59 +198,41 @@
      -- #pro-badge (.pro-badge-inline) sits beside the app name, same as
         any other header icon. This is the default everywhere: desktop,
         and mobile before it's been scrolled.
-     -- #pro-badge-corner (.pro-corner-cut) is a triangular notch cut
-        into the logo's top corner, showing the page's own background
-        (color, gradients, and wave pattern) through it so it reads as
-        the corner itself being sliced away rather than covered by a
-        flat patch. background-attachment:fixed is what makes that work
-        despite the notch living deep inside the header/logo -- it
-        anchors the image to the viewport instead of to this small
-        element's own box, so the wave lines up exactly with the real
-        background visible everywhere else on the page. Hidden
+     -- #pro-badge-corner (.pro-corner-badge) is a small circular
+        notification-dot-style badge sitting on the logo's top corner --
+        a filled navy circle with a light ring border (for separation
+        from the amber logo underneath) and a small amber crown
+        centered inside. This standard "badge dot" pattern always reads
+        as intentional regardless of exactly where it overlaps the
+        logo's own rounded corner, unlike a rotated shape trying to
+        precisely cover it. Sits on the logo box rather than the app
+        name so it's always visible (the logo only ever shrinks on
+        scroll, it never fades out the way the name/clock do) instead of
+        disappearing along with the header text on scroll. Hidden
         (opacity:0) here by default; the mobile-only collapse rule
         further down is what actually fades it in, in step with the
-        header collapsing on scroll, while fading the inline one out --
-        since the inline one sits next to text that disappears on
-        scroll, without this swap the crown would vanish along with it
-        instead of relocating onto the always-visible logo. */
+        header collapsing on scroll, while fading the inline one out.
+        Top-right in English, top-left in Dhivehi (mirrored below). */
   .pro-badge-inline{
     display:inline-flex;margin:0;
     width:15px;height:15px;color:var(--amber);
     flex-shrink:0;
   }
   .pro-badge-inline svg{ display:block;width:100%;height:100%; }
-  .pro-corner-cut{
-    position:absolute;top:-1px;right:-1px;width:14px;height:14px;
+  .pro-corner-badge{
+    position:absolute;top:-4px;right:-4px;width:17px;height:17px;
+    border-radius:50%;
+    background:var(--navy-deep);
+    border:1.5px solid rgba(244,249,255,0.9);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 1px 3px rgba(0,0,0,0.3);
     pointer-events:none;
     opacity:0;
     transition:opacity 0.45s ease-in-out;
   }
-  .pro-corner-cut-bg{
-    position:absolute;inset:0;
-    background-color:var(--body-bg, var(--navy-deep));
-    background-image:
-      radial-gradient(circle at 10% 0%, rgba(255,255,255,0.05), transparent 40%),
-      radial-gradient(circle at 90% 100%, rgba(255,255,255,0.04), transparent 40%),
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='70'%3E%3Cpath d='M0,35 Q35,10 70,35 T140,35' stroke='rgba(255,255,255,0.06)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,55 Q35,30 70,55 T140,55' stroke='rgba(64,217,192,0.07)' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0,15 Q35,-10 70,15 T140,15' stroke='rgba(255,255,255,0.035)' stroke-width='1' fill='none'/%3E%3C/svg%3E");
-    background-repeat:no-repeat, no-repeat, repeat;
-    background-position:0 0, 0 0, 0 0;
-    background-size:auto, auto, 140px 70px;
-    background-attachment:fixed;
-    clip-path:path('M14,0 L12.071,0 A5,5 0 0,0 8.536,8.536 L14,14 Z');
-  }
-  .pro-corner-cut svg{
-    position:absolute;top:4px;right:4px;width:5px;height:4.2px;color:#F4F9FF;
-    transform:rotate(45deg);
-  }
-  html[lang="dv"] .pro-corner-cut{
-    right:auto;left:-1px;
-  }
-  html[lang="dv"] .pro-corner-cut-bg{
-    clip-path:path('M0,0 L1.929,0 A5,5 0 0,1 5.464,8.536 L0,14 Z');
-  }
-  html[lang="dv"] .pro-corner-cut svg{
-    right:auto;left:4px;
-    transform:rotate(-45deg);
+  .pro-corner-badge svg{ display:block;width:10px;height:10px;color:#F4F9FF; }
+  html[lang="dv"] .pro-corner-badge{
+    right:auto;left:-4px;
   }
   @keyframes brand-roll{
     0%{ transform: rotate(0deg); }
@@ -1098,7 +1080,7 @@
       transition:opacity 0.45s ease-in-out, max-height 0.45s ease-in-out, max-width 0.45s ease-in-out, margin-top 0.45s ease-in-out;
     }
     /* The corner crown is the mobile-scrolled-only stand-in for the
-       inline one above -- invisible by default (see .pro-corner-cut),
+       inline one above -- invisible by default (see .pro-corner-badge),
        it only fades in here, in the same breath as the inline one fades
        out, so exactly one of the two is ever visible at a time. */
     header.app-head #pro-badge-corner{
@@ -1473,7 +1455,7 @@ body.admin-mode{
     <div class="brand">
       <div class="brand-mark" id="brand-logo-btn" role="button" tabindex="0" style="cursor:pointer;" title="Refresh">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l1.5-6h15L21 17"/><path d="M5 17v2a1 1 0 001 1h12a1 1 0 001-1v-2"/><path d="M12 3v8"/><path d="M8 6l4-3 4 3"/></svg>
-        <span id="pro-badge-corner" class="pro-corner-cut" style="display:none;"><span class="pro-corner-cut-bg"></span><svg viewBox="0 0 24 20" fill="currentColor"><path d="M3 14 L3 7 L7.5 11 L12 3 L16.5 11 L21 7 L21 14 L21 16.5 Q21 17 20.5 17 L3.5 17 Q3 17 3 16.5 Z"/><circle cx="3" cy="7" r="1.6"/><circle cx="12" cy="3" r="1.8"/><circle cx="21" cy="7" r="1.6"/></svg></span>
+        <span id="pro-badge-corner" class="pro-corner-badge" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l4 4 5-7 5 7 4-4-2 10H5L3 8z"/></svg></span>
       </div>
       <div>
         <div class="brand-name-wrap">
