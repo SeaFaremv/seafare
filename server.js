@@ -2491,9 +2491,9 @@ app.post('/api/org-reset/confirm', async (req, res) => {
 
 app.post('/api/org-login', async (req, res) => {
   try{
-    const { boatName, passkey } = req.body || {};
-    if(!boatName || !passkey) return res.status(400).json({ ok:false, error:'Username and PIN are required.' });
-    const rows = await sql`SELECT * FROM organizations WHERE lower(boat_name) = lower(${boatName})`;
+    const { mobile, passkey } = req.body || {};
+    if(!mobile || !passkey) return res.status(400).json({ ok:false, error:'Username and PIN are required.' });
+    const rows = await sql`SELECT * FROM organizations WHERE trim(mobile) = trim(${mobile})`;
     const org = rows[0];
     if(!org || !verifyPasskey(passkey, org.passkey_hash)){
       return res.status(401).json({ ok:false, error:'Incorrect username or PIN.' });
