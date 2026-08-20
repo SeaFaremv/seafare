@@ -188,11 +188,39 @@
   .header-theme-toggle.flip svg{ transform:rotateY(180deg); }
   .brand{display:flex;align-items:center;gap:12px;position:relative;}
   .brand-mark{
+    position:relative;
     width:40px;height:40px;border-radius:6px;background:var(--amber);
     display:flex;align-items:center;justify-content:center;flex-shrink:0;
     box-shadow:0 2px 0 rgba(0,0,0,0.25);
   }
   .brand-mark svg{width:22px;height:22px;stroke:var(--navy-deep); animation: brand-roll 2.4s linear infinite; transform-origin: 50% 50%;}
+  /* Pro crown badge: a triangular notch cut into the logo's top corner --
+     filled with the page background color so it reads as the corner
+     itself being sliced off, with the crown sitting in the notch. Sits
+     on the logo box rather than the app name so it's always visible
+     (the logo only ever shrinks on scroll, see header.app-head
+     .brand-mark, it never fades out the way the name/clock do) instead
+     of disappearing along with the header text on scroll. Top-right in
+     English (natural reading-end corner); top-left in Dhivehi, mirrored
+     below, keeping the same slight rotation in both. */
+  .pro-corner-cut{
+    position:absolute;top:-1px;right:-1px;width:16px;height:16px;
+    background:var(--body-bg, var(--navy-deep));
+    clip-path:polygon(100% 0, 0 0, 100% 100%);
+    pointer-events:none;
+  }
+  .pro-corner-cut svg{
+    position:absolute;top:1px;right:1px;width:9px;height:9px;color:var(--amber);
+    transform:rotate(18deg);
+  }
+  html[lang="dv"] .pro-corner-cut{
+    right:auto;left:-1px;
+    clip-path:polygon(0 0, 100% 0, 0 100%);
+  }
+  html[lang="dv"] .pro-corner-cut svg{
+    right:auto;left:1px;
+    transform:rotate(-18deg);
+  }
   @keyframes brand-roll{
     0%{ transform: rotate(0deg); }
     100%{ transform: rotate(360deg); }
@@ -261,18 +289,7 @@
   .app-toast.show{ opacity:1; transform:translate(-50%,0); }
   .brand h1{font-size:calc(18px * var(--en-scale));color:#F4F9FF;margin:0;font-weight:600;letter-spacing:0.06em;white-space:nowrap !important;flex-shrink:0;}
   .brand span{display:block;font-family:'JetBrains Mono',monospace;font-size:calc(9px * var(--en-scale));color:#B8D4EC;letter-spacing:0.14em;text-transform:uppercase;margin-top:2px;}
-  /* Small crown badge shown while this boat's Pro subscription is active
-     (see updateHeaderProBadge). Sits as a normal inline icon right after
-     the app name -- not overlaid on any letter -- so it stays legible and
-     never needs JS to calculate a position; it just flows in the flex row
-     like any other icon (see .brand-name-wrap). */
   .brand-name-wrap{ display:flex;align-items:center;gap:5px;flex-shrink:0; }
-  #pro-badge{
-    display:inline-flex;margin:0;
-    width:15px;height:15px;color:var(--amber);
-    flex-shrink:0;
-  }
-  #pro-badge svg{ display:block;width:100%;height:100%; }
 
 
   .role-pill{
@@ -997,15 +1014,26 @@
        --tp there; it's forced back to 0 everywhere else). */
     header.app-head{
       padding-top:calc(env(safe-area-inset-top) + 14px - (8px * var(--tp, 0)));
-      padding-bottom:calc(12px - (6px * var(--tp, 0)));
+      padding-bottom:calc(12px - (4px * var(--tp, 0)));
     }
-    header.app-head .brand-mark{ transform:scale(calc(1 - (0.28 * var(--tp, 0)))); }
+    /* Real width/height shrink, not just transform:scale -- a transform
+       is visual-only and doesn't reduce the element's actual layout
+       footprint, so the header row was staying almost full height (still
+       sized to the un-shrunk 40px box) even once the logo looked small,
+       leaving a noticeably bigger gap above the card below than the
+       shrunk logo visually suggested. Animating width/height directly
+       shrinks the real box, so the header's height -- and therefore the
+       gap -- shrinks along with it. */
+    header.app-head .brand-mark{
+      width:calc(40px - (12px * var(--tp, 0)));
+      height:calc(40px - (12px * var(--tp, 0)));
+      transition:width 0.45s ease-in-out, height 0.45s ease-in-out;
+    }
     header.app-head h1,
     header.app-head #clock,
     header.app-head .role-pill,
     header.app-head #header-theme-toggle-btn,
-    header.app-head #header-settings-btn,
-    header.app-head #pro-badge{
+    header.app-head #header-settings-btn{
       opacity:calc(1 - var(--tp, 0));
       max-height:calc(40px * (1 - var(--tp, 0)));
       max-width:calc(400px * (1 - var(--tp, 0)));
@@ -1382,11 +1410,11 @@ body.admin-mode{
     <div class="brand">
       <div class="brand-mark" id="brand-logo-btn" role="button" tabindex="0" style="cursor:pointer;" title="Refresh">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l1.5-6h15L21 17"/><path d="M5 17v2a1 1 0 001 1h12a1 1 0 001-1v-2"/><path d="M12 3v8"/><path d="M8 6l4-3 4 3"/></svg>
+        <span id="pro-badge" class="pro-corner-cut" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l4 4 5-7 5 7 4-4-2 10H5L3 8z"/></svg></span>
       </div>
       <div>
         <div class="brand-name-wrap">
           <h1>SeaFare</h1>
-          <span id="pro-badge" class="pro-badge" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l4 4 5-7 5 7 4-4-2 10H5L3 8z"/></svg></span>
         </div>
         <span id="clock">--</span>
       </div>
@@ -13101,9 +13129,11 @@ function fmtISODate(d){
 }
 let _datePickerViewDate = null;
 let _datePickerResizeHandler = null;
+let _datePickerScrollParent = null;
 function openDatePicker(input){
   closeDatePicker();
   scrollFieldToTop(input);
+  lockBodyScroll();
   const overlay = document.createElement('div');
   overlay.className = 'custom-select-overlay';
   overlay.id = 'date-picker-overlay';
@@ -13188,14 +13218,28 @@ function openDatePicker(input){
   _datePickerResizeHandler = positionCalendar;
   window.addEventListener('resize', _datePickerResizeHandler);
   if(window.visualViewport) window.visualViewport.addEventListener('resize', _datePickerResizeHandler);
+  // Keep the calendar locked to the field it's anchored under as the
+  // card scrolls -- position:fixed coordinates only get set once at
+  // open time, so without this the calendar used to stay put (tracking
+  // the unmoving background/viewport) while the card and its date field
+  // scrolled away underneath it, leaving the two visibly out of sync.
+  // The card (.panel) is the actual scrolling container here since the
+  // outer shell/background itself never scrolls (see lockBodyScroll
+  // above, which now also stops the background from panning at all).
+  _datePickerScrollParent = input.closest('.panel, #gate-area') || window;
+  _datePickerScrollParent.addEventListener('scroll', _datePickerResizeHandler, { passive: true });
 }
 function closeDatePicker(){
+  const existedBefore = !!document.getElementById('date-picker-overlay');
   document.getElementById('date-picker-overlay')?.remove();
   if(_datePickerResizeHandler){
     window.removeEventListener('resize', _datePickerResizeHandler);
     if(window.visualViewport) window.visualViewport.removeEventListener('resize', _datePickerResizeHandler);
+    if(_datePickerScrollParent) _datePickerScrollParent.removeEventListener('scroll', _datePickerResizeHandler);
+    _datePickerScrollParent = null;
     _datePickerResizeHandler = null;
   }
+  if(existedBefore) unlockBodyScroll();
 }
 
 function isEnhanceableTimeInput(target){
