@@ -1494,14 +1494,9 @@ body.admin-mode{
   <div id="gate-area"></div>
   <div id="startup-loading" style="position:fixed;inset:0;z-index:1500;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px;">
     <div style="position:relative;width:180px;height:70px;margin:0 auto 4px;overflow:hidden;">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#F4F9FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:36px;height:36px;position:absolute;left:50%;top:2px;margin-left:-18px;animation:startup-bob 2.2s ease-in-out infinite;">
+      <div style="position:absolute;bottom:16px;left:0;width:200%;height:14px;background:repeating-linear-gradient(90deg, rgba(244,249,255,0.4) 0 22px, transparent 22px 44px);border-radius:8px;animation:landing-wave-scroll 3.2s linear infinite;"></div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="#F4F9FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="width:32px;height:32px;position:absolute;bottom:20px;animation:landing-boat-move 6s ease-in-out infinite;">
         <path d="M3 17l1.5-6h15L21 17"/><path d="M5 17v2a1 1 0 001 1h12a1 1 0 001-1v-2"/><path d="M12 3v8"/><path d="M8 6l4-3 4 3"/>
-      </svg>
-      <svg viewBox="0 0 200 20" style="position:absolute;bottom:16px;left:0;width:200%;height:16px;animation:startup-wave-left 3.6s linear infinite;">
-        <path d="M0,10 Q12.5,3 25,10 T50,10 T75,10 T100,10 T125,10 T150,10 T175,10 T200,10" stroke="rgba(244,249,255,0.55)" stroke-width="2" fill="none"/>
-      </svg>
-      <svg viewBox="0 0 200 20" style="position:absolute;bottom:5px;left:0;width:200%;height:16px;animation:startup-wave-right 4.8s linear infinite;">
-        <path d="M0,10 Q12.5,17 25,10 T50,10 T75,10 T100,10 T125,10 T150,10 T175,10 T200,10" stroke="rgba(64,217,192,0.5)" stroke-width="2" fill="none"/>
       </svg>
     </div>
     <div style="font-size:calc(15px * var(--en-scale));color:#F4F9FF;font-weight:600;margin-bottom:8px;">Connecting&hellip;</div>
@@ -10061,8 +10056,13 @@ function renderLandingPage(){
   area.innerHTML = `
     <div class="landing-wrap">
       <div class="landing-scene">
-        <div class="landing-waves"></div>
-        <svg class="landing-boat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <svg viewBox="0 0 200 20" style="position:absolute;bottom:30px;left:0;width:200%;height:16px;animation:startup-wave-left 3.6s linear infinite;">
+          <path d="M0,10 Q12.5,3 25,10 T50,10 T75,10 T100,10 T125,10 T150,10 T175,10 T200,10" stroke="rgba(63,199,154,0.55)" stroke-width="2" fill="none"/>
+        </svg>
+        <svg viewBox="0 0 200 20" style="position:absolute;bottom:16px;left:0;width:200%;height:16px;animation:startup-wave-right 4.8s linear infinite;">
+          <path d="M0,10 Q12.5,17 25,10 T50,10 T75,10 T100,10 T125,10 T150,10 T175,10 T200,10" stroke="rgba(64,217,192,0.45)" stroke-width="2" fill="none"/>
+        </svg>
+        <svg class="landing-boat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="left:50%;margin-left:-28px;animation:startup-bob 2.2s ease-in-out infinite;">
           <path d="M3 17l1.5-6h15L21 17"/><path d="M5 17v2a1 1 0 001 1h12a1 1 0 001-1v-2"/><path d="M12 3v8"/><path d="M8 6l4-3 4 3"/>
         </svg>
       </div>
