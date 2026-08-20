@@ -193,7 +193,7 @@
     display:flex;align-items:center;justify-content:center;flex-shrink:0;
     box-shadow:0 2px 0 rgba(0,0,0,0.25);
   }
-  .brand-mark svg{width:22px;height:22px;stroke:var(--navy-deep); animation: brand-roll 2.4s linear infinite; transform-origin: 50% 50%;}
+  .brand-mark svg{width:55%;height:55%;stroke:var(--navy-deep); animation: brand-roll 2.4s linear infinite; transform-origin: 50% 50%;}
   /* Two pro crown badges, only one ever visible at a time:
      -- #pro-badge (.pro-badge-inline) sits beside the app name, same as
         any other header icon. This is the default everywhere: desktop,
@@ -220,19 +220,19 @@
   }
   .pro-badge-inline svg{ display:block;width:100%;height:100%; }
   .pro-corner-badge{
-    position:absolute;top:-4px;right:-4px;width:17px;height:17px;
+    position:absolute;top:-3px;right:-3px;width:13px;height:13px;
     border-radius:50%;
     background:var(--navy-deep);
-    border:1.5px solid rgba(244,249,255,0.9);
+    border:1.25px solid rgba(244,249,255,0.9);
     display:flex;align-items:center;justify-content:center;
-    box-shadow:0 1px 3px rgba(0,0,0,0.3);
+    box-shadow:0 1px 2px rgba(0,0,0,0.3);
     pointer-events:none;
     opacity:0;
     transition:opacity 0.45s ease-in-out;
   }
-  .pro-corner-badge svg{ display:block;width:10px;height:10px;color:#F4F9FF; }
+  #pro-badge-corner svg{ display:block;width:7px;height:7px;color:#F4F9FF; }
   html[lang="dv"] .pro-corner-badge{
-    right:auto;left:-4px;
+    right:auto;left:-3px;
   }
   @keyframes brand-roll{
     0%{ transform: rotate(0deg); }
@@ -1455,7 +1455,7 @@ body.admin-mode{
     <div class="brand">
       <div class="brand-mark" id="brand-logo-btn" role="button" tabindex="0" style="cursor:pointer;" title="Refresh">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l1.5-6h15L21 17"/><path d="M5 17v2a1 1 0 001 1h12a1 1 0 001-1v-2"/><path d="M12 3v8"/><path d="M8 6l4-3 4 3"/></svg>
-        <span id="pro-badge-corner" class="pro-corner-badge" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8l4 4 5-7 5 7 4-4-2 10H5L3 8z"/></svg></span>
+        <span id="pro-badge-corner" class="pro-corner-badge" style="display:none;"><svg viewBox="0 0 24 20" fill="currentColor"><path d="M3 14 L3 7 L7.5 11 L12 3 L16.5 11 L21 7 L21 14 L21 16.5 Q21 17 20.5 17 L3.5 17 Q3 17 3 16.5 Z"/><circle cx="3" cy="7" r="1.6"/><circle cx="12" cy="3" r="1.8"/><circle cx="21" cy="7" r="1.6"/></svg></span>
       </div>
       <div>
         <div class="brand-name-wrap">
