@@ -220,7 +220,7 @@
   }
   .pro-badge-inline svg{ display:block;width:100%;height:100%; }
   .pro-corner-badge{
-    position:absolute;top:-3px;right:-3px;width:13px;height:13px;
+    position:absolute;top:-6px;right:-6px;width:13px;height:13px;
     border-radius:50%;
     background:var(--navy-deep);
     border:1.25px solid rgba(244,249,255,0.9);
@@ -230,9 +230,17 @@
     opacity:0;
     transition:opacity 0.45s ease-in-out;
   }
-  #pro-badge-corner svg{ display:block;width:7px;height:7px;color:#F4F9FF; }
+  /* animation:none is required here, not just cosmetic -- .brand-mark
+     svg (a broad descendant selector) also matches this crown, since
+     it's nested inside .brand-mark too. The ID selector below already
+     wins on the properties it declares, but it wasn't declaring
+     `animation` at all, so that one property fell through to
+     .brand-mark svg's spin animation regardless of specificity --
+     each CSS property resolves independently, a more specific selector
+     only overrides properties it actually sets. */
+  #pro-badge-corner svg{ display:block;width:7px;height:7px;color:#F4F9FF;animation:none; }
   html[lang="dv"] .pro-corner-badge{
-    right:auto;left:-3px;
+    right:auto;left:-6px;
   }
   @keyframes brand-roll{
     0%{ transform: rotate(0deg); }
@@ -13693,6 +13701,28 @@ function repositionOpenPickers(){
 document.getElementById('panel')?.addEventListener('scroll', repositionOpenPickers, { passive: true });
 document.getElementById('gate-area')?.addEventListener('scroll', repositionOpenPickers, { passive: true });
 window.addEventListener('scroll', repositionOpenPickers, { passive: true });
+
+// iOS Safari's elastic bounce/rubber-band effect can still visually pan
+// the whole viewport on a touch-drag even with overflow:hidden set on
+// html/body/.shell (see the mobile media query above) -- that bounce is
+// a viewport-level effect the OS applies, not something purely governed
+// by CSS overflow, so it needed its own guard. This lets a drag that
+// starts inside any genuinely scrollable element (.panel, #gate-area, or
+// any open popup/dropdown menu with its own overflow-y:auto and content
+// taller than its box) scroll normally, and blocks everything else --
+// a drag starting on the header, the bottom nav, or plain background --
+// which is what used to read as "the background is still scrollable".
+document.addEventListener('touchmove', (e) => {
+  let el = e.target;
+  while(el && el !== document.body){
+    const style = window.getComputedStyle(el);
+    if((style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight){
+      return;
+    }
+    el = el.parentElement;
+  }
+  e.preventDefault();
+}, { passive: false });
 
 applyLangDirection();
 applyStaticTranslations();
