@@ -4738,25 +4738,27 @@ function renderInvoiceListPopupContent(title, invoiceList){
   const summaryLabel = title === 'Paid Invoices' ? 'total collected' : (title === 'Unpaid Invoices' ? 'total owing' : 'total value');
   const noun = title.toLowerCase().includes('shipment') ? 'shipment' : 'invoice';
 
-  // Group by origin -> destination route so a long list is scannable at a
-  // glance, rather than one flat scroll -- each route starts collapsed,
-  // since most of the time you're looking for a specific island's
-  // invoices, not browsing everything. Also tracks which trip(s) fed into
-  // each group, so the group header can show when that trip ended.
+  // Group by trip, one heading per trip -- never merge two different
+  // trips under the same heading even when they ran the identical route,
+  // since "Trip ended <date>" on a merged heading previously had to list
+  // multiple dates and made it look like one combined trip rather than
+  // two separate ones. Shipments with no trip reference at all (nothing
+  // to group them by) still bucket together by destination island, same
+  // as before.
   const groups = {};
   const groupOrder = [];
   invoiceList.forEach(s => {
     const trip = state.trips.find(t => t.id === s.tripId);
-    const routeKey = trip ? `${trip.origin} \u2192 ${s.island}` : `To ${s.island}`;
-    if(!groups[routeKey]){ groups[routeKey] = { rows: [], tripIds: new Set() }; groupOrder.push(routeKey); }
-    groups[routeKey].rows.push(s);
-    if(trip) groups[routeKey].tripIds.add(trip.id);
+    const key = trip ? trip.id : `notrip:${s.island}`;
+    const label = trip ? `${trip.origin} \u2192 ${s.island}` : `To ${s.island}`;
+    if(!groups[key]){ groups[key] = { rows: [], tripIds: new Set(), label }; groupOrder.push(key); }
+    groups[key].rows.push(s);
+    if(trip) groups[key].tripIds.add(trip.id);
   });
-  // A route can in principle be fed by more than one trip (the same
-  // origin/destination run on different days) -- so this collects every
-  // distinct finished date among that group's trips rather than assuming
-  // just one. Trips still in progress (not yet finished) contribute
-  // nothing here, since they don't have an end date yet.
+  // Each group now maps to at most one trip, so this just reads that
+  // trip's own end date -- kept as a set-based lookup (rather than a
+  // single tripId field) so the no-trip fallback groups above, and any
+  // future case with more than one feeding trip, still work unchanged.
   const tripEndedLabel = (tripIds) => {
     const dates = [...tripIds]
       .map(id => state.trips.find(t => t.id === id))
@@ -4764,13 +4766,11 @@ function renderInvoiceListPopupContent(title, invoiceList){
       .map(trip => fmtDate(trip.finishedAt));
     return [...new Set(dates)].join(', ');
   };
-  // Most recent trip first -- rather than the order routes happened to
+  // Most recent trip first -- rather than the order trips happened to
   // first appear while looping through shipments (effectively oldest
   // first, since shipments are appended in creation order). A group with
-  // more than one feeding trip sorts by whichever of those trips finished
-  // most recently; a group with no finished trip at all (still in
-  // progress) sorts to the top, since "not finished yet" is the newest
-  // possible state.
+  // no finished trip at all (still in progress) sorts to the top, since
+  // "not finished yet" is the newest possible state.
   const groupLatestFinish = (tripIds) => {
     const finishedTimes = [...tripIds]
       .map(id => state.trips.find(t => t.id === id))
@@ -4802,9 +4802,9 @@ function renderInvoiceListPopupContent(title, invoiceList){
       <button type="button" class="btn btn-ghost" id="invoice-list-popup-close-btn" style="padding:8px 14px;">\u2715</button>
     </div>
     <p class="sub" style="margin-bottom:14px;">${invoiceList.length} ${noun}${invoiceList.length===1?'':'s'} \u00b7 ${fmtMoney(total)} ${summaryLabel}</p>
-    <div style="display:flex;flex-direction:column;gap:10px;">
-      ${groupOrder.map(routeKey => {
-        const group = groups[routeKey];
+    <div class="invoice-groups-scroll" style="display:flex;flex-direction:column;gap:10px;max-height:500px;overflow-y:auto;">
+      ${groupOrder.map(key => {
+        const group = groups[key];
         const rows = group.rows;
         const groupTotal = rows.reduce((sum,s) => sum + (s.total||0), 0);
         const endedLabel = tripEndedLabel(group.tripIds);
@@ -4812,7 +4812,7 @@ function renderInvoiceListPopupContent(title, invoiceList){
           <details class="items-details" style="border-top:none;padding-top:0;">
             <summary style="display:flex;justify-content:space-between;align-items:flex-start;font-size:calc(13px * var(--en-scale));padding:8px 0;">
               <span>
-                <span style="display:block;">${escapeHtml(routeKey)} <span class="tag-meta" style="font-weight:400;">(${rows.length})</span></span>
+                <span style="display:block;">${escapeHtml(group.label)} <span class="tag-meta" style="font-weight:400;">(${rows.length})</span></span>
                 ${endedLabel ? `<span class="tag-meta" style="display:block;font-weight:400;margin-top:2px;">${t('Trip ended')} ${endedLabel}</span>` : ''}
               </span>
               <span class="rprice">${fmtMoney(groupTotal)}</span>
